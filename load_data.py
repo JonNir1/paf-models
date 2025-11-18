@@ -64,7 +64,7 @@ def load_as_design_matrix(
     location_prev_target = pd.DataFrame(location_prev_target).rename(columns=lambda l: f"loc{l}_prev_target")
     # TODO: use cue & prev-target to compute `attention_gain` map
     # additional columns
-    onset = (data["saccade_onset"].astype(float) / 1000).rename("onset")        # convert to seconds for HSSM
+    rt = (data["saccade_onset"].astype(float) / 1000).rename("rt")              # convert to seconds for HSSM
     response = (data["saccade_location"].astype(int) - 1).rename("response")    # HSSM requires 0-indexed responses
     search_difficulty = data["search_difficulty"].map({
         et.SearchDifficultyTypeEnum.EASY: 0,
@@ -74,7 +74,7 @@ def load_as_design_matrix(
     # combine all
     identifiers = data[["experiment", "subject", "block", "trial_in_block", "trial"]]
     design_matrix = pd.concat(
-        [identifiers, onset, response, search_difficulty, location_distractors, location_cue, location_prev_target],
+        [identifiers, rt, response, search_difficulty, location_distractors, location_cue, location_prev_target],
         axis=1
     )
     return design_matrix
