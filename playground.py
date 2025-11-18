@@ -8,8 +8,8 @@ import pylater
 import pyddm as ddm
 
 import enum_types as et
-from load_data import load_and_prepare_experiments
+from load_data import load_as_design_matrix
 
 
-data = load_and_prepare_experiments(min_condition_size=0, allow_target_repeats=False, verbose=True)
+data = load_as_design_matrix(min_condition_size=0, allow_target_repeats=False, verbose=True)
 

@@ -1,6 +1,7 @@
 import os
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 import enum_types as et
@@ -39,6 +40,44 @@ _COLUMNS = {
     # "cueatprev": "is_cue_at_prev_target",   # is cue in the same location as previous target (exp1 only)
     "ReplocCue": "is_cue_at_prev_target",  # is cue in the same location as previous target (exp1 & exp2)
 }
+
+
+def load_as_design_matrix(
+        data_dir=DATA_DIR, min_condition_size: int = 0, allow_target_repeats: bool = True, verbose: bool = False,
+):
+    data = load_and_prepare_experiments(
+        data_dir, min_condition_size, allow_target_repeats, verbose,
+    )
+    # distractor map
+    location_distractors = (
+        pd.DataFrame(data["location_distractor_map"].tolist())
+        .rename(columns=lambda l: f"loc{l}_distractor")
+    )
+    # location map
+    location_cue = np.zeros_like(location_distractors, dtype=int)
+    location_cue[data["cue_location"].index.values, data["cue_location"].values - 1] = 1
+    location_cue = np.maximum(location_cue, location_cue * data["cue_size"].values[:, np.newaxis])
+    location_cue = pd.DataFrame(location_cue).rename(columns=lambda l: f"loc{l}_cue")
+    # previous target location map
+    location_prev_target = np.zeros_like(location_distractors, dtype=int)
+    location_prev_target[data["prev_target_location"].index.values, data["prev_target_location"].values - 1] = 1
+    location_prev_target = pd.DataFrame(location_prev_target).rename(columns=lambda l: f"loc{l}_prev_target")
+    # TODO: use cue & prev-target to compute `attention_gain` map
+    # additional columns
+    rt = data["saccade_onset"].astype(float) / 1000         # convert to seconds for HSSM
+    response = data["saccade_location"].astype(int) - 1     # HSSM requires 0-indexed responses
+    search_difficulty = data["search_difficulty"].map({
+        et.SearchDifficultyTypeEnum.EASY: 0,
+        et.SearchDifficultyTypeEnum.MIXED: 1,
+        et.SearchDifficultyTypeEnum.DIFFICULT: 2,
+    }).astype(int)
+    # combine all
+    identifiers = data[["experiment", "subject", "block", "trial_in_block", "trial"]]
+    design_matrix = pd.concat(
+        [identifiers, rt, response, search_difficulty, location_distractors, location_cue, location_prev_target],
+        axis=1
+    )
+    return design_matrix
 
 
 def load_and_prepare_experiments(
