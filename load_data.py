@@ -124,7 +124,7 @@ def load_experiment(exp_id: Literal[1, 2], data_dir: str = DATA_DIR) -> pd.DataF
             target_location=lambda df: df["target_location"].map(et.LocationTypeEnum),
             cue_location=lambda df: df["cue_location"].map(et.LocationTypeEnum),
             is_valid_cue=lambda df: df["target_location"] == df["cue_location"],
-            cue_size=lambda df: df["cue_size"].map(et.CueSizeTypeEnum) if "cue_size" in df.columns else et.CueSizeTypeEnum.UNKNOWN,
+            cue_size=lambda df: df["cue_size"].map(et.CueSizeTypeEnum) if "cue_size" in df.columns else et.CueSizeTypeEnum.SMALL,
             location_distractor_map=lambda df: (
                 df
                 .loc[:, [col for col in df.columns if col.startswith("shapes_types_vec_")]]
