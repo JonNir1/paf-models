@@ -29,6 +29,7 @@ _COLUMNS = {
     "fixation_location_fix2": "saccade_location",
     "distractor_type_fix2": "saccade_distractor_type",
     "first_fix_speed": "is_early_saccade",
+    "saccade_cue": "saccade_cue",
 
     "RespRT": "response_time",
     "RespAC": "is_correct",
@@ -138,8 +139,10 @@ def load_experiment(exp_id: Literal[1, 2], data_dir: str = DATA_DIR) -> pd.DataF
                 lambda val: et.LocationTypeEnum(int(val)) if not pd.isna(val) else et.LocationTypeEnum.UNKNOWN
             ),
             saccade_distractor_type=lambda df: df["saccade_distractor_type"].map(
-                lambda val: et.DistractorTypeEnum(int(val)) if not pd.isna(val) else et.DistractorTypeEnum.UNKNOWN
+                lambda val: et.DistractorTypeEnum(int(val)).name if not pd.isna(val) else et.DistractorTypeEnum.UNKNOWN.name
             ),
+            # saccade cue is 0 if the saccade location wasn't cued, otherwise it is the cue size
+            saccade_cue=lambda df: df["cue_size"].where(df["cue_location"] == df["saccade_location"], 0),
             is_early_saccade=lambda df: df["is_early_saccade"].map({"fast": True, "slow": False}),
 
             prev_target_location=lambda df: df["prev_target_location"].map(et.LocationTypeEnum),
