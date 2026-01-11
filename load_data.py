@@ -43,18 +43,34 @@ _COLUMNS = {
 }
 
 
-def load_as_design_matrix(
+def load_as_hssm_design_matrix(
         data_dir=DATA_DIR, min_condition_size: int = 0, allow_target_repeats: bool = True, verbose: bool = False,
 ):
+    """
+    Loads the data from both experiments and prepares it as a design matrix for modeling with HSSM, where factors are
+    represented as integer columns.
+
+    :param data_dir: Directory where the experiment data is stored.
+    :param min_condition_size: Minimum number of trials per condition (experiment x subject x is_early_saccade) to be
+        included in the dataset.
+    :param allow_target_repeats: If False, removes trials where the target location is the same as in the previous trial.
+    :param verbose: If True, prints information about the loading and filtering process.
+
+    :return: A pandas DataFrame representing the design matrix suitable for HSSM modeling:
+        column `rt`: saccade latency in seconds
+        column `response`: 0-indexed saccade target location (1=top-right, 2=top-left, 3=bottom-left, 4=bottom-right)
+        columns `loc0_distractor`, `loc1_distractor`, ... - distractor type at each location (1=target, 2=hard, 3=easy)
+        columns `loc0_cue`, `loc1_cue`, ... - cue size at each location (0=no cue, 1=small, 2=large)
+    """
     data = load_and_prepare_experiments(
         data_dir, min_condition_size, allow_target_repeats, verbose,
     )
-    # distractor map
+    # distractor location map
     location_distractors = (
         pd.DataFrame(data["location_distractor_map"].tolist())
         .rename(columns=lambda l: f"loc{l-1}_distractor")
     )
-    # location map
+    # cue location map
     location_cue = np.zeros_like(location_distractors, dtype=int)
     location_cue[data["cue_location"].index.values, data["cue_location"].values - 1] = 1
     location_cue = np.maximum(location_cue, location_cue * data["cue_size"].values[:, np.newaxis])
