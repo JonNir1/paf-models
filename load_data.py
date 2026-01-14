@@ -43,6 +43,63 @@ _COLUMNS = {
 }
 
 
+def load_as_emc2_design_matrix(
+        data_dir=DATA_DIR, verbose: bool = False,
+) -> pd.DataFrame:
+    """
+    Load the raw data and convert it to a WIDE design matrix where each row is a trial and columns represent factors
+    within the trial (e.g. distractor in each location). This is suitable for plugging into the R package `EMC2`, used
+    for modelling decision-making and response times.
+    """
+    data = load_and_prepare_experiments(data_dir, 0, True, verbose,)
+    rt = (  # saccade latency following EMC2 convention: named `rt` and in seconds
+        data["saccade_onset"]
+        .astype(float)
+        .rename("rt") / 1000
+    )
+    response = (
+        # saccade target following EMC2 convention: named `R` and using string labels
+        data["saccade_location"]
+        .map(lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN")
+        .rename("R")
+    )
+    location_distractors = (
+        # distractor (TARGET/HARD/EASY) in each location with columns named `distractor_<LOCATION>`
+        pd.DataFrame(data["location_distractor_map"].tolist())
+        .map(lambda val: et.DistractorTypeEnum(int(val)).name if not pd.isna(val) else "UNKNOWN")
+        .rename(columns=lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN")
+        .rename(columns=lambda loc_name: f"distractor_{loc_name}")
+    )
+    location_cuesize = (
+        # cue size (NO_CUE/SMALL/LARGE) in each location with columns named `cuesize_<LOCATION>`
+        pd.get_dummies(data["cue_location"])
+        .astype(int)
+        .mul(data["cue_size"], axis=0)
+        .map(lambda val: et.CueSizeTypeEnum(int(val)).name if not pd.isna(val) else "UNKNOWN")
+        .rename(columns=lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN")
+        .rename(columns=lambda loc_name: f"cuesize_{loc_name}")
+    )
+    location_prev_target = (
+        # previous target location (True/False) with columns named `prev_target_<LOCATION>`
+        pd.get_dummies(data["prev_target_location"])
+        .rename(columns=lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN")
+        .rename(columns=lambda loc_name: f"prev_target_{loc_name}")
+    )
+    # TODO: use cue & prev-target to compute `attention_gain` map
+    # concatenate all relevant columns
+    metadata_cols = ["experiment", "subject", "block", "trial_in_block", "trial"]
+    design_matrix = (
+        pd.concat([
+            data[metadata_cols], rt, response,
+            location_distractors, location_cuesize, location_prev_target,
+            data[["prev_target_location", "is_target_repeated", "is_cue_at_prev_target"]],
+        ], axis=1,)
+        .sort_values(by=metadata_cols)
+        .reset_index(drop=True)
+    )
+    return design_matrix
+
+
 def load_as_hssm_design_matrix(
         data_dir=DATA_DIR, min_condition_size: int = 0, allow_target_repeats: bool = True, verbose: bool = False,
 ):
