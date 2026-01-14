@@ -75,7 +75,7 @@ def load_as_emc2_design_matrix(
         pd.get_dummies(data["cue_location"])
         .astype(int)
         .mul(data["cue_size"], axis=0)
-        .map(lambda val: et.CueSizeTypeEnum(int(val)).name if not pd.isna(val) else "UNKNOWN")
+        .map(lambda val: et.CueSizeTypeEnum(int(val)).name if val else "NONE")
         .rename(columns=lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN")
         .rename(columns=lambda loc_name: f"cuesize_{loc_name}")
     )
@@ -85,14 +85,18 @@ def load_as_emc2_design_matrix(
         .rename(columns=lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN")
         .rename(columns=lambda loc_name: f"prev_target_{loc_name}")
     )
+    location_prev_target_series = data["prev_target_location"].map(
+        # also include previous target location as a single column
+        lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN"
+    )
     # TODO: use cue & prev-target to compute `attention_gain` map
     # concatenate all relevant columns
     metadata_cols = ["experiment", "subject", "block", "trial_in_block", "trial"]
     design_matrix = (
         pd.concat([
             data[metadata_cols], rt, response,
-            location_distractors, location_cuesize, location_prev_target,
-            data[["prev_target_location", "is_target_repeated", "is_cue_at_prev_target"]],
+            location_distractors, location_cuesize, location_prev_target, location_prev_target_series,
+            data[["is_target_repeated", "is_cue_at_prev_target"]],
         ], axis=1,)
         .sort_values(by=metadata_cols)
         .reset_index(drop=True)
