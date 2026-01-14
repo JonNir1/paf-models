@@ -4,9 +4,9 @@ from enum import IntEnum, StrEnum
 class LocationTypeEnum(IntEnum):
     UNKNOWN = 0
     UPPER_RIGHT = 1
-    LOWER_RIGHT = 2
+    UPPER_LEFT = 2
     LOWER_LEFT = 3
-    UPPER_LEFT = 4
+    LOWER_RIGHT = 4
     CENTRAL_CROSS = 5
 
 
