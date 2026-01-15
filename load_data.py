@@ -63,6 +63,7 @@ def load_as_emc2_design_matrix(
         .map(lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN")
         .rename("R")
     )
+    difficulty = data["search_difficulty"].map(lambda diff: diff.name.upper())
     location_distractors = (
         # distractor (TARGET/HARD/EASY) in each location with columns named `distractor_<LOCATION>`
         pd.DataFrame(data["location_distractor_map"].tolist())
@@ -94,12 +95,13 @@ def load_as_emc2_design_matrix(
     metadata_cols = ["experiment", "subject", "block", "trial_in_block", "trial"]
     design_matrix = (
         pd.concat([
-            data[metadata_cols], rt, response,
+            data[metadata_cols], rt, response, difficulty,
             location_distractors, location_cuesize, location_prev_target, location_prev_target_series,
             data[["is_target_repeated", "is_cue_at_prev_target"]],
         ], axis=1,)
         .sort_values(by=metadata_cols)
         .reset_index(drop=True)
+        .rename(columns={"subject": "subjects", "trial": "trials"})    # EMC2 expects these columns in plural
     )
     return design_matrix
 
