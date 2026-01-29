@@ -43,13 +43,63 @@ _COLUMNS = {
 }
 
 
-def load_as_emc2_design_matrix(
+def load_as_emc2_design_matrix_long(data_dir=DATA_DIR, verbose: bool = False,) -> pd.DataFrame:
+    """
+    Load the raw data and convert it to a LONG design matrix where each row is a location within a trial. This is
+    suitable for plugging into the R package `EMC2`, used for modelling decision-making and response times.
+    """
+    data = load_and_prepare_experiments(data_dir, 0, True, verbose)
+
+    locations = [1, 2, 3, 4]
+    df_long = pd.concat([data.assign(lR=loc) for loc in locations], ignore_index=True)
+
+    # conform to EMC2-expected column names
+    df_long = df_long.rename(columns={"subject": "subjects", "trial": "trials"})
+    df_long['rt'] = df_long['saccade_onset'].astype(float) / 1000.0  # EMC2 expects seconds
+    df_long['R'] = df_long['saccade_location'].map(
+        lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN"
+    )
+    df_long["search_difficulty"] = df_long["search_difficulty"].map(lambda diff: diff.name.upper())
+
+    # extract the distractor type at the location specified by lR
+    df_long['distractor'] = (
+        df_long
+        .apply(lambda x: x['location_distractor_map'].get(int(x['lR'])), axis=1)
+        .map(lambda val: et.DistractorTypeEnum(int(val)).name if not pd.isna(val) else "UNKNOWN")
+    )
+
+    # create the `cuesize` column (0-not cued, 1-small, 2-large)
+    df_long['cuesize'] = "NONE"
+    cued_mask = df_long['lR'].astype(int) == df_long['cue_location']
+    df_long.loc[cued_mask, 'cuesize'] = df_long['cue_size'].map(
+        lambda size: et.CueSizeTypeEnum(int(size)).name if not pd.isna(size) else "UNKNOWN"
+    )
+
+    # create the `isPrevTarget` & 'is_target_repeated' columns (True/False)
+    df_long['isPrevTarget'] = df_long['lR'].astype(int) == df_long['prev_target_location']
+
+    # keep only relevant columns and sort
+    keep_cols = [
+        'experiment', 'subjects', 'block', 'trial_in_block', 'trials',
+        'search_difficulty', 'rt', 'R', 'lR', 'distractor', 'cuesize',
+        'isPrevTarget', "is_target_repeated", "is_cue_at_prev_target"
+    ]
+    df_long = df_long[keep_cols].sort_values(['experiment', 'subjects', 'trials', 'lR']).reset_index(drop=True)
+
+    # convert the lR column to match EMC2 requirements (lR is a string Factor in R)
+    df_long['lR'] = df_long['lR'].map(
+        lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN"
+    )
+    return df_long
+
+
+def load_as_emc2_design_matrix_wide(
         data_dir=DATA_DIR, verbose: bool = False,
 ) -> pd.DataFrame:
     """
     Load the raw data and convert it to a WIDE design matrix where each row is a trial and columns represent factors
-    within the trial (e.g. distractor in each location). This is suitable for plugging into the R package `EMC2`, used
-    for modelling decision-making and response times.
+    within the trial (e.g. distractor in each location).
+    This is NOT suitable for plugging into the R package `EMC2`, used for modelling decision-making and response times.
     """
     data = load_and_prepare_experiments(data_dir, 0, True, verbose,)
     rt = (  # saccade latency following EMC2 convention: named `rt` and in seconds
