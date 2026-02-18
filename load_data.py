@@ -43,6 +43,24 @@ _COLUMNS = {
 }
 
 
+def load_as_emc2_design_matrix_wide2(data_dir=DATA_DIR, verbose: bool = False,) -> pd.DataFrame:
+    data = load_and_prepare_experiments(data_dir, 0, True, verbose)
+    data = data.rename(columns={"subject": "subjects", "trial": "trials"})
+    data['rt'] = data['saccade_onset'].astype(float) / 1000.0  # EMC2 expects seconds
+    data['R'] = data['saccade_location']                # use numeric locations
+    data['S'] = data["location_distractor_map"].map(    # map distractors to a string like "D,T,E,E"
+        lambda d: ",".join([et.DistractorTypeEnum(v).name[0] for _, v in sorted(d.items())])
+    )
+    data["search_difficulty"] = data["search_difficulty"].map(lambda diff: diff.name.upper())
+    data["cue_size"] = data["cue_size"].map(lambda size: et.CueSizeTypeEnum(int(size)).name.upper())
+    data = data[[
+        'experiment', 'subjects', 'block', 'trial_in_block', 'trials',
+        'rt', 'R', 'S', 'search_difficulty', 'target_location', 'cue_location', 'cue_size',
+        'is_target_repeated', 'is_cue_at_prev_target', 'prev_target_location',
+    ]].sort_values(['experiment', 'subjects', 'trials']).reset_index(drop=True)
+    return data
+
+
 def load_as_emc2_design_matrix_long(data_dir=DATA_DIR, verbose: bool = False,) -> pd.DataFrame:
     """
     Load the raw data and convert it to a LONG design matrix where each row is a location within a trial. This is
