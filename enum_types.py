@@ -27,7 +27,8 @@ class SearchDifficultyTypeEnum(StrEnum):
 class CueSizeTypeEnum(IntEnum):
     UNKNOWN = 0
     SMALL = 1
-    LARGE = 2
+    MEDIUM = 2
+    LARGE = 3
 
 
 class SideTypeEnum(IntEnum):

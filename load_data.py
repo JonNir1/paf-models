@@ -43,7 +43,7 @@ _COLUMNS = {
 }
 
 
-def load_as_emc2_design_matrix_wide2(data_dir=DATA_DIR, verbose: bool = False,) -> pd.DataFrame:
+def load_as_emc2_design_matrix(data_dir=DATA_DIR, verbose: bool = False,) -> pd.DataFrame:
     data = load_and_prepare_experiments(data_dir, 0, True, verbose)
     data = data.rename(columns={"subject": "subjects", "trial": "trials"})
     data['rt'] = data['saccade_onset'].astype(float) / 1000.0  # EMC2 expects seconds
@@ -59,119 +59,6 @@ def load_as_emc2_design_matrix_wide2(data_dir=DATA_DIR, verbose: bool = False,) 
         'is_target_repeated', 'is_cue_at_prev_target', 'prev_target_location',
     ]].sort_values(['experiment', 'subjects', 'trials']).reset_index(drop=True)
     return data
-
-
-def load_as_emc2_design_matrix_long(data_dir=DATA_DIR, verbose: bool = False,) -> pd.DataFrame:
-    """
-    Load the raw data and convert it to a LONG design matrix where each row is a location within a trial. This is
-    suitable for plugging into the R package `EMC2`, used for modelling decision-making and response times.
-    """
-    data = load_and_prepare_experiments(data_dir, 0, True, verbose)
-
-    locations = [1, 2, 3, 4]
-    df_long = pd.concat([data.assign(lR=loc) for loc in locations], ignore_index=True)
-
-    # conform to EMC2-expected column names
-    df_long = df_long.rename(columns={"subject": "subjects", "trial": "trials"})
-    df_long['rt'] = df_long['saccade_onset'].astype(float) / 1000.0  # EMC2 expects seconds
-    df_long['R'] = df_long['saccade_location'].map(
-        lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN"
-    )
-    df_long["search_difficulty"] = df_long["search_difficulty"].map(lambda diff: diff.name.upper())
-
-    # extract the distractor type at the location specified by lR
-    df_long['distractor'] = (
-        df_long
-        .apply(lambda x: x['location_distractor_map'].get(int(x['lR'])), axis=1)
-        .map(lambda val: et.DistractorTypeEnum(int(val)).name if not pd.isna(val) else "UNKNOWN")
-    )
-
-    # create the `cuesize` column (0-not cued, 1-small, 2-large)
-    df_long['cuesize'] = "NONE"
-    cued_mask = df_long['lR'].astype(int) == df_long['cue_location']
-    df_long.loc[cued_mask, 'cuesize'] = df_long['cue_size'].map(
-        lambda size: et.CueSizeTypeEnum(int(size)).name if not pd.isna(size) else "UNKNOWN"
-    )
-
-    # create the `isPrevTarget` & 'is_target_repeated' columns (True/False)
-    df_long['isPrevTarget'] = df_long['lR'].astype(int) == df_long['prev_target_location']
-
-    # keep only relevant columns and sort
-    keep_cols = [
-        'experiment', 'subjects', 'block', 'trial_in_block', 'trials',
-        'search_difficulty', 'rt', 'R', 'lR', 'distractor', 'cuesize',
-        'isPrevTarget', "is_target_repeated", "is_cue_at_prev_target"
-    ]
-    df_long = df_long[keep_cols].sort_values(['experiment', 'subjects', 'trials', 'lR']).reset_index(drop=True)
-
-    # convert the lR column to match EMC2 requirements (lR is a string Factor in R)
-    df_long['lR'] = df_long['lR'].map(
-        lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN"
-    )
-    return df_long
-
-
-def load_as_emc2_design_matrix_wide(
-        data_dir=DATA_DIR, verbose: bool = False,
-) -> pd.DataFrame:
-    """
-    Load the raw data and convert it to a WIDE design matrix where each row is a trial and columns represent factors
-    within the trial (e.g. distractor in each location).
-    This is NOT suitable for plugging into the R package `EMC2`, used for modelling decision-making and response times.
-    """
-    data = load_and_prepare_experiments(data_dir, 0, True, verbose,)
-    rt = (  # saccade latency following EMC2 convention: named `rt` and in seconds
-        data["saccade_onset"]
-        .astype(float)
-        .rename("rt") / 1000
-    )
-    response = (
-        # saccade target following EMC2 convention: named `R` and using string labels
-        data["saccade_location"]
-        .map(lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN")
-        .rename("R")
-    )
-    difficulty = data["search_difficulty"].map(lambda diff: diff.name.upper())
-    location_distractors = (
-        # distractor (TARGET/HARD/EASY) in each location with columns named `distractor_<LOCATION>`
-        pd.DataFrame(data["location_distractor_map"].tolist())
-        .map(lambda val: et.DistractorTypeEnum(int(val)).name if not pd.isna(val) else "UNKNOWN")
-        .rename(columns=lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN")
-        .rename(columns=lambda loc_name: f"distractor_{loc_name}")
-    )
-    location_cuesize = (
-        # cue size (NO_CUE/SMALL/LARGE) in each location with columns named `cuesize_<LOCATION>`
-        pd.get_dummies(data["cue_location"])
-        .astype(int)
-        .mul(data["cue_size"], axis=0)
-        .map(lambda val: et.CueSizeTypeEnum(int(val)).name if val else "NONE")
-        .rename(columns=lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN")
-        .rename(columns=lambda loc_name: f"cuesize_{loc_name}")
-    )
-    location_prev_target = (
-        # previous target location (True/False) with columns named `prev_target_<LOCATION>`
-        pd.get_dummies(data["prev_target_location"])
-        .rename(columns=lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN")
-        .rename(columns=lambda loc_name: f"prev_target_{loc_name}")
-    )
-    location_prev_target_series = data["prev_target_location"].map(
-        # also include previous target location as a single column
-        lambda loc_idx: et.LocationTypeEnum(int(loc_idx)).name if not pd.isna(loc_idx) else "UNKNOWN"
-    )
-    # TODO: use cue & prev-target to compute `attention_gain` map
-    # concatenate all relevant columns
-    metadata_cols = ["experiment", "subject", "block", "trial_in_block", "trial"]
-    design_matrix = (
-        pd.concat([
-            data[metadata_cols], rt, response, difficulty,
-            location_distractors, location_cuesize, location_prev_target, location_prev_target_series,
-            data[["is_target_repeated", "is_cue_at_prev_target"]],
-        ], axis=1,)
-        .sort_values(by=metadata_cols)
-        .reset_index(drop=True)
-        .rename(columns={"subject": "subjects", "trial": "trials"})    # EMC2 expects these columns in plural
-    )
-    return design_matrix
 
 
 def load_as_hssm_design_matrix(
@@ -264,6 +151,19 @@ def load_experiment(exp_id: Literal[1, 2], data_dir: str = DATA_DIR) -> pd.DataF
         raise FileNotFoundError(f"Data directory not found: {os.path.dirname(path)}")
     if not os.path.exists(path):
         raise FileNotFoundError(f"Data file not found: {path}")
+
+    def _parse_cue_size(experiment_id, df: pd.DataFrame) -> pd.Series:
+        has_col = "cue_size" in df.columns
+        if experiment_id == 1:
+            if has_col:
+                raise ValueError("Unexpected 'cue_size' column in Experiment 1 data.")
+            return pd.Series(et.CueSizeTypeEnum.MEDIUM, index=df.index)
+        if experiment_id == 2:
+            if not has_col:
+                raise ValueError("Missing 'cue_size' column in Experiment 2 data.")
+            return df["cue_size"].map(et.CueSizeTypeEnum)
+        raise AssertionError(f"Invalid experiment ID: {experiment_id}")
+
     data = (
         pd.read_csv(path)
         .rename(columns=_COLUMNS)
@@ -272,7 +172,7 @@ def load_experiment(exp_id: Literal[1, 2], data_dir: str = DATA_DIR) -> pd.DataF
             target_location=lambda df: df["target_location"].map(et.LocationTypeEnum),
             cue_location=lambda df: df["cue_location"].map(et.LocationTypeEnum),
             is_valid_cue=lambda df: df["target_location"] == df["cue_location"],
-            cue_size=lambda df: df["cue_size"].map(et.CueSizeTypeEnum) if "cue_size" in df.columns else et.CueSizeTypeEnum.SMALL,
+            cue_size=lambda df: _parse_cue_size(exp_id, df),
             location_distractor_map=lambda df: (
                 df
                 .loc[:, [col for col in df.columns if col.startswith("shapes_types_vec_")]]
