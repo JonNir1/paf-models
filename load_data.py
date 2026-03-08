@@ -161,7 +161,7 @@ def load_experiment(exp_id: Literal[1, 2], data_dir: str = DATA_DIR) -> pd.DataF
         if experiment_id == 2:
             if not has_col:
                 raise ValueError("Missing 'cue_size' column in Experiment 2 data.")
-            return df["cue_size"].map(et.CueSizeTypeEnum)
+            return df["cue_size"].map({1: et.CueSizeTypeEnum.SMALL, 2: et.CueSizeTypeEnum.LARGE})
         raise AssertionError(f"Invalid experiment ID: {experiment_id}")
 
     data = (
