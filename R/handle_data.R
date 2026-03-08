@@ -28,20 +28,19 @@ load_safe_csv <- function(path) {
   # parse columns as nominal/numeric
   data <- data %>% mutate(
     # apply a strict order over nominal columns:
-    
-    # R = factor(R, levels = c("UPPER_RIGHT", "UPPER_LEFT", "LOWER_LEFT", "LOWER_RIGHT")),
-    # lR = factor(lR, levels = c("UPPER_RIGHT", "UPPER_LEFT", "LOWER_LEFT", "LOWER_RIGHT")),
-    # distractor = factor(distractor, levels=c("TARGET", "EASY", "DIFFICULT")),
     search_difficulty = factor(search_difficulty, levels = c("EASY", "MIXED", "DIFFICULT")),
-    cue_size = factor(cue_size, levels=c("NONE", "SMALL", "LARGE")),
+    cue_size = factor(cue_size, levels=c("NONE", "SMALL", "MEDIUM", "LARGE")),
     
+    # inherit order from numeric columns:
     R=factor(R),
     cue_location = factor(cue_location),
     target_location = factor(target_location),
     prev_target_location=factor(prev_target_location)
     )
-  # case remaining string-typed columns as an alphabetically ordered factor
-  data <- data %>% mutate(across(where(is.character), factor))
+  # case remaining string/bool-typed columns as an alphabetically ordered factor
+  data <- data %>%
+    mutate(across(where(is.character), factor)) %>%
+    mutate(across(where(is.logical), factor))
   return(data)
 }
 

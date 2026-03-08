@@ -8,14 +8,14 @@ RNGkind("L'Ecuyer-CMRG")
 set.seed(123456)
 
 # set model name
-MODEL_NAME <- "lba_distractor_searchdiff_cue"
+MODEL_NAME <- "lba_distractor_searchdiff"
 
 # Set Constants
 # ---------------------
 DATA_FILE <- "data/emc2_design_matrix.csv"
 MIN_SACCADE_CUTOFF <- 0.23
 MAX_SACCADE_CUTOFF <- 1.0
-ALLOW_TARGET_REPEAT <- FALSE
+ALLOW_TARGET_REPEAT <- TRUE
 
 
 # Load Data
@@ -32,9 +32,11 @@ clean_data <- filter_data(
 clean_data <- clean_data %>% 
   select(
     subjects, rt, R, S,
-    cue_location, cue_size,
-    # prev_target_location,
-    # is_cue_at_prev_target,  # we can extract this with a model-function
+    # cue_location, cue_size,
+    # is_target_repeated,
+    
+    # prev_target_location,   # our hypotheses don't care for this variable
+    # is_cue_at_prev_target,  # our hypotheses don't care for this variable
     # target_location,        # we don't really need this column, ever
     )
 clean_data <- as.data.frame(clean_data)
@@ -51,13 +53,15 @@ LBA_design <- design(
   data=clean_data,
   model=LBA,
   functions=list(
+    # IsTargetRepeated=function(df) df$is_target_repeated,  # for naming convension
     DistractorAtLoc=DistractorAtLoc,
-    SearchDifficulty=SearchDifficulty,
-    CueAtLoc=CueAtLoc
+    SearchDifficulty=SearchDifficulty
+    # CueAtLoc=CueAtLoc
     ),
   # contrasts=list(),
   formula=list(
-    v ~ DistractorAtLoc * CueAtLoc,
+    # v ~ DistractorAtLoc * CueAtLoc * IsTargetRepeated,
+    v ~ DistractorAtLoc,
     sv ~ DistractorAtLoc,
     B ~ SearchDifficulty,
     A ~ 1,
@@ -77,14 +81,14 @@ mu_mean <- c(
   v = 2,                        # baseline drift: distractor=Target; cuesize=NONE
   v_DistractorAtLocD = -0.5,    # Hard distractors compete with target
   v_DistractorAtLocE = -1,      # Easy distractors reduce attention but may still get some (so not 0!)
-  v_CueAtLocSMALL = 0.5,        # Small cuesize increases attention, slightly
-  v_CueAtLocLARGE = 1,          # Large cuesize increases attention, more than Small
-  
-  "v_DistractorAtLocD:CueAtLocSMALL" = 0,       # no interaction for Hard distractor × Small cue
-  "v_DistractorAtLocE:CueAtLocSMALL" = 0,       # no interaction for Easy distractor × Small cue
-  "v_DistractorAtLocD:CueAtLocLARGE" = 0.25,    # large gain for interaction Hard distractor × Large cue
-  "v_DistractorAtLocE:CueAtLocLARGE" = 0.1,     # small gain for interaction Easy distractor × Large cue
-  
+  # v_CueAtLocSMALL = 0.5,        # Small cuesize increases attention, slightly
+  # v_CueAtLocLARGE = 1,          # Large cuesize increases attention, more than Small
+  # 
+  # "v_DistractorAtLocD:CueAtLocSMALL" = 0,       # no interaction for Hard distractor × Small cue
+  # "v_DistractorAtLocE:CueAtLocSMALL" = 0,       # no interaction for Easy distractor × Small cue
+  # "v_DistractorAtLocD:CueAtLocLARGE" = 0.25,    # large gain for interaction Hard distractor × Large cue
+  # "v_DistractorAtLocE:CueAtLocLARGE" = 0.1,     # small gain for interaction Easy distractor × Large cue
+  # 
   # sv is in log scale
   sv_DistractorAtLocE = log(1),    # same variability for Target and Easy distractors
   sv_DistractorAtLocD = log(1),    # same variability for Target and Hard distractors
@@ -103,11 +107,11 @@ mu_mean <- c(
 mu_sd <- c(
   v = 1,
   v_DistractorAtLocE = 1, v_DistractorAtLocD = 1,
-  v_CueAtLocSMALL = 1, v_CueAtLocLARGE = 1,
-  "v_DistractorAtLocD:CueAtLocSMALL" = 0.25,
-  "v_DistractorAtLocE:CueAtLocSMALL" = 0.25,
-  "v_DistractorAtLocD:CueAtLocLARGE" = 0.25,
-  "v_DistractorAtLocE:CueAtLocLARGE" = 0.25,
+  # v_CueAtLocSMALL = 1, v_CueAtLocLARGE = 1,
+  # "v_DistractorAtLocD:CueAtLocSMALL" = 0.25,
+  # "v_DistractorAtLocE:CueAtLocSMALL" = 0.25,
+  # "v_DistractorAtLocD:CueAtLocLARGE" = 0.25,
+  # "v_DistractorAtLocE:CueAtLocLARGE" = 0.25,
   
   sv_DistractorAtLocE = 0.5, sv_DistractorAtLocD = 0.5,
   
@@ -124,7 +128,7 @@ LBA_prior <- prior(
   mu_mean=mu_mean,
   mu_sd=mu_sd
 )
-# plot(LBA_prior)
+plot(LBA_prior)
 
 
 # Fit EMC2 Object
@@ -157,7 +161,7 @@ lba_loaded <- readRDS(file_name)
 # Analyze results
 # ---------------------
 # extract parameter values
-credint(LBA_model, selection="mu", digits=2, probs=c(0.025, 0.5, 0.975))
+credint(lba_loaded, selection="mu", digits=2, probs=c(0.025, 0.5, 0.975))
 
 # TODO: add analyses!
 # TODO: plot posterior predictive distributions

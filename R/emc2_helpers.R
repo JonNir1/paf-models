@@ -23,7 +23,7 @@ CueAtLoc <- function(df) {
     cue_size,
     "NONE"
   )
-  res <- factor(res, levels=c("NONE", "SMALL", "LARGE"))
+  res <- factor(res, levels=c("NONE", "SMALL", "MEDIUM", "LARGE"))
   return(res)
 }
 
