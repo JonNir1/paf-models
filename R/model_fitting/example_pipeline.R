@@ -1,7 +1,6 @@
 library(EMC2)
 
-source("R/handle_data.R")
-source("R/emc2_helpers.R")
+source("R/model_fitting/fitting_helpers.R")
 
 # set random seed
 RNGkind("L'Ecuyer-CMRG")
@@ -34,8 +33,8 @@ clean_data <- clean_data %>%
     subjects, rt, R, S,
     # cue_location, cue_size,
     # is_target_repeated,
+    # prev_target_location,
     
-    # prev_target_location,   # our hypotheses don't care for this variable
     # is_cue_at_prev_target,  # our hypotheses don't care for this variable
     # target_location,        # we don't really need this column, ever
     )
@@ -53,16 +52,16 @@ LBA_design <- design(
   data=clean_data,
   model=LBA,
   functions=list(
-    # IsTargetRepeated=function(df) df$is_target_repeated,  # for naming convension
-    DistractorAtLoc=DistractorAtLoc,
+    StimulusAtLoc=StimulusAtLoc,
     SearchDifficulty=SearchDifficulty
     # CueAtLoc=CueAtLoc
+    # PrevTargetAtLoc=PrevTargetAtLoc
     ),
   # contrasts=list(),
   formula=list(
     # v ~ DistractorAtLoc * CueAtLoc * IsTargetRepeated,
-    v ~ DistractorAtLoc,
-    sv ~ DistractorAtLoc,
+    v ~ StimulusAtLoc,
+    sv ~ StimulusAtLoc,
     B ~ SearchDifficulty,
     A ~ 1,
     t0 ~ 1
@@ -79,8 +78,8 @@ mu_mean <- c(
   
   # v (drift rates) is on the real line
   v = 2,                        # baseline drift: distractor=Target; cuesize=NONE
-  v_DistractorAtLocD = -0.5,    # Hard distractors compete with target
-  v_DistractorAtLocE = -1,      # Easy distractors reduce attention but may still get some (so not 0!)
+  v_StimulusAtLocD = -0.5,    # Hard distractors compete with target
+  v_StimulusAtLocE = -1,      # Easy distractors reduce attention but may still get some (so not 0!)
   # v_CueAtLocSMALL = 0.5,        # Small cuesize increases attention, slightly
   # v_CueAtLocLARGE = 1,          # Large cuesize increases attention, more than Small
   # 
@@ -90,8 +89,8 @@ mu_mean <- c(
   # "v_DistractorAtLocE:CueAtLocLARGE" = 0.1,     # small gain for interaction Easy distractor × Large cue
   # 
   # sv is in log scale
-  sv_DistractorAtLocE = log(1),    # same variability for Target and Easy distractors
-  sv_DistractorAtLocD = log(1),    # same variability for Target and Hard distractors
+  sv_StimulusAtLocE = log(1),    # same variability for Target and Easy distractors
+  sv_StimulusAtLocD = log(1),    # same variability for Target and Hard distractors
   
   # B, A, t0 are in log scale
   B = log(1),                              # Baseline caution for SearchDifficulty=="EASY"
@@ -106,14 +105,14 @@ mu_mean <- c(
 # prior uncertainties
 mu_sd <- c(
   v = 1,
-  v_DistractorAtLocE = 1, v_DistractorAtLocD = 1,
+  v_StimulusAtLocE = 1, v_StimulusAtLocD = 1,
   # v_CueAtLocSMALL = 1, v_CueAtLocLARGE = 1,
   # "v_DistractorAtLocD:CueAtLocSMALL" = 0.25,
   # "v_DistractorAtLocE:CueAtLocSMALL" = 0.25,
   # "v_DistractorAtLocD:CueAtLocLARGE" = 0.25,
   # "v_DistractorAtLocE:CueAtLocLARGE" = 0.25,
   
-  sv_DistractorAtLocE = 0.5, sv_DistractorAtLocD = 0.5,
+  sv_StimulusAtLocE = 0.5, sv_StimulusAtLocD = 0.5,
   
   B = 0.3, B_SearchDifficultyMIXED = 0.3, B_SearchDifficultyDIFFICULT = 0.3,
   
@@ -137,14 +136,6 @@ LBA_model <- make_emc(clean_data, design = LBA_design, prior = LBA_prior)
 LBA_model <- fit(LBA_model, cores_for_chains = 8)
 
 
-# Run diagnostics
-# ---------------------
-# check model convergence
-check(LBA_model)
-
-# TODO: add more diagnostics!
-
-
 # Save results to File
 # Note: EMC2 model objects store in memory the prior() and design(), so no need to save those
 # ---------------------
@@ -156,6 +147,14 @@ saveRDS(LBA_model, file_name)
 # Load saved model to verify integrity
 # ---------------------
 lba_loaded <- readRDS(file_name)
+
+
+# Run diagnostics
+# ---------------------
+# check model convergence
+check(lba_loaded)
+
+# TODO: add more diagnostics!
 
 
 # Analyze results
