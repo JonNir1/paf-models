@@ -13,7 +13,6 @@ library(tools)
 library(dplyr)
 
 source("R/config.R")
-source(file.path(CODE_DIR, "helpers.R"))
 
 
 # -------------------------
@@ -257,18 +256,69 @@ log_config_variables <- function(config_path, log_file) {
 
 
 #' log error with stack trace
-log_error <- function(err, log_file) {
-  # capture the full stack trace
+#' @param err An error condition object (from tryCatch)
+#' @param log_file Path to log file
+#' @param context Optional string identifying where the error occurred (e.g., model name)
+log_error <- function(err, log_file, context = "") {
   failed_call <- paste(deparse(conditionCall(err)), collapse = "\n")
   calls <- sys.calls()
-  stack_trace <- paste(lapply(calls, function(x) paste(deparse(x), collapse = "\n")), collapse = "\n  -> ")
-  
-  # log the error
-  err_msg <- sprintf(
-    "FAILED: %s\n  Error Message: %s\n  Immediate Call: %s\n  Full Stack Trace:\n  %s", 
-    script, err$message, failed_call, stack_trace
+  stack_trace <- paste(
+    lapply(calls, function(x) paste(deparse(x), collapse = "\n")),
+    collapse = "\n  -> "
   )
-  log_msg(err_msg, LOG_FILE, console_print = TRUE)
+  err_msg <- sprintf(
+    "FAILED [%s]\n  Error Message: %s\n  Immediate Call: %s\n  Full Stack Trace:\n  %s",
+    context, err$message, failed_call, stack_trace
+  )
+  log_msg(err_msg, log_file, console_print = TRUE)
+}
+
+
+# -------------------------
+# Asymmetric convergence diagnostics
+
+#' Check $mu and $alpha convergence against block-specific Rhat/ESS thresholds.
+#' $sigma2 and $correlation are intentionally NOT checked here - per the within-subject
+#' OOD design they are inferentially irrelevant; report them descriptively post-fit.
+#'
+#' @param model A fitted EMC2 model object
+#' @param max_rhat_mu,min_ess_mu Thresholds for the population mean ($mu) block
+#' @param max_rhat_alpha,min_ess_alpha Thresholds for the subject-level ($alpha) block
+#' @return A list with per-block diagnostics and an overall `converged` boolean
+check_block_convergence <- function(model,
+                                    max_rhat_mu, min_ess_mu,
+                                    max_rhat_alpha, min_ess_alpha) {
+  # Use EMC2::check() to get per-parameter Rhat (row 1) and ESS (row 2) per block.
+  # Silenced via capture.output since check() prints summaries.
+  capture.output(
+    chk <- suppressWarnings(check(
+      model, selection = c("mu", "alpha"), plot_worst = FALSE, digits = 4
+    ))
+  )
+  # mu: single block of group-level means
+  mu_rhat <- chk[["mu"]][["mu"]][1, ]
+  mu_ess  <- chk[["mu"]][["mu"]][2, ]
+  # alpha: one matrix per subject; pool across subjects
+  alpha_rhat <- unlist(lapply(chk$alpha, function(x) x[1, ]))
+  alpha_ess  <- unlist(lapply(chk$alpha, function(x) x[2, ]))
+
+  mu_max_rhat    <- max(mu_rhat,    na.rm = TRUE)
+  mu_min_ess     <- min(mu_ess,     na.rm = TRUE)
+  alpha_max_rhat <- max(alpha_rhat, na.rm = TRUE)
+  alpha_min_ess  <- min(alpha_ess,  na.rm = TRUE)
+
+  mu_converged    <- mu_max_rhat < max_rhat_mu       && mu_min_ess    > min_ess_mu
+  alpha_converged <- alpha_max_rhat < max_rhat_alpha && alpha_min_ess > min_ess_alpha
+
+  return(list(
+    converged       = mu_converged && alpha_converged,
+    mu_converged    = mu_converged,
+    alpha_converged = alpha_converged,
+    mu_max_rhat     = mu_max_rhat,
+    mu_min_ess      = mu_min_ess,
+    alpha_max_rhat  = alpha_max_rhat,
+    alpha_min_ess   = alpha_min_ess
+  ))
 }
 
 

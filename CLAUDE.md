@@ -1,0 +1,132 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+Bayesian hierarchical cognitive modeling of the **PAF (Priority Accumulation Framework)** theory of visual attention, fit to saccade-latency data from two visual-search experiments. Bilingual:
+
+- **Python** ingests and reshapes the raw experimental CSVs into a single EMC2-ready design matrix.
+- **R + `EMC2`** fits a family of hierarchical LBA (Linear Ballistic Accumulator) models and runs model comparison.
+
+## Run from the repo root
+
+Every R `source()` and every Python relative import assumes the **repo root** as the working directory (e.g. `source("R/config.R")` appears inside scripts that themselves live under `R/`). Do not `cd` into a subdirectory before running anything.
+
+## Common commands
+
+There is **no test suite, linter, or build system**. "Verifying" a change means running the relevant script and checking outputs (especially `emc2_models/log.txt`).
+
+Python (data pipeline):
+```
+python load_data.py        # loads + filters Exp1, Exp2 in-memory
+python playground.py       # regenerates data/emc2_design_matrix.csv
+```
+
+R (modeling pipeline; from a fresh R session at repo root):
+```
+Rscript R/model_fitting/fit_initial.R   # full batch: fit model1..model5 for MIN_NUM_SAMPLES iterations
+Rscript R/model_fitting/fit_extend.R    # extend previously-fit models until Rhat/ESS criteria are met
+source("R/model_fitting/examine_model.R")   # inspect a single fitted model
+source("R/analysis/compare_models.R")       # diagnostics + GoF comparison across all 5 models
+```
+
+`fit_extend.R` reads a **hardcoded list of `.rds` filenames** at the top of the file (`model_files <- c("YYMMDD_model1.rds", ...)`). Edit that list before running.
+
+## Data handoff (Python -> R)
+
+The Python and R sides communicate through one file:
+
+1. `load_data.py:46` `load_as_emc2_design_matrix()` reads `data/exp{1,2}/Exp{1,2}_clean.csv`, applies `enum_types.py` mappings, and produces a DataFrame.
+2. `playground.py` writes it to `data/emc2_design_matrix.csv`.
+3. `R/model_fitting/helpers.R:33` `load_safe_csv()` reads that CSV and enforces ordered factors: `search_difficulty` ∈ {EASY < MIXED < DIFFICULT}, `cue_size` ∈ {NONE < SMALL < MEDIUM < LARGE}.
+
+`data/` is **gitignored** (see `.gitignore:2`). A fresh clone has no data; the cleaned CSVs and the design matrix must be supplied locally.
+
+## Architecture
+
+- **`R/config.R`** is the single source of truth for: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), `NUM_CORES = 8`, asymmetric convergence criteria for `fit_extend.R` (`MIN_NUM_SAMPLES = 1000`, `MAX_TRIES = 10`, `STEP_SIZE = 100`, plus per-block `MAX_RHAT_MU`/`MIN_ESS_MU` and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`), every prior (`V_*`, `B_*`, `A_*`, `T0_*`, `SV_*`), and the `CONSTANTS = c(sv = log(1))` identifiability anchor. Changing a prior here propagates to all 5 models.
+- **Output locations** (also from `config.R`):
+  - `MODELS_DIR = "emc2_models"` (repo-root level, *not* inside `Results/`) holds fitted `.rds` files named `YYMMDD_<MODEL_NAME>.rds`.
+  - `LOG_FILE = "emc2_models/log.txt"` is the append-only batch log; each model run is bracketed by timestamped `COMPLETE` / `FAILED` markers.
+  - `RESULTS_DIR = "Results"` holds the comparison RDS files (`model_comparison_diagnostics.rds`, `model_comparison_fit.rds`).
+- **Model family**: five nested LBA variants (`R/model_fitting/model1.R` .. `model5.R`) differing in the formulas for drift rate `v`, threshold `B`, and between-trial variability `sv`. Each script defines `MODEL_NAME` and `build_model(data)`; priors are pulled by name from `R/config.R`. `model1.R:55` is the cleanest template to copy when adding a new variant.
+- **Two-phase fitting**:
+  - `R/model_fitting/fit_initial.R` loads data once, then `tryCatch`-wraps each `modelN.R` in turn and fits each for exactly `MIN_NUM_SAMPLES` (1000) iterations. **A model failing does not abort the batch** - check `log.txt`, not just the R console, to know whether everything finished.
+  - `R/model_fitting/fit_extend.R` resumes previously-fit `.rds` files and extends each until asymmetric per-block convergence on `$mu` and `$alpha` is met (`$sigma2`/`$correlation` intentionally not enforced). The fit-extension logic is a self-contained function (`extend_model()`) so it can be called in parallel: passing an `.rds` filename as a command-line argument runs single-model mode (one process per model on cloud), and each invocation writes to its own per-model log (`emc2_models/log_extend_<name>.txt`) so logs never interleave. With no argument, the script loops sequentially over a hardcoded list. Run order is initial -> extend.
+  - Convergence is checked by `check_block_convergence()` in `R/model_fitting/helpers.R` using `EMC2::check()` to extract per-parameter Rhat and ESS, then applying `MAX_RHAT_MU`/`MIN_ESS_MU` to the `$mu` block and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA` to the pooled `$alpha` block. EMC2's built-in `stop_criteria` is bypassed because it cannot apply different thresholds per block.
+- **Enum to factor bridge**: `enum_types.py` defines the canonical level orderings (`LocationTypeEnum`, `DistractorTypeEnum`, `SearchDifficultyTypeEnum`, `CueSizeTypeEnum`, `SideTypeEnum`). R does **not** import these. Instead, `R/model_fitting/helpers.R` lines 143-221 re-encodes them through closure functions (`StimulusAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`, `SearchDifficulty`) that EMC2's `design()` calls. Adding or renaming a factor level requires changes on **both** sides.
+- **Latest-version lookup**: `R/analysis/compare_models.R:23` `load_model()` parses the `YYMMDD_` prefix and always returns the most recent `.rds` for a given model name.
+
+## Analysis workflow
+
+The research pipeline runs in numbered stages. Steps marked `X.9` (and one `2.4`) are **stop-and-review checkpoints**: Claude must surface diagnostics and prompt a discussion (with PI flagged where noted) rather than auto-proceeding to the next stage. Do not pre-decide outcomes for deferred questions at these checkpoints.
+
+| # | Step | Status |
+|---|---|---|
+| 0a | PAF predictions pre-registered (notes/paper) | DONE |
+| 0b | Pre-hoc exclusion: RT cutoffs (0.23-1.0 s) only; no further subject filter | DONE |
+| 1 | `fit_initial.R`: 1000 samples per model | DONE |
+| 2 | `fit_extend.R` with asymmetric convergence target (see below). Parallel cloud, 4 instances. | NEXT |
+| **2.4** | **Claude-only sanity check**: flag models with severe non-convergence (`$mu` Rhat > 1.1 or ESS < 200). If flagged, ping user before launching 2.5. | |
+| 2.5 | Parameter recovery: 3 sims × 4 models, parallel cloud, post-extend posterior means as ground truth. | |
+| **2.9** | **STOP & REVIEW (with PI)**: combined convergence + recovery review. Decide which models survive. | |
+| 3 | GoF panel: BPIC + PSIS-LOO-CV + WAIC + log-marginal-likelihood (bridge sampling). | |
+| **3.9** | **STOP & REVIEW (with PI)**: Pareto-k diagnostics, primary metric choice, candidate winner(s) or co-winners. | |
+| 4 | PPC for top model(s): per-subject KS + theory-relevant contrasts on exp1+2. | |
+| **4.9** | **STOP & REVIEW**: PPC quality + exp1+2 vs exp3 descriptive comparison (population-shift check). | |
+| 5 | OOD test: within-subject prediction. Use trained `$alpha` to simulate exp3 conditions (incl. all-cue: see mechanism below). Compare to empirical exp3. | |
+| **5.9** | **STOP & REVIEW (with PI)**: define pass/fail rule (deferred until now), interpret results. | |
+| 6 | PPC + OOD for all other accepted models (diagnostic comparison). | |
+| 7 | Identifiability spot-check: max pairwise posterior correlation per accepted model. | |
+| **7.9** | **STOP & REVIEW**: final synthesis. Joint GoF + OOD ranking, write-up plan. | |
+| 8 | Conclude / write up. | |
+
+**Asymmetric convergence target for step 2** (overrides the symmetric defaults in `R/config.R`):
+
+| Block | Rhat | ESS bulk | Notes |
+|---|---|---|---|
+| `$mu` | < 1.05 | > 1000 | Population params used for reporting CIs. |
+| `$alpha` | < 1.1 | > 500 | Subject-level params used for OOD simulation. |
+| `$sigma2` | descriptive only | descriptive only | Not used in prediction under within-subject OOD design. |
+| `$correlation` | descriptive only | descriptive only | Routinely non-convergent in hierarchical LBA; report as known limitation. |
+
+Implementing this requires patching `R/model_fitting/fit_extend.R` so `stop_criteria` is evaluated only on `$mu` + `$alpha` rows of the Rhat/ESS tables, not the full parameter set.
+
+**All-cue prediction mechanism (step 5)**: exp3 introduces a novel "all-cue" condition (the same visual cue shown at all 4 locations simultaneously). The trained LBA model handles this without retraining: set `CueAtLoc=X` on **all 4 accumulators** rather than one cued and three NONE. The additive linear LBA then predicts (a) uniformly faster RTs, (b) no location bias, (c) linear speedup vs. single-cue. Any of these failing in empirical exp3 is informative falsification (attention-splitting, saturation, or non-additive cue combination).
+
+**Deferred decisions** (do NOT pre-decide; resolve at the listed checkpoint):
+- Primary GoF metric when panel disagrees → resolve at 3.9 based on Pareto-k diagnostics.
+- OOD contrast pass/fail rule → resolve at 5.9.
+- `$sigma2` non-convergence acceptance for models 4-5 → resolve at 2.9.
+
+**No forced single winner**: GoF and OOD rankings are reported jointly. The analysis may legitimately conclude with co-winners or with different "best" models for different criteria.
+
+**Compute envelope through step 5** (parallel cloud, spot pricing): ~$200-300, ~3-4 weeks wall-clock.
+
+## Important files
+
+- `R/config.R` - all knobs (priors, RNG, paths, cores)
+- `R/model_fitting/fit_initial.R` - master batch fit
+- `R/model_fitting/fit_extend.R` - resume / extend an existing fit
+- `R/model_fitting/helpers.R` - data load, filter, EMC2 factor closures, logging, `save_model()`
+- `R/model_fitting/model1.R` - canonical template for a model variant
+- `R/analysis/compare_models.R` - diagnostics + GoF tables
+- `load_data.py` - Python loaders and the EMC2 design-matrix builder
+- `enum_types.py` - canonical factor-level orderings
+
+## Gotchas
+
+- Running an R script with the wrong cwd silently fails on the first `source("R/config.R")`. Always start from the repo root.
+- Per-model failures are caught by `tryCatch` in `fit_initial.R` so the batch keeps going. Treat `emc2_models/log.txt` as authoritative for run status, not stdout.
+- `CONSTANTS = c(sv = log(1))` in `config.R` is an **identifiability anchor** for the LBA. Removing or changing it will silently make the model non-identifiable.
+- Dependencies are not pinned in any manifest. Python imports observed: `pandas`, `numpy`, `hssm`, `pymc`, `pytensor`, `pylater`, `pyddm`, `matplotlib`. R: `EMC2`, `dplyr`, `readr`, `tools`.
+- Avoid the em-dash (-) in any text destined for academic outputs; use `-` or en-dash (–) instead. This is a per-user writing rule.
+
+## Legacy / do not modify
+
+Everything in `__exploratory/` is superseded code kept for reference. Do not edit, import from, or treat as patterns for current work. Subdirectories:
+
+- `__exploratory/__do_not_use/` - old raw-data loaders and ad-hoc notebooks.
+- `__exploratory/hssm_models/` - custom-coded HSSM (PyMC) LBA models; superseded by the native LBA implementation in `R::EMC2`.
+- `__exploratory/LATER/` - exploratory notebooks (`check_assumptions.ipynb`, `pooled_results.ipynb`).
