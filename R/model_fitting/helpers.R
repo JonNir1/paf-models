@@ -256,6 +256,22 @@ log_config_variables <- function(config_path, log_file) {
 }
 
 
+#' log error with stack trace
+log_error <- function(err, log_file) {
+  # capture the full stack trace
+  failed_call <- paste(deparse(conditionCall(err)), collapse = "\n")
+  calls <- sys.calls()
+  stack_trace <- paste(lapply(calls, function(x) paste(deparse(x), collapse = "\n")), collapse = "\n  -> ")
+  
+  # log the error
+  err_msg <- sprintf(
+    "FAILED: %s\n  Error Message: %s\n  Immediate Call: %s\n  Full Stack Trace:\n  %s", 
+    script, err$message, failed_call, stack_trace
+  )
+  log_msg(err_msg, LOG_FILE, console_print = TRUE)
+}
+
+
 # -------------------------
 # saving model to RDS
 

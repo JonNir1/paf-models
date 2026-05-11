@@ -1,5 +1,7 @@
 # ==============================================================================
 # --- PAF Project: Master Model-Fitting Script ---
+# This script is used for the initial fitting of the 5 EMC2 models we evaluate
+# against the PAF dataset. Each model is fit to the same dataset over 1k samples
 # ==============================================================================
 
 # Load Core Configurations and Helpers
@@ -84,6 +86,7 @@ for (script in model_files) {
     fitted_model <- fit(  # fit() will run until convergence or max_iter
       current_model,
       cores_for_chains = NUM_CORES,
+      iter=MIN_NUM_SAMPLES,                 # used in prod
       # iter=5, max_tries=2, step_size=10,    # used for testing the pipeline
       )
     
@@ -94,17 +97,7 @@ for (script in model_files) {
     "COMPLETE"
     
   }, error = function(e) {
-    # capture the full stack trace
-    failed_call <- paste(deparse(conditionCall(e)), collapse = "\n")
-    calls <- sys.calls()
-    stack_trace <- paste(lapply(calls, function(x) paste(deparse(x), collapse = "\n")), collapse = "\n  -> ")
-    
-    # log the error
-    err_msg <- sprintf(
-      "FAILED: %s\n  Error Message: %s\n  Immediate Call: %s\n  Full Stack Trace:\n  %s", 
-      script, e$message, failed_call, stack_trace
-    )
-    log_msg(err_msg, LOG_FILE, console_print = TRUE)
+    log_error(e)
     return("ERROR")
   })
   

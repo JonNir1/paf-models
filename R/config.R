@@ -26,6 +26,14 @@ ALLOW_TARGET_REPEAT <- TRUE
 # --- Fitting Params ---
 NUM_CORES <- 8
 
+# criteria for stopping the "sample" stage of model-fitting
+MIN_NUM_SAMPLES <- 1000
+MAX_RHAT <- 1.1
+MIN_ESS <- 400
+
+MAX_TRIES <- 10   # number of times to check if "stop criteria" are met
+STEP_SIZE <- 100  # number of iterations between "stop criteria" checks
+
 
 # ----------------------------
 # --- Prior Specifications ---
