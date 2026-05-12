@@ -16,6 +16,8 @@ DATA_FILE <- file.path(DATA_DIR, "emc2_design_matrix.csv")
 MODELS_DIR <- "emc2_models"
 LOG_FILE <- file.path(MODELS_DIR, "log.txt")
 
+CONFIG_FILE <- file.path(CODE_DIR, "config.R")  # used by log_config_variables()
+
 
 # --- Data Filtering ---
 MIN_SACCADE_CUTOFF <- 0.23

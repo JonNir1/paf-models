@@ -155,6 +155,9 @@ model_log_path <- function(rds_filename, models_dir = MODELS_DIR) {
 # =============================================================================
 # Main script logic
 # =============================================================================
+# Guard so that source()-ing this file only loads function definitions.
+# Main logic runs only when the file is invoked directly via Rscript.
+if (sys.nframe() == 0L) {
 
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -220,3 +223,5 @@ if (length(args) >= 1) {
 
   log_msg("===== BATCH EXTEND SESSION END =====", batch_log, console_print = TRUE)
 }
+
+}  # end if (sys.nframe() == 0L)
