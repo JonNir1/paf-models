@@ -88,18 +88,25 @@ extend_model <- function(rds_filename,
                     try_idx, max_tries, step_size, num_cores),
             log_file, console_print = TRUE)
 
-    # Bypass EMC2's built-in convergence-driven sampling: set stop_criteria
-    # values so that max_gr and min_es are trivially met (1.5 is above any
-    # realistic Rhat; 1 is below any realistic ESS), while iter is reachable
-    # but well above any total we'd hit (1e9). With max_tries = 1 and these
-    # finite values, EMC2 adds exactly `step_size` iterations and returns.
-    # We then evaluate our asymmetric per-block convergence ourselves below.
-    # (Earlier attempt used Inf and max_gr<1.0, which hung run_emc - apparently
-    # those values break its internal bounded loop.)
+    # Add exactly `step_size` iterations per outer-loop try, then evaluate
+    # our asymmetric per-block convergence ourselves below.
+    #
+    # EMC2 internals (verified against EMC2 v3.3.0 source):
+    #   - In run_emc, for stage=="sample" the effective target is
+    #     `iter_target = stop_criteria$iter + current_chain_length`.
+    #     So stop_criteria$iter is an ADDITIVE delta, not an absolute total.
+    #   - check_progress sets done = (es & iter & gd & adapted) | (trys & iter).
+    #     BOTH branches require iter_done. max_tries alone does NOT terminate
+    #     the loop - iter_done must be reachable.
+    # Setting stop_criteria$iter = step_size makes the target exactly
+    # current+step_size, so iter_done flips to TRUE after one pass.
+    # max_gr = 1.5 and min_es = 1 are trivially met (Rhat is always < ~1.2
+    # for sampled models; ESS is always > 1) so es_done and gd_done are TRUE.
+    # max_tries = 1 is a redundant safety bound.
     model <- run_emc(
       model,
       stage             = "sample",
-      stop_criteria     = list(iter = 1e9, max_gr = 1.5, min_es = 1),
+      stop_criteria     = list(iter = step_size, max_gr = 1.5, min_es = 1),
       max_tries         = 1,
       step_size         = step_size,
       cores_for_chains  = num_cores
