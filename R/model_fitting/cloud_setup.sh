@@ -7,8 +7,8 @@
 # installed and credentials configured (via IAM role or `aws configure`).
 #
 # Usage:
-#   ./scripts/cloud_setup.sh setup            # one-time R + EMC2 install
-#   ./scripts/cloud_setup.sh run <rds_name>   # download inputs, run extend, sync
+#   ./R/model_fitting/cloud_setup.sh setup            # one-time R + EMC2 install
+#   ./R/model_fitting/cloud_setup.sh run <rds_name>   # download inputs, run extend, sync
 #
 # Expects the following bucket layout (S3 example; GCS analogous):
 #   s3://$BUCKET/inputs/data/emc2_design_matrix.csv
