@@ -46,6 +46,12 @@ set.seed(RNG_SEED)
 #' @param step_size Iterations added per try
 #' @param max_rhat_mu,min_ess_mu Thresholds for $mu block
 #' @param max_rhat_alpha,min_ess_alpha Thresholds for $alpha block
+#' @param save_every NULL (default) or a positive integer. If set, the model is
+#'        saved after every `save_every` tries as an intermediate checkpoint, in
+#'        addition to the always-executed final save. Useful on spot/preemptible
+#'        cloud instances where the process can be killed mid-fit. Must satisfy
+#'        `save_every <= max_tries` (otherwise no intermediate save would ever
+#'        be written) - this is validated upfront before any heavy computation.
 #' @return A list with the extended model, save path, final diagnostics, and runtime
 extend_model <- function(rds_filename,
                          log_file,
@@ -57,8 +63,24 @@ extend_model <- function(rds_filename,
                          max_rhat_mu      = MAX_RHAT_MU,
                          min_ess_mu       = MIN_ESS_MU,
                          max_rhat_alpha   = MAX_RHAT_ALPHA,
-                         min_ess_alpha    = MIN_ESS_ALPHA) {
+                         min_ess_alpha    = MIN_ESS_ALPHA,
+                         save_every       = NULL) {
   start_time <- Sys.time()
+
+  # Validate save_every BEFORE any heavy work so users learn about a misconfig
+  # within milliseconds, not hours into an MCMC fit.
+  if (!is.null(save_every)) {
+    if (!is.numeric(save_every) || length(save_every) != 1 ||
+        save_every < 1 || save_every != round(save_every)) {
+      stop("save_every must be a positive integer or NULL.")
+    }
+    if (save_every > max_tries) {
+      stop(sprintf(
+        "save_every (%d) > max_tries (%d): no intermediate checkpoint would ever be written. Set save_every <= max_tries.",
+        save_every, max_tries
+      ))
+    }
+  }
 
   # Truncate any prior content - each invocation starts a fresh log
   cat("", file = log_file, append = FALSE)
@@ -128,6 +150,15 @@ extend_model <- function(rds_filename,
       ifelse(cv$alpha_converged, "OK", "WAIT")
     ), log_file, console_print = TRUE)
 
+    # Intermediate checkpoint, if requested. Protects against spot-instance
+    # preemption: if the instance dies after this save, on resume we lose at
+    # most `save_every * step_size` iterations of work.
+    if (!is.null(save_every) && (try_idx %% save_every == 0L)) {
+      saved_path <- save_model(model, ext_model_name, models_dir)
+      log_msg(sprintf("Checkpoint after try %d: %s", try_idx, saved_path),
+              log_file, console_print = TRUE)
+    }
+
     if (cv$converged) {
       converged <- TRUE
       log_msg(sprintf("Converged after %d tries.", try_idx),
@@ -142,7 +173,7 @@ extend_model <- function(rds_filename,
             log_file, console_print = TRUE)
   }
 
-  # --- Save ---
+  # --- Final save (always runs, regardless of save_every) ---
   saved_path <- save_model(model, ext_model_name, models_dir)
   log_msg(
     paste("Saved extended model to:", saved_path),
