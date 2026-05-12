@@ -60,6 +60,9 @@ extend_model <- function(rds_filename,
                          min_ess_alpha    = MIN_ESS_ALPHA) {
   start_time <- Sys.time()
 
+  # Truncate any prior content - each invocation starts a fresh log
+  cat("", file = log_file, append = FALSE)
+
   # --- Load ---
   full_path <- file.path(models_dir, rds_filename)
   log_msg(sprintf("Loading model from %s", full_path), log_file, console_print = TRUE)
@@ -85,9 +88,16 @@ extend_model <- function(rds_filename,
                     try_idx, max_tries, step_size, num_cores),
             log_file, console_print = TRUE)
 
+    # Bypass EMC2's built-in early-stop: set impossible thresholds so the call
+    # always runs to its hard cap (max_tries x step_size = exactly step_size
+    # iterations). We then do our own asymmetric block-level check below.
+    # Rhat is bounded below by 1.0, so max_gr = 0.5 is unattainable;
+    # min_es = Inf and iter = Inf likewise. We provide all three defensively
+    # in case EMC2's logic is "stop when ANY criterion is met".
     model <- run_emc(
       model,
       stage             = "sample",
+      stop_criteria     = list(iter = Inf, max_gr = 0.5, min_es = Inf),
       max_tries         = 1,
       step_size         = step_size,
       cores_for_chains  = num_cores
@@ -125,12 +135,18 @@ extend_model <- function(rds_filename,
 
   # --- Save ---
   saved_path <- save_model(model, ext_model_name, models_dir)
-  log_msg(paste("Saved extended model to:", saved_path),
-          log_file, console_print = TRUE)
+  log_msg(
+    paste("Saved extended model to:", saved_path),
+    log_file,
+    console_print = TRUE
+  )
 
   duration_min <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
-  log_msg(sprintf("Total runtime: %.2f minutes", duration_min),
-          log_file, console_print = TRUE)
+  log_msg(
+    sprintf("Total runtime: %.2f minutes", duration_min),
+    log_file,
+    console_print = TRUE
+  )
 
   return(list(
     model         = model,
@@ -192,6 +208,7 @@ if (length(args) >= 1) {
   )
 
   batch_log <- file.path(MODELS_DIR, "log_extend_batch.txt")
+  cat("", file = batch_log, append = FALSE)  # truncate prior batch log
   log_msg("===== BATCH EXTEND SESSION START =====", batch_log, console_print = TRUE)
   log_config_variables(CONFIG_FILE, batch_log)
   log_msg(sprintf("Models queued: %s", paste(model_files, collapse = ", ")),

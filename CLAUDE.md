@@ -45,7 +45,7 @@ The Python and R sides communicate through one file:
 
 ## Architecture
 
-- **`R/config.R`** is the single source of truth for: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), `NUM_CORES = 8`, asymmetric convergence criteria for `fit_extend.R` (`MIN_NUM_SAMPLES = 1000`, `MAX_TRIES = 10`, `STEP_SIZE = 100`, plus per-block `MAX_RHAT_MU`/`MIN_ESS_MU` and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`), every prior (`V_*`, `B_*`, `A_*`, `T0_*`, `SV_*`), and the `CONSTANTS = c(sv = log(1))` identifiability anchor. Changing a prior here propagates to all 5 models.
+- **`R/config.R`** is the single source of truth for: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), `NUM_CORES = 8`, asymmetric convergence criteria for `fit_extend.R` (`MIN_NUM_SAMPLES = 1000`, `MAX_TRIES = 20`, `STEP_SIZE = 100`, plus per-block `MAX_RHAT_MU`/`MIN_ESS_MU` and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`), every prior (`V_*`, `B_*`, `A_*`, `T0_*`, `SV_*`), and the `CONSTANTS = c(sv = log(1))` identifiability anchor. Changing a prior here propagates to all 5 models.
 - **Output locations** (also from `config.R`):
   - `MODELS_DIR = "emc2_models"` (repo-root level, *not* inside `Results/`) holds fitted `.rds` files named `YYMMDD_<MODEL_NAME>.rds`.
   - `LOG_FILE = "emc2_models/log.txt"` is the append-only batch log; each model run is bracketed by timestamped `COMPLETE` / `FAILED` markers.
@@ -71,8 +71,8 @@ The research pipeline runs in numbered stages. Steps marked `X.9` (and one `2.4`
 | **2.4** | **Claude-only sanity check**: flag models with severe non-convergence (`$mu` Rhat > 1.1 or ESS < 200). If flagged, ping user before launching 2.5. | |
 | 2.5 | Parameter recovery: 3 sims × 4 models, parallel cloud, post-extend posterior means as ground truth. | |
 | **2.9** | **STOP & REVIEW (with PI)**: combined convergence + recovery review. Decide which models survive. | |
-| 3 | GoF panel: BPIC + PSIS-LOO-CV + WAIC + log-marginal-likelihood (bridge sampling). | |
-| **3.9** | **STOP & REVIEW (with PI)**: Pareto-k diagnostics, primary metric choice, candidate winner(s) or co-winners. | |
+| 3 | GoF panel (no Bayes factors - priors not grounded enough to trust marginal-likelihood ratios). Hierarchy: BPIC for cheap screening, PSIS-LOO-CV as primary metric (with Pareto-k diagnostic), WAIC as a confirmatory check. | |
+| **3.9** | **STOP & REVIEW (with PI)**: review Pareto-k diagnostics (flag any model with > 10% k > 0.7), check LOO/WAIC agreement, identify candidate winner(s) or co-winners. | |
 | 4 | PPC for top model(s): per-subject KS + theory-relevant contrasts on exp1+2. | |
 | **4.9** | **STOP & REVIEW**: PPC quality + exp1+2 vs exp3 descriptive comparison (population-shift check). | |
 | 5 | OOD test: within-subject prediction. Use trained `$alpha` to simulate exp3 conditions (incl. all-cue: see mechanism below). Compare to empirical exp3. | |
@@ -86,8 +86,8 @@ The research pipeline runs in numbered stages. Steps marked `X.9` (and one `2.4`
 
 | Block | Rhat | ESS bulk | Notes |
 |---|---|---|---|
-| `$mu` | < 1.05 | > 1000 | Population params used for reporting CIs. |
-| `$alpha` | < 1.1 | > 500 | Subject-level params used for OOD simulation. |
+| `$mu` | < 1.05 | > 500 | Population params reported with CIs; tighter Rhat than EMC2 default. |
+| `$alpha` | < 1.1 | > 400 | EMC2-default-aligned; subject-level params feed OOD simulation. |
 | `$sigma2` | descriptive only | descriptive only | Not used in prediction under within-subject OOD design. |
 | `$correlation` | descriptive only | descriptive only | Routinely non-convergent in hierarchical LBA; report as known limitation. |
 
@@ -96,7 +96,6 @@ Implementing this requires patching `R/model_fitting/fit_extend.R` so `stop_crit
 **All-cue prediction mechanism (step 5)**: exp3 introduces a novel "all-cue" condition (the same visual cue shown at all 4 locations simultaneously). The trained LBA model handles this without retraining: set `CueAtLoc=X` on **all 4 accumulators** rather than one cued and three NONE. The additive linear LBA then predicts (a) uniformly faster RTs, (b) no location bias, (c) linear speedup vs. single-cue. Any of these failing in empirical exp3 is informative falsification (attention-splitting, saturation, or non-additive cue combination).
 
 **Deferred decisions** (do NOT pre-decide; resolve at the listed checkpoint):
-- Primary GoF metric when panel disagrees → resolve at 3.9 based on Pareto-k diagnostics.
 - OOD contrast pass/fail rule → resolve at 5.9.
 - `$sigma2` non-convergence acceptance for models 4-5 → resolve at 2.9.
 

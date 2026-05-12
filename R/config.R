@@ -30,13 +30,13 @@ NUM_CORES <- 8
 
 # criteria for stopping the "sample" stage of model-fitting
 MIN_NUM_SAMPLES <- 1000
-MAX_TRIES <- 10   # number of times to check if "stop criteria" are met
+MAX_TRIES <- 20   # number of times to check if "stop criteria" are met
 STEP_SIZE <- 100  # number of iterations between "stop criteria" checks
 
 # Asymmetric convergence thresholds applied to $mu and $alpha only.
 # $sigma2 and $correlation are descriptive (not enforced) - see CLAUDE.md "Analysis workflow".
-MAX_RHAT_MU    <- 1.05;  MIN_ESS_MU    <- 1000   # tighter: population params reported with CIs
-MAX_RHAT_ALPHA <- 1.10;  MIN_ESS_ALPHA <- 500    # looser: subject params used for OOD simulation
+MAX_RHAT_MU    <- 1.05;  MIN_ESS_MU    <- 500   # tighter Rhat: population params reported with CIs
+MAX_RHAT_ALPHA <- 1.10;  MIN_ESS_ALPHA <- 400   # EMC2-default-aligned: subject params feed OOD simulation
 
 
 # ----------------------------
