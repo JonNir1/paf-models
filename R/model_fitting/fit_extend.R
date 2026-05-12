@@ -101,8 +101,19 @@ extend_model <- function(rds_filename,
   full_path <- file.path(models_dir, rds_filename)
   log_msg(sprintf("Loading model from %s", full_path), log_file, console_print = TRUE)
   model <- readRDS(full_path)
-  orig_model_name <- sub("^[0-9]{6}_", "", tools::file_path_sans_ext(rds_filename))
+  # Strip the leading date prefix and any pre-existing _extended suffix chain
+  # so the save name is idempotent across resume cycles. Examples:
+  #   260421_model1.rds                    -> model1
+  #   260512_model1_extended.rds           -> model1
+  #   260513_model1_extended_extended.rds  -> model1   (legacy double; also healed)
+  orig_model_name <- sub("^[0-9]{6}_",     "", tools::file_path_sans_ext(rds_filename))
+  orig_model_name <- sub("(_extended)+$",  "", orig_model_name)
   ext_model_name  <- paste0(orig_model_name, "_extended")
+
+  # Pin the date prefix at function entry so all intermediate + final saves
+  # land in the SAME file even if the run crosses midnight. Without this, a
+  # long fit produces multiple stale .rds files (one per calendar day).
+  run_date <- format(Sys.Date(), "%y%m%d")
 
   log_msg(sprintf(
     "Extension targets: mu(Rhat<%.2f, ESS>%d) | alpha(Rhat<%.2f, ESS>%d) | step_size=%d | max_tries=%d",
@@ -166,7 +177,8 @@ extend_model <- function(rds_filename,
     # preemption: if the instance dies after this save, on resume we lose at
     # most `save_every * step_size` iterations of work.
     if (!is.null(save_every) && (try_idx %% save_every == 0L)) {
-      saved_path <- save_model(model, ext_model_name, models_dir)
+      saved_path <- save_model(model, ext_model_name, models_dir,
+                               date_prefix = run_date)
       log_msg(sprintf("Checkpoint after try %d: %s", try_idx, saved_path),
               log_file, console_print = TRUE)
       if (!is.null(post_save_hook)) post_save_hook(saved_path, log_file)
@@ -187,7 +199,8 @@ extend_model <- function(rds_filename,
   }
 
   # --- Final save (always runs, regardless of save_every) ---
-  saved_path <- save_model(model, ext_model_name, models_dir)
+  saved_path <- save_model(model, ext_model_name, models_dir,
+                           date_prefix = run_date)
   log_msg(
     paste("Saved extended model to:", saved_path),
     log_file,

@@ -325,15 +325,24 @@ check_block_convergence <- function(model,
 # -------------------------
 # saving model to RDS
 
-#' Save model to the specified directory with the current date and model name
-save_model <- function(model, name, dir_path) {
+#' Save model to the specified directory with a date prefix and the given name.
+#' @param model The fitted EMC2 model object
+#' @param name Model name (used as the non-date portion of the filename)
+#' @param dir_path Output directory
+#' @param date_prefix Optional 6-char YYMMDD string. Defaults to today's date if
+#'   NULL. Pin this at the start of a long-running call (e.g. extend_model) so
+#'   that mid-call saves don't split across two filenames when the run spans
+#'   midnight.
+save_model <- function(model, name, dir_path, date_prefix = NULL) {
   if (!check_valid_string(name)) stop(sprintf("Invalid model name: %s", name))
   if (!check_valid_string(dir_path)) stop(sprintf("Invalid directory path: %s", dir_path))
   if (!dir.exists(dir_path)) {
     dir.create(dir_path, recursive = TRUE)
   }
-  today <- format(Sys.Date(), "%y%m%d")
-  file_name <- paste0(today, "_", name, ".rds")
+  if (is.null(date_prefix)) {
+    date_prefix <- format(Sys.Date(), "%y%m%d")
+  }
+  file_name <- paste0(date_prefix, "_", name, ".rds")
   full_path <- file.path(dir_path, file_name)
   saveRDS(model, full_path)
   return(full_path)
