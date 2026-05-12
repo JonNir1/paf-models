@@ -52,6 +52,14 @@ set.seed(RNG_SEED)
 #'        cloud instances where the process can be killed mid-fit. Must satisfy
 #'        `save_every <= max_tries` (otherwise no intermediate save would ever
 #'        be written) - this is validated upfront before any heavy computation.
+#' @param post_save_hook NULL (default) or a function with signature
+#'        `function(rds_path, log_path)`. Called immediately after every save
+#'        (both intermediate checkpoints and the final save). Both file paths
+#'        are passed so the hook can sync both to durable storage (e.g. S3 or
+#'        GCS). Example: `function(rds, log) for (f in c(rds, log))
+#'        system(paste("aws s3 cp", f, "s3://my-bucket/results/"))`.
+#'        The hook runs synchronously - keep it fast or fire-and-forget the
+#'        upload yourself.
 #' @return A list with the extended model, save path, final diagnostics, and runtime
 extend_model <- function(rds_filename,
                          log_file,
@@ -64,10 +72,11 @@ extend_model <- function(rds_filename,
                          min_ess_mu       = MIN_ESS_MU,
                          max_rhat_alpha   = MAX_RHAT_ALPHA,
                          min_ess_alpha    = MIN_ESS_ALPHA,
-                         save_every       = NULL) {
+                         save_every       = NULL,
+                         post_save_hook   = NULL) {
   start_time <- Sys.time()
 
-  # Validate save_every BEFORE any heavy work so users learn about a misconfig
+  # Validate inputs BEFORE any heavy work so users learn about misconfigs
   # within milliseconds, not hours into an MCMC fit.
   if (!is.null(save_every)) {
     if (!is.numeric(save_every) || length(save_every) != 1 ||
@@ -80,6 +89,9 @@ extend_model <- function(rds_filename,
         save_every, max_tries
       ))
     }
+  }
+  if (!is.null(post_save_hook) && !is.function(post_save_hook)) {
+    stop("post_save_hook must be a function or NULL.")
   }
 
   # Truncate any prior content - each invocation starts a fresh log
@@ -157,6 +169,7 @@ extend_model <- function(rds_filename,
       saved_path <- save_model(model, ext_model_name, models_dir)
       log_msg(sprintf("Checkpoint after try %d: %s", try_idx, saved_path),
               log_file, console_print = TRUE)
+      if (!is.null(post_save_hook)) post_save_hook(saved_path, log_file)
     }
 
     if (cv$converged) {
@@ -180,6 +193,7 @@ extend_model <- function(rds_filename,
     log_file,
     console_print = TRUE
   )
+  if (!is.null(post_save_hook)) post_save_hook(saved_path, log_file)
 
   duration_min <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
   log_msg(
