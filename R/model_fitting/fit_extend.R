@@ -88,16 +88,18 @@ extend_model <- function(rds_filename,
                     try_idx, max_tries, step_size, num_cores),
             log_file, console_print = TRUE)
 
-    # Bypass EMC2's built-in early-stop: set impossible thresholds so the call
-    # always runs to its hard cap (max_tries x step_size = exactly step_size
-    # iterations). We then do our own asymmetric block-level check below.
-    # Rhat is bounded below by 1.0, so max_gr = 0.5 is unattainable;
-    # min_es = Inf and iter = Inf likewise. We provide all three defensively
-    # in case EMC2's logic is "stop when ANY criterion is met".
+    # Bypass EMC2's built-in convergence-driven sampling: set stop_criteria
+    # values so that max_gr and min_es are trivially met (1.5 is above any
+    # realistic Rhat; 1 is below any realistic ESS), while iter is reachable
+    # but well above any total we'd hit (1e9). With max_tries = 1 and these
+    # finite values, EMC2 adds exactly `step_size` iterations and returns.
+    # We then evaluate our asymmetric per-block convergence ourselves below.
+    # (Earlier attempt used Inf and max_gr<1.0, which hung run_emc - apparently
+    # those values break its internal bounded loop.)
     model <- run_emc(
       model,
       stage             = "sample",
-      stop_criteria     = list(iter = Inf, max_gr = 0.5, min_es = Inf),
+      stop_criteria     = list(iter = 1e9, max_gr = 1.5, min_es = 1),
       max_tries         = 1,
       step_size         = step_size,
       cores_for_chains  = num_cores
