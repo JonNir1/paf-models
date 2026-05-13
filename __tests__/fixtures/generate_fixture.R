@@ -61,7 +61,7 @@ for (sub in seq_len(N_SUBJECTS)) {
 
     for (lR in 1:N_ACC) {
       rows[[row_idx]] <- list(
-        sub                  = sub,
+        subjects             = sub,
         rt                   = rt,
         R                    = R,
         S                    = S,

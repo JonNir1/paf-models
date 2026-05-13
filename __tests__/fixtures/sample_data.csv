@@ -1,4 +1,4 @@
-"sub","rt","R","S","lR","cue_location","target_location","prev_target_location","cue_size","search_difficulty","is_target_repeated","experiment"
+"subjects","rt","R","S","lR","cue_location","target_location","prev_target_location","cue_size","search_difficulty","is_target_repeated","experiment"
 1,0.6756,1,"T,E,E,E",1,1,1,1,"NONE","EASY",TRUE,"exp_1"
 1,0.6756,1,"T,E,E,E",2,1,1,1,"NONE","EASY",TRUE,"exp_1"
 1,0.6756,1,"T,E,E,E",3,1,1,1,"NONE","EASY",TRUE,"exp_1"
