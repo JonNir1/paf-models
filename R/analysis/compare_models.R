@@ -15,7 +15,7 @@ source(file.path(CODE_DIR, "analysis", "diagnostics_helpers.R"))
 
 #' helper function to make sure input string are valid
 check_valid_string <- function(s) {
-  !is.null(s) && length(s) > 0 && !is.na(s) && nzchar(s)
+  !is.null(s) && length(s) == 1 && !is.na(s) && nzchar(s)
 }
 
 

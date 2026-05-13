@@ -20,7 +20,7 @@
 library(EMC2)
 
 source("R/config.R")
-source(file.path(CODE_DIR, "model_fitting", "helpers.R"))
+source(file.path(CODE_DIR, "model_fitting", "helpers", "model.R"))
 
 # Setup Global Reproducibility (per-instance; each parallel invocation gets the
 # same seed but operates on a different starting model, so results diverge)
@@ -40,7 +40,6 @@ set.seed(RNG_SEED)
 #'        (e.g. "260421_model1.rds")
 #' @param log_file Path to this invocation's detail log file
 #' @param models_dir Directory containing the .rds and where extended model is saved
-#' @param num_cores Cores for MCMC chains (defaults to NUM_CORES)
 #' @param min_num_samples Minimum total iterations after extension
 #' @param max_tries Maximum extension attempts before bailing without full convergence
 #' @param step_size Iterations added per try
@@ -64,7 +63,6 @@ set.seed(RNG_SEED)
 extend_model <- function(rds_filename,
                          log_file,
                          models_dir       = MODELS_DIR,
-                         num_cores        = NUM_CORES,
                          min_num_samples  = MIN_NUM_SAMPLES,
                          max_tries        = MAX_TRIES,
                          step_size        = STEP_SIZE,
@@ -101,6 +99,18 @@ extend_model <- function(rds_filename,
   full_path <- file.path(models_dir, rds_filename)
   log_msg(sprintf("Loading model from %s", full_path), log_file, console_print = TRUE)
   model <- readRDS(full_path)
+
+  # n_chains is fixed by the emc object (list-of-chains at top level; cannot be
+  # changed after make_emc()). Derive parallelism from machine at runtime.
+  n_chains  <- length(model)
+  core_args <- get_core_args(n_chains)
+  log_msg(
+    sprintf("Core config: n_chains=%d, cores_for_chains=%d, cores_per_chain=%d (machine has %d cores)",
+            n_chains, core_args$cores_for_chains, core_args$cores_per_chain,
+            parallel::detectCores()),
+    log_file, console_print = TRUE
+  )
+
   # Strip the leading date prefix and any pre-existing _extended suffix chain
   # so the save name is idempotent across resume cycles. Examples:
   #   260421_model1.rds                    -> model1
@@ -129,8 +139,9 @@ extend_model <- function(rds_filename,
   cv <- NULL
   try_idx <- 0L
   for (try_idx in seq_len(max_tries)) {
-    log_msg(sprintf("Try %d/%d: adding %d iterations on %d cores...",
-                    try_idx, max_tries, step_size, num_cores),
+    log_msg(sprintf("Try %d/%d: adding %d iterations (cores_for_chains=%d, cores_per_chain=%d)...",
+                    try_idx, max_tries, step_size,
+                    core_args$cores_for_chains, core_args$cores_per_chain),
             log_file, console_print = TRUE)
 
     # Add exactly `step_size` iterations per outer-loop try, then evaluate
@@ -150,11 +161,12 @@ extend_model <- function(rds_filename,
     # max_tries = 1 is a redundant safety bound.
     model <- run_emc(
       model,
-      stage             = "sample",
-      stop_criteria     = list(iter = step_size, max_gr = 1.5, min_es = 1),
-      max_tries         = 1,
-      step_size         = step_size,
-      cores_for_chains  = num_cores
+      stage            = "sample",
+      stop_criteria    = list(iter = step_size, max_gr = 1.5, min_es = 1),
+      max_tries        = 1,
+      step_size        = step_size,
+      cores_for_chains = core_args$cores_for_chains,
+      cores_per_chain  = core_args$cores_per_chain
     )
 
     cv <- check_block_convergence(
@@ -249,9 +261,11 @@ if (length(args) >= 1) {
   rds_filename <- args[[1]]
   model_log    <- model_log_path(rds_filename)
 
-  log_msg(sprintf("===== SINGLE-MODEL EXTEND: %s =====", rds_filename),
-          model_log, console_print = TRUE)
-  log_config_variables(CONFIG_FILE, model_log)
+  log_msg(
+    sprintf("===== SINGLE-MODEL EXTEND: %s =====", rds_filename),
+    model_log,
+    console_print = TRUE
+  )
 
   result <- tryCatch({
     extend_model(rds_filename, log_file = model_log)
@@ -277,9 +291,11 @@ if (length(args) >= 1) {
   batch_log <- file.path(MODELS_DIR, "log_extend_batch.txt")
   cat("", file = batch_log, append = FALSE)  # truncate prior batch log
   log_msg("===== BATCH EXTEND SESSION START =====", batch_log, console_print = TRUE)
-  log_config_variables(CONFIG_FILE, batch_log)
-  log_msg(sprintf("Models queued: %s", paste(model_files, collapse = ", ")),
-          batch_log, console_print = TRUE)
+  log_msg(
+    sprintf("Models queued: %s", paste(model_files, collapse = ", ")),
+    batch_log,
+    console_print = TRUE
+  )
 
   for (mf in model_files) {
     model_log <- model_log_path(mf)

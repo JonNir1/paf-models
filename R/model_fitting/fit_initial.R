@@ -8,7 +8,7 @@
 library(EMC2)
 
 source("R/config.R")
-source(file.path(CODE_DIR, "model_fitting", "helpers.R"))
+source(file.path(CODE_DIR, "model_fitting", "helpers", "model.R"))
 
 # Setup Global Reproducibility
 RNGkind(RNG_KIND)
@@ -68,24 +68,32 @@ for (script in model_files) {
     log_msg(paste("Model Name:\t", MODEL_NAME), LOG_FILE, console_print = TRUE)
     
     # Generate the EMC2 model object
-    current_model <- build_model(clean_data)
-    
+    current_model <- build_model(clean_data, n_chains = N_CHAINS)
+
     # --- Capture and Log Model Formulas ---
     design_obj <- environment(current_model[[1]][["model"]])$design
     formula_text <- paste(design_obj[[1]], collapse = "\n")
     log_msg(paste0("Model Formulas:\n", formula_text, "\n"), LOG_FILE, console_print = TRUE)
-    
+
     # --- Capture and Log Model's Mapped Parameters ---
     # This turns the printed table into a string for the log file:
     mapping_table <- capture.output(mapped_pars(design_obj))
     mapping_text  <- paste(mapping_table, collapse = "\n")
     log_msg(paste0("Parameter Mapping:\n", mapping_text, "\n"), LOG_FILE, console_print = TRUE)
-    
+
     # --- Execute Fit ---
-    log_msg(paste("Fitting", MODEL_NAME, "on", NUM_CORES, "cores..."), LOG_FILE, console_print = TRUE)
+    core_args <- get_core_args(N_CHAINS)
+    log_msg(
+      sprintf("Fitting %s: n_chains=%d, cores_for_chains=%d, cores_per_chain=%d (machine has %d cores)",
+              MODEL_NAME, N_CHAINS,
+              core_args$cores_for_chains, core_args$cores_per_chain,
+              parallel::detectCores()),
+      LOG_FILE, console_print = TRUE
+    )
     fitted_model <- fit(  # fit() will run until convergence or max_iter
       current_model,
-      cores_for_chains = NUM_CORES,
+      cores_for_chains = core_args$cores_for_chains,
+      cores_per_chain  = core_args$cores_per_chain,
       iter=MIN_NUM_SAMPLES,                 # used in prod
       # iter=5, max_tries=2, step_size=10,    # used for testing the pipeline
       )

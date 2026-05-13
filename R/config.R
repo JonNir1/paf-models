@@ -26,7 +26,9 @@ ALLOW_TARGET_REPEAT <- TRUE
 
 
 # --- Fitting Params ---
-NUM_CORES <- 8
+N_CHAINS <- 3   # MCMC chains per model; baked into the emc object at make_emc() time.
+                # Parallelism (cores_for_chains, cores_per_chain) is auto-detected at
+                # runtime by get_core_args() in helpers.R — no manual core config needed.
 
 # criteria for stopping the "sample" stage of model-fitting
 MIN_NUM_SAMPLES <- 1000
