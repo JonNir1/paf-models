@@ -29,7 +29,7 @@ jobs:
           restore-keys: r-l1-${{ runner.os }}-
 
       - name: Install level-1 dependencies
-        run: Rscript -e "install.packages(readLines('.github/r-deps-level1.txt'))"
+        run: Rscript -e "install.packages('pak', repos='https://r-lib.github.io/p/pak/stable/'); pak::pkg_install(readLines('.github/r-deps-level1.txt'))"
 
       - name: Run level-1 tests
         run: Rscript __tests__/run_tests.R
@@ -57,7 +57,7 @@ jobs:
           restore-keys: r-l2-${{ runner.os }}-
 
       - name: Install level-2 dependencies
-        run: Rscript -e "install.packages(readLines('.github/r-deps-level2.txt'))"
+        run: Rscript -e "install.packages('pak', repos='https://r-lib.github.io/p/pak/stable/'); pak::pkg_install(readLines('.github/r-deps-level2.txt'))"
 
       - name: Run level-2 tests
         env:

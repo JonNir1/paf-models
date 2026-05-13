@@ -24,7 +24,7 @@ jobs:
           restore-keys: r-l2-${{ runner.os }}-
 
       - name: Install dependencies
-        run: Rscript -e "install.packages(readLines('.github/r-deps-level2.txt'))"
+        run: Rscript -e "install.packages('pak', repos='https://r-lib.github.io/p/pak/stable/'); pak::pkg_install(readLines('.github/r-deps-level2.txt'))"
 
       - name: Run smoke tests
         env:
