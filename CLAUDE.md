@@ -15,7 +15,7 @@ Every R `source()` and every Python relative import assumes the **repo root** as
 
 ## Common commands
 
-There is **no test suite, linter, or build system**. "Verifying" a change means running the relevant script and checking outputs (especially `emc2_models/log.txt`).
+There is **no linter or build system**. A `testthat` test suite lives in `__tests__/`. Verifying a change: run the relevant script AND the appropriate test level below.
 
 Python (data pipeline):
 ```
@@ -31,6 +31,19 @@ source("R/model_fitting/examine_model.R")   # inspect a single fitted model
 source("R/analysis/compare_models.R")       # diagnostics + GoF comparison across all 5 models
 ```
 
+R (tests; requires `testthat` - `install.packages("testthat")`):
+```
+Rscript __tests__/run_tests.R                    # level 1: helpers unit tests (<5 s, no EMC2)
+TEST_LEVEL=2 Rscript __tests__/run_tests.R       # level 2: + model build tests (requires EMC2)
+TEST_LEVEL=3 Rscript __tests__/run_tests.R       # level 3: + fit smoke tests (CI only, hours)
+```
+
+CI (GitHub Actions):
+- L1 + L2 run automatically on every push and on PRs to `main` (`.github/workflows/test.yml`).
+- L3 is manual-only: Actions tab → "Smoke Tests" → "Run workflow" (`.github/workflows/smoke.yml`).
+- `use-public-rspm: true` serves pre-compiled Linux binaries; EMC2 installs in ~2 min instead of compiling from source.
+- Package caches are keyed on `.github/r-deps-level1.txt` / `r-deps-level2.txt` and auto-invalidate when the dep list changes.
+
 `fit_extend.R` reads a **hardcoded list of `.rds` filenames** at the top of the file (`model_files <- c("YYMMDD_model1.rds", ...)`). Edit that list before running.
 
 ## Data handoff (Python -> R)
@@ -39,23 +52,23 @@ The Python and R sides communicate through one file:
 
 1. `load_data.py:46` `load_as_emc2_design_matrix()` reads `data/exp{1,2}/Exp{1,2}_clean.csv`, applies `enum_types.py` mappings, and produces a DataFrame.
 2. `playground.py` writes it to `data/emc2_design_matrix.csv`.
-3. `R/model_fitting/helpers.R:33` `load_safe_csv()` reads that CSV and enforces ordered factors: `search_difficulty` ∈ {EASY < MIXED < DIFFICULT}, `cue_size` ∈ {NONE < SMALL < MEDIUM < LARGE}.
+3. `R/model_fitting/helpers/data.R` `load_safe_csv()` reads that CSV and enforces ordered factors: `search_difficulty` ∈ {EASY < MIXED < DIFFICULT}, `cue_size` ∈ {NONE < SMALL < MEDIUM < LARGE}.
 
 `data/` is **gitignored** (see `.gitignore:2`). A fresh clone has no data; the cleaned CSVs and the design matrix must be supplied locally.
 
 ## Architecture
 
-- **`R/config.R`** is the single source of truth for: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), `NUM_CORES = 8`, asymmetric convergence criteria for `fit_extend.R` (`MIN_NUM_SAMPLES = 1000`, `MAX_TRIES = 20`, `STEP_SIZE = 100`, plus per-block `MAX_RHAT_MU`/`MIN_ESS_MU` and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`), every prior (`V_*`, `B_*`, `A_*`, `T0_*`, `SV_*`), and the `CONSTANTS = c(sv = log(1))` identifiability anchor. Changing a prior here propagates to all 5 models.
+- **`R/config.R`** is the single source of truth for: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), `N_CHAINS = 3` (MCMC chains baked into each model at `make_emc()` time; cannot be changed after fitting), asymmetric convergence criteria for `fit_extend.R` (`MIN_NUM_SAMPLES = 1000`, `MAX_TRIES = 20`, `STEP_SIZE = 100`, plus per-block `MAX_RHAT_MU`/`MIN_ESS_MU` and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`), every prior (`V_*`, `B_*`, `A_*`, `T0_*`, `SV_*`), and the `CONSTANTS = c(sv = log(1))` identifiability anchor. Changing a prior here propagates to all 5 models. Parallelism (`cores_for_chains`, `cores_per_chain`) is auto-detected at runtime by `get_core_args()` in `helpers.R` — no manual core config is needed.
 - **Output locations** (also from `config.R`):
   - `MODELS_DIR = "emc2_models"` (repo-root level, *not* inside `Results/`) holds fitted `.rds` files named `YYMMDD_<MODEL_NAME>.rds`.
   - `LOG_FILE = "emc2_models/log.txt"` is the append-only batch log; each model run is bracketed by timestamped `COMPLETE` / `FAILED` markers.
   - `RESULTS_DIR = "Results"` holds the comparison RDS files (`model_comparison_diagnostics.rds`, `model_comparison_fit.rds`).
-- **Model family**: five nested LBA variants (`R/model_fitting/model1.R` .. `model5.R`) differing in the formulas for drift rate `v`, threshold `B`, and between-trial variability `sv`. Each script defines `MODEL_NAME` and `build_model(data)`; priors are pulled by name from `R/config.R`. `model1.R:55` is the cleanest template to copy when adding a new variant.
+- **Model family**: five nested LBA variants (`R/model_fitting/model1.R` .. `model5.R`) differing in the formulas for drift rate `v`, threshold `B`, and between-trial variability `sv`. Each script defines `MODEL_NAME` and a thin `build_model(data, n_chains = 3)` that delegates to `build_lba_model()` in `helpers.R`. `build_lba_model()` owns all shared boilerplate (base priors, `design()`, `prior()`, `make_emc()`); each model passes only its `v_formula`, `B_formula`, and any extra prior entries. To add a new variant, copy `model1.R` and adjust those three arguments.
 - **Two-phase fitting**:
   - `R/model_fitting/fit_initial.R` loads data once, then `tryCatch`-wraps each `modelN.R` in turn and fits each for exactly `MIN_NUM_SAMPLES` (1000) iterations. **A model failing does not abort the batch** - check `log.txt`, not just the R console, to know whether everything finished.
   - `R/model_fitting/fit_extend.R` resumes previously-fit `.rds` files and extends each until asymmetric per-block convergence on `$mu` and `$alpha` is met (`$sigma2`/`$correlation` intentionally not enforced). The fit-extension logic is a self-contained function (`extend_model()`) so it can be called in parallel: passing an `.rds` filename as a command-line argument runs single-model mode (one process per model on cloud), and each invocation writes to its own per-model log (`emc2_models/log_extend_<name>.txt`) so logs never interleave. With no argument, the script loops sequentially over a hardcoded list. Run order is initial -> extend.
-  - Convergence is checked by `check_block_convergence()` in `R/model_fitting/helpers.R` using `EMC2::check()` to extract per-parameter Rhat and ESS, then applying `MAX_RHAT_MU`/`MIN_ESS_MU` to the `$mu` block and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA` to the pooled `$alpha` block. EMC2's built-in `stop_criteria` is bypassed because it cannot apply different thresholds per block.
-- **Enum to factor bridge**: `enum_types.py` defines the canonical level orderings (`LocationTypeEnum`, `DistractorTypeEnum`, `SearchDifficultyTypeEnum`, `CueSizeTypeEnum`, `SideTypeEnum`). R does **not** import these. Instead, `R/model_fitting/helpers.R` lines 143-221 re-encodes them through closure functions (`StimulusAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`, `SearchDifficulty`) that EMC2's `design()` calls. Adding or renaming a factor level requires changes on **both** sides.
+  - Convergence is checked by `check_block_convergence()` in `R/model_fitting/helpers/model.R` using `EMC2::check()` to extract per-parameter Rhat and ESS, then applying `MAX_RHAT_MU`/`MIN_ESS_MU` to the `$mu` block and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA` to the pooled `$alpha` block. EMC2's built-in `stop_criteria` is bypassed because it cannot apply different thresholds per block.
+- **Enum to factor bridge**: `enum_types.py` defines the canonical level orderings (`LocationTypeEnum`, `DistractorTypeEnum`, `SearchDifficultyTypeEnum`, `CueSizeTypeEnum`, `SideTypeEnum`). R does **not** import these. Instead, `R/model_fitting/helpers/data.R` re-encodes them through closure functions (`StimulusAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`, `SearchDifficulty`) that EMC2's `design()` calls. Adding or renaming a factor level requires changes on **both** sides.
 - **Latest-version lookup**: `R/analysis/compare_models.R:23` `load_model()` parses the `YYMMDD_` prefix and always returns the most recent `.rds` for a given model name.
 
 ## Analysis workflow
@@ -108,11 +121,21 @@ Implementing this requires patching `R/model_fitting/fit_extend.R` so `stop_crit
 - `R/config.R` - all knobs (priors, RNG, paths, cores)
 - `R/model_fitting/fit_initial.R` - master batch fit
 - `R/model_fitting/fit_extend.R` - resume / extend an existing fit
-- `R/model_fitting/helpers.R` - data load, filter, EMC2 factor closures, logging, `save_model()`
-- `R/model_fitting/model1.R` - canonical template for a model variant
+- `R/model_fitting/helpers/logging.R` - timestamped logging, error reporting, config serialisation (no dependencies)
+- `R/model_fitting/helpers/data.R` - CSV loading, RT filtering, EMC2 factor closures; sources `logging.R`
+- `R/model_fitting/helpers/model.R` - `get_core_args`, `build_lba_model`, `check_block_convergence`, `save_model`; sources `data.R`. **Single entry point**: all callers source this file only.
+- `R/model_fitting/model1.R` - canonical template for a model variant (thin wrapper; see `build_lba_model()` in `helpers/model.R`)
 - `R/analysis/compare_models.R` - diagnostics + GoF tables
 - `load_data.py` - Python loaders and the EMC2 design-matrix builder
 - `enum_types.py` - canonical factor-level orderings
+- `__tests__/run_tests.R` - test entry point; gated by `TEST_LEVEL` env var (1/2/3)
+- `__tests__/fixtures/sample_data.csv` - committed synthetic design matrix (~240 rows)
+- `__tests__/helpers/` - level-1 unit tests (logging, data, model helpers; no EMC2)
+- `__tests__/models/` - level-2 build tests (`make_emc()` for all 5 models; requires EMC2)
+- `__tests__/fit/` - level-3 smoke tests (tiny MCMC; CI only)
+- `.github/workflows/test.yml` - CI: L1 unit tests + L2 build tests (auto on push/PR)
+- `.github/workflows/smoke.yml` - CI: L3 smoke tests (manual dispatch only)
+- `.github/r-deps-level1.txt` / `r-deps-level2.txt` - package lists used by CI cache keys
 
 ## Gotchas
 
