@@ -82,27 +82,40 @@ do_run() {
   local rds_name="${1:?usage: run <rds_filename, e.g. 260421_model1.rds>}"
   cd "$REPO_DIR"
 
+  # Resolve cloud copy command and destination prefix upfront so they expand as
+  # plain strings inside the R script string — avoids nested $() substitutions
+  # and quote conflicts inside the Rscript -e "..." double-quoted block.
+  if [ "$CLOUD" = "aws" ]; then
+    CP_CMD="aws s3 cp"
+    DEST_PREFIX="s3://$BUCKET/results"
+  else
+    CP_CMD="gsutil cp"
+    DEST_PREFIX="gs://$BUCKET/results"
+  fi
+
   echo ">>> Downloading inputs from $BUCKET ..."
   mkdir -p data emc2_models
   cloud_cp_from "inputs/data/emc2_design_matrix.csv" "data/emc2_design_matrix.csv"
   cloud_cp_from "inputs/emc2_models/$rds_name"       "emc2_models/$rds_name"
 
   echo ">>> Launching fit_extend for $rds_name ..."
-  # Inline R: source the script (sys.nframe guard avoids triggering main logic),
-  # then call extend_model with save_every=1 and a hook that uploads both the
-  # .rds and the log to s3://$BUCKET/results/ after every save.
+  # Source the script (sys.nframe guard avoids triggering main logic), then call
+  # extend_model with save_every=5 (checkpoint every 500 iters, ~55 min on
+  # 16-core) and a hook that syncs both the .rds and log to durable storage
+  # after each checkpoint. CP_CMD and DEST_PREFIX expand via bash before R sees
+  # the string, so no shell quoting gymnastics inside R.
   R_LIBS_USER="$R_LIBS_USER" Rscript -e "
     source('R/model_fitting/fit_extend.R')
     hook <- function(rds_path, log_path) {
       for (f in c(rds_path, log_path)) {
-        cmd <- sprintf('$( [ \"$CLOUD\" = aws ] && echo 'aws s3 cp' || echo 'gsutil cp' ) %s $( [ \"$CLOUD\" = aws ] && echo s3:// || echo gs:// )$BUCKET/results/', shQuote(f))
+        cmd <- paste('$CP_CMD', shQuote(f), '$DEST_PREFIX/')
         system(cmd, wait = TRUE)
       }
     }
     res <- extend_model(
       rds_filename   = '$rds_name',
       log_file       = file.path('emc2_models', paste0('log_extend_', tools::file_path_sans_ext('$rds_name'), '.txt')),
-      save_every     = 1,
+      save_every     = 5,
       post_save_hook = hook
     )
     cat('\n=== done ===\nconverged:', res\$converged,
