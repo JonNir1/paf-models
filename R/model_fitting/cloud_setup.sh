@@ -98,31 +98,11 @@ do_run() {
   cloud_cp_from "inputs/data/emc2_design_matrix.csv" "data/emc2_design_matrix.csv"
   cloud_cp_from "inputs/emc2_models/$rds_name"       "emc2_models/$rds_name"
 
-  echo ">>> Launching fit_extend for $rds_name ..."
-  # Source the script (sys.nframe guard avoids triggering main logic), then call
-  # extend_model with save_every=1 (checkpoint after every 100-iter try) and a
-  # hook that syncs both the .rds and log to durable storage after each save.
-  # At ~1 min/iter on 16-core this limits data loss to ~100 min on preemption
-  # at negligible S3 cost (~20 PUTs total). CP_CMD and DEST_PREFIX expand via
-  # bash before R sees the string, so no shell quoting gymnastics inside R.
-  R_LIBS_USER="$R_LIBS_USER" Rscript -e "
-    source('R/model_fitting/fit_extend.R')
-    hook <- function(rds_path, log_path) {
-      for (f in c(rds_path, log_path)) {
-        cmd <- paste('$CP_CMD', shQuote(f), '$DEST_PREFIX/')
-        system(cmd, wait = TRUE)
-      }
-    }
-    res <- extend_model(
-      rds_filename   = '$rds_name',
-      log_file       = file.path('emc2_models', paste0('log_extend_', tools::file_path_sans_ext('$rds_name'), '.txt')),
-      save_every     = 1,
-      post_save_hook = hook
-    )
-    cat('\n=== done ===\nconverged:', res\$converged,
-        '\nruntime_min:', round(res\$duration_min, 2),
-        '\nsaved:', res\$saved_path, '\n')
-  "
+  echo ">>> Launching fit_extend_cloud.R for $rds_name ..."
+  # fit_extend_cloud.R reads CP_CMD and DEST_PREFIX from the environment and
+  # syncs the .rds + log to durable storage after every try (save_every=1).
+  R_LIBS_USER="$R_LIBS_USER" CP_CMD="$CP_CMD" DEST_PREFIX="$DEST_PREFIX" \
+    Rscript R/model_fitting/fit_extend_cloud.R "$rds_name"
 
   echo ">>> Done. Latest .rds and log are in $BUCKET/results/."
 }

@@ -8,7 +8,7 @@
 library(EMC2)
 
 source("R/config.R")
-source(file.path(CODE_DIR, "model_fitting", "helpers", "model.R"))
+source(file.path(CODE_DIR, "model_fitting", "helpers", "fitting.R"))
 
 # Setup Global Reproducibility
 RNGkind(RNG_KIND)

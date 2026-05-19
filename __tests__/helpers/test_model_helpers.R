@@ -1,7 +1,7 @@
 .libPaths(c(file.path(Sys.getenv("USERPROFILE"), "R", "library"), .libPaths()))
 library(testthat)
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
-source(file.path(ROOT, "R", "model_fitting", "helpers", "model.R"))
+source(file.path(ROOT, "R", "model_fitting", "helpers", "fitting.R"))
 
 
 # =============================================================================

@@ -4,7 +4,7 @@ library(EMC2)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
 source(file.path(ROOT, "R", "config.R"))
-source(file.path(ROOT, "R", "model_fitting", "helpers", "model.R"))
+source(file.path(ROOT, "R", "model_fitting", "helpers", "build_model.R"))
 source(file.path(ROOT, "__tests__", "models", "shared_assertions.R"))
 
 # Load and filter fixture data once for all model tests.

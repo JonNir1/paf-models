@@ -1,37 +1,113 @@
 #' =============================================================================
-#' --- Extend Model Fitting ---
-#' Operates on previously-fit models, extending each until $mu and $alpha meet
-#' the asymmetric convergence thresholds defined in `R/config.R`. $sigma2 and
-#' $correlation are NOT enforced - they are reported descriptively post-fit.
-#' Must run AFTER `fit_initial.R` (which fits each model for MIN_NUM_SAMPLES).
+#' Fitting Orchestration: Parallelism, Persistence, Convergence, and Extension
 #'
-#' Modes:
-#'   Sequential (default): loops over the hardcoded `model_files` list below.
-#'     Each model gets its own detail log under MODELS_DIR/log_extend_<name>.txt
-#'     so per-model output is not interleaved.
-#'   Single-model (parallel-friendly): pass an .rds filename as a command-line
-#'     argument. The script extends that one model only and writes to its own
-#'     log file. Multiple instances can run concurrently (e.g. one per cloud
-#'     node) without log contention.
-#'     Example: Rscript R/model_fitting/fit_extend.R 260421_model1.rds
+#' Everything needed to run, checkpoint, and extend hierarchical LBA fits:
+#'   - get_core_args()           runtime parallelism configuration
+#'   - save_model()              date-stamped RDS serialisation
+#'   - check_block_convergence() asymmetric per-block Rhat / ESS diagnostics
+#'   - extend_model()            iterative MCMC extension loop with checkpointing
+#'   - model_log_path()          per-model log file path helper
+#'
+#' Source chain: fitting.R -> build_model.R -> data.R -> logging.R -> config.R
 #' =============================================================================
 
-# Load Core Configurations and Helpers
-library(EMC2)
-
-source("R/config.R")
-source(file.path(CODE_DIR, "model_fitting", "helpers", "model.R"))
-
-# Setup Global Reproducibility (per-instance; each parallel invocation gets the
-# same seed but operates on a different starting model, so results diverge)
-RNGkind(RNG_KIND)
-set.seed(RNG_SEED)
+local({
+  root <- Sys.getenv("PAF_REPO_ROOT", unset = "")
+  if (nzchar(root)) source(file.path(root, "R", "model_fitting", "helpers", "build_model.R"))
+  else              source("R/model_fitting/helpers/build_model.R")
+})
 
 
-# =============================================================================
-# Core fit-extension function
-# =============================================================================
+# -------------------------
+#' Determine EMC2 parallelism arguments for the current machine.
+#'
+#' EMC2 only spawns one worker per chain, so cores_for_chains is capped at
+#' n_chains -- extra cores beyond that are idle. Within-chain parallelism via
+#' cores_per_chain (parallelises the per-participant likelihood) is available on
+#' Linux/Mac only (EMC2 uses fork-based mclapply); on Windows it defaults to 1
+#' and is a no-op. Passing 1 explicitly on Windows is safe (it is the default).
+#'
+#' @param n_chains Integer. Number of MCMC chains (N_CHAINS for new fits;
+#'   length(model) for extending an existing fitted object).
+#' @return Named list: cores_for_chains (integer), cores_per_chain (integer).
+get_core_args <- function(n_chains) {
+  total <- parallel::detectCores()
+  if (is.na(total) || total < 1L) total <- 1L  # guard: containers can return NA
 
+  cores_for_chains <- min(n_chains, total)
+  on_windows       <- .Platform$OS.type == "windows"
+  cores_per_chain  <- if (on_windows) 1L else max(1L, total %/% n_chains)
+
+  list(cores_for_chains = cores_for_chains,
+       cores_per_chain  = cores_per_chain)
+}
+
+
+# -------------------------
+#' Save a fitted model as a date-stamped RDS file.
+#' @param model       The fitted EMC2 model object.
+#' @param name        Model name (non-date portion of the filename).
+#' @param dir_path    Output directory; created recursively if absent.
+#' @param date_prefix Optional 6-char YYMMDD string. Defaults to today. Pin this
+#'   at the start of long-running calls so midnight crossings don't split saves
+#'   into two filenames.
+#' @return Full path to the saved file (invisibly usable for hook callbacks).
+save_model <- function(model, name, dir_path, date_prefix = NULL) {
+  if (!check_valid_string(name))     stop(sprintf("Invalid model name: %s", name))
+  if (!check_valid_string(dir_path)) stop(sprintf("Invalid directory path: %s", dir_path))
+  if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
+  if (is.null(date_prefix)) date_prefix <- format(Sys.Date(), "%y%m%d")
+  full_path <- file.path(dir_path, paste0(date_prefix, "_", name, ".rds"))
+  saveRDS(model, full_path)
+  return(full_path)
+}
+
+
+# -------------------------
+#' Check $mu and $alpha convergence against block-specific Rhat/ESS thresholds.
+#' $sigma2 and $correlation are intentionally NOT checked - per the within-subject
+#' OOD design they are inferentially irrelevant; report them descriptively post-fit.
+#'
+#' @param model A fitted EMC2 model object.
+#' @param max_rhat_mu,min_ess_mu     Thresholds for the population mean ($mu) block.
+#' @param max_rhat_alpha,min_ess_alpha Thresholds for the subject-level ($alpha) block.
+#' @return List with per-block diagnostics and an overall `converged` boolean.
+check_block_convergence <- function(model,
+                                    max_rhat_mu, min_ess_mu,
+                                    max_rhat_alpha, min_ess_alpha) {
+  library(EMC2)
+
+  capture.output(
+    chk <- suppressWarnings(check(
+      model, selection = c("mu", "alpha"), plot_worst = FALSE, digits = 4
+    ))
+  )
+  mu_rhat    <- chk[["mu"]][["mu"]][1, ]
+  mu_ess     <- chk[["mu"]][["mu"]][2, ]
+  alpha_rhat <- unlist(lapply(chk$alpha, function(x) x[1, ]))
+  alpha_ess  <- unlist(lapply(chk$alpha, function(x) x[2, ]))
+
+  mu_max_rhat    <- max(mu_rhat,    na.rm = TRUE)
+  mu_min_ess     <- min(mu_ess,     na.rm = TRUE)
+  alpha_max_rhat <- max(alpha_rhat, na.rm = TRUE)
+  alpha_min_ess  <- min(alpha_ess,  na.rm = TRUE)
+
+  mu_converged    <- mu_max_rhat    < max_rhat_mu    && mu_min_ess    > min_ess_mu
+  alpha_converged <- alpha_max_rhat < max_rhat_alpha && alpha_min_ess > min_ess_alpha
+
+  list(
+    converged       = mu_converged && alpha_converged,
+    mu_converged    = mu_converged,
+    alpha_converged = alpha_converged,
+    mu_max_rhat     = mu_max_rhat,
+    mu_min_ess      = mu_min_ess,
+    alpha_max_rhat  = alpha_max_rhat,
+    alpha_min_ess   = alpha_min_ess
+  )
+}
+
+
+# -------------------------
 #' Extend a previously-fit EMC2 model until $mu and $alpha converge.
 #' Self-contained: takes all config as arguments so it is safe to call in
 #' parallel (one process per model on cloud, no shared mutable state).
@@ -238,6 +314,7 @@ extend_model <- function(rds_filename,
 }
 
 
+# -------------------------
 #' Build a per-model log file path under `MODELS_DIR`.
 #' Each fit_extend invocation writes to its own log to avoid interleaving when
 #' running multiple instances in parallel (one process per model).
@@ -245,83 +322,3 @@ model_log_path <- function(rds_filename, models_dir = MODELS_DIR) {
   base <- tools::file_path_sans_ext(rds_filename)
   file.path(models_dir, paste0("log_extend_", base, ".txt"))
 }
-
-
-# =============================================================================
-# Main script logic
-# =============================================================================
-# Guard so that source()-ing this file only loads function definitions.
-# Main logic runs only when the file is invoked directly via Rscript.
-if (sys.nframe() == 0L) {
-
-args <- commandArgs(trailingOnly = TRUE)
-
-if (length(args) >= 1) {
-  # ---------- Single-model mode (parallel-friendly) ----------
-  rds_filename <- args[[1]]
-  model_log    <- model_log_path(rds_filename)
-
-  log_msg(
-    sprintf("===== SINGLE-MODEL EXTEND: %s =====", rds_filename),
-    model_log,
-    console_print = TRUE
-  )
-
-  result <- tryCatch({
-    extend_model(rds_filename, log_file = model_log)
-    "COMPLETE"
-  }, error = function(e) {
-    log_error(e, model_log, context = sprintf("extend_model('%s')", rds_filename))
-    "ERROR"
-  })
-
-  log_msg(sprintf("===== %s: %s =====", rds_filename, result),
-          model_log, console_print = TRUE)
-
-} else {
-  # ---------- Batch mode (sequential loop) ----------
-  ## IMPORTANT: edit this list to match models you want to extend ##
-  model_files <- c(
-    "260421_model1.rds",
-    "260409_model2.rds",
-    "260424_model4.rds",
-    "260412_model5.rds"
-  )
-
-  batch_log <- file.path(MODELS_DIR, "log_extend_batch.txt")
-  cat("", file = batch_log, append = FALSE)  # truncate prior batch log
-  log_msg("===== BATCH EXTEND SESSION START =====", batch_log, console_print = TRUE)
-  log_msg(
-    sprintf("Models queued: %s", paste(model_files, collapse = ", ")),
-    batch_log,
-    console_print = TRUE
-  )
-
-  for (mf in model_files) {
-    model_log <- model_log_path(mf)
-    log_msg(sprintf("Dispatching %s (detail log: %s)", mf, model_log),
-            batch_log, console_print = TRUE)
-    log_msg(sprintf("===== EXTEND: %s =====", mf), model_log, console_print = TRUE)
-
-    status <- tryCatch({
-      extend_model(mf, log_file = model_log)
-      "COMPLETE"
-    }, error = function(e) {
-      log_error(e, model_log, context = sprintf("extend_model('%s')", mf))
-      "ERROR"
-    })
-
-    log_msg(sprintf("%s: %s", mf, status), batch_log, console_print = TRUE)
-    log_msg(sprintf("===== %s: %s =====", mf, status),
-            model_log, console_print = TRUE)
-
-    # Free resources between models so the next fit gets a clean slate
-    try(parallel::stopCluster(cl = NULL), silent = TRUE)
-    Sys.sleep(5)  # avoid TIME_WAIT on socket ports
-    gc()
-  }
-
-  log_msg("===== BATCH EXTEND SESSION END =====", batch_log, console_print = TRUE)
-}
-
-}  # end if (sys.nframe() == 0L)

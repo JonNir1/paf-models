@@ -25,8 +25,10 @@ python playground.py       # regenerates data/emc2_design_matrix.csv
 
 R (modeling pipeline; from a fresh R session at repo root):
 ```
-Rscript R/model_fitting/fit_initial.R   # full batch: fit model1..model5 for MIN_NUM_SAMPLES iterations
-Rscript R/model_fitting/fit_extend.R    # extend previously-fit models until Rhat/ESS criteria are met
+Rscript R/model_fitting/fit_initial.R                        # full batch: fit model1..model5 for MIN_NUM_SAMPLES iterations
+Rscript R/model_fitting/fit_extend_local.R                   # extend locally (2 models in parallel if cores allow)
+Rscript R/model_fitting/fit_extend_local.R --sequential      # extend locally, force sequential
+Rscript R/model_fitting/fit_extend_cloud.R <rds_filename>    # single-model cloud extend (called by cloud_setup.sh)
 source("R/model_fitting/examine_model.R")   # inspect a single fitted model
 source("R/analysis/compare_models.R")       # diagnostics + GoF comparison across all 5 models
 ```
@@ -58,7 +60,7 @@ The Python and R sides communicate through one file:
 
 ## Architecture
 
-- **`R/config.R`** is the single source of truth for: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), `N_CHAINS = 3` (MCMC chains baked into each model at `make_emc()` time; cannot be changed after fitting), asymmetric convergence criteria for `fit_extend.R` (`MIN_NUM_SAMPLES = 1000`, `MAX_TRIES = 20`, `STEP_SIZE = 100`, plus per-block `MAX_RHAT_MU`/`MIN_ESS_MU` and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`), every prior (`V_*`, `B_*`, `A_*`, `T0_*`, `SV_*`), and the `CONSTANTS = c(sv = log(1))` identifiability anchor. Changing a prior here propagates to all 5 models. Parallelism (`cores_for_chains`, `cores_per_chain`) is auto-detected at runtime by `get_core_args()` in `helpers.R` — no manual core config is needed.
+- **`R/config.R`** is the single source of truth for: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), `N_CHAINS = 3` (MCMC chains baked into each model at `make_emc()` time; cannot be changed after fitting), asymmetric convergence criteria for `fit_extend.R` (`MIN_NUM_SAMPLES = 1000`, `MAX_TRIES = 20`, `STEP_SIZE = 100`, plus per-block `MAX_RHAT_MU`/`MIN_ESS_MU` and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`), every prior (`V_*`, `B_*`, `A_*`, `T0_*`, `SV_*`), and the `CONSTANTS = c(sv = log(1))` identifiability anchor. Changing a prior here propagates to all 5 models. Parallelism (`cores_for_chains`, `cores_per_chain`) is auto-detected at runtime by `get_core_args()` in `helpers/fitting.R` — no manual core config is needed.
 - **Output locations** (also from `config.R`):
   - `MODELS_DIR = "emc2_models"` (repo-root level, *not* inside `Results/`) holds fitted `.rds` files named `YYMMDD_<MODEL_NAME>.rds`.
   - `LOG_FILE = "emc2_models/log.txt"` is the append-only batch log; each model run is bracketed by timestamped `COMPLETE` / `FAILED` markers.
@@ -66,8 +68,9 @@ The Python and R sides communicate through one file:
 - **Model family**: five nested LBA variants (`R/model_fitting/model1.R` .. `model5.R`) differing in the formulas for drift rate `v`, threshold `B`, and between-trial variability `sv`. Each script defines `MODEL_NAME` and a thin `build_model(data, n_chains = 3)` that delegates to `build_lba_model()` in `helpers.R`. `build_lba_model()` owns all shared boilerplate (base priors, `design()`, `prior()`, `make_emc()`); each model passes only its `v_formula`, `B_formula`, and any extra prior entries. To add a new variant, copy `model1.R` and adjust those three arguments.
 - **Two-phase fitting**:
   - `R/model_fitting/fit_initial.R` loads data once, then `tryCatch`-wraps each `modelN.R` in turn and fits each for exactly `MIN_NUM_SAMPLES` (1000) iterations. **A model failing does not abort the batch** - check `log.txt`, not just the R console, to know whether everything finished.
-  - `R/model_fitting/fit_extend.R` resumes previously-fit `.rds` files and extends each until asymmetric per-block convergence on `$mu` and `$alpha` is met (`$sigma2`/`$correlation` intentionally not enforced). The fit-extension logic is a self-contained function (`extend_model()`) so it can be called in parallel: passing an `.rds` filename as a command-line argument runs single-model mode (one process per model on cloud), and each invocation writes to its own per-model log (`emc2_models/log_extend_<name>.txt`) so logs never interleave. With no argument, the script loops sequentially over a hardcoded list. Run order is initial -> extend.
-  - Convergence is checked by `check_block_convergence()` in `R/model_fitting/helpers/model.R` using `EMC2::check()` to extract per-parameter Rhat and ESS, then applying `MAX_RHAT_MU`/`MIN_ESS_MU` to the `$mu` block and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA` to the pooled `$alpha` block. EMC2's built-in `stop_criteria` is bypassed because it cannot apply different thresholds per block.
+  - `R/model_fitting/fit_extend_local.R` resumes previously-fit `.rds` files locally, running two models in parallel when the machine has enough cores (`>= 2 * N_CHAINS`), otherwise sequentially. Pass `--sequential` to force sequential mode. Each invocation writes to its own per-model log (`emc2_models/log_extend_<name>.txt`).
+  - `R/model_fitting/fit_extend_cloud.R` extends a single model on a cloud VM (one process per machine). Reads `CP_CMD` and `DEST_PREFIX` from the environment and syncs the `.rds` + log to S3/GCS after every try. Called by `cloud_setup.sh do_run`.
+  - Convergence is checked by `check_block_convergence()` in `R/model_fitting/helpers/fitting.R` using `EMC2::check()` to extract per-parameter Rhat and ESS, then applying `MAX_RHAT_MU`/`MIN_ESS_MU` to the `$mu` block and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA` to the pooled `$alpha` block. EMC2's built-in `stop_criteria` is bypassed because it cannot apply different thresholds per block.
 - **Enum to factor bridge**: `enum_types.py` defines the canonical level orderings (`LocationTypeEnum`, `DistractorTypeEnum`, `SearchDifficultyTypeEnum`, `CueSizeTypeEnum`, `SideTypeEnum`). R does **not** import these. Instead, `R/model_fitting/helpers/data.R` re-encodes them through closure functions (`StimulusAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`, `SearchDifficulty`) that EMC2's `design()` calls. Adding or renaming a factor level requires changes on **both** sides.
 - **Latest-version lookup**: `R/analysis/compare_models.R:23` `load_model()` parses the `YYMMDD_` prefix and always returns the most recent `.rds` for a given model name.
 
@@ -80,7 +83,7 @@ The research pipeline runs in numbered stages. Steps marked `X.9` (and one `2.4`
 | 0a | PAF predictions pre-registered (notes/paper) | DONE |
 | 0b | Pre-hoc exclusion: RT cutoffs (0.23-1.0 s) only; no further subject filter | DONE |
 | 1 | `fit_initial.R`: 1000 samples per model | DONE |
-| 2 | `fit_extend.R` with asymmetric convergence target (see below). Parallel cloud, 4 instances. | NEXT |
+| 2 | `fit_extend_local.R` with asymmetric convergence target (see below). Runs 2 models in parallel locally. | NEXT |
 | **2.4** | **Claude-only sanity check**: flag models with severe non-convergence (`$mu` Rhat > 1.1 or ESS < 200). If flagged, ping user before launching 2.5. | |
 | 2.5 | Parameter recovery: 3 sims × 4 models, parallel cloud, post-extend posterior means as ground truth. | |
 | **2.9** | **STOP & REVIEW (with PI)**: combined convergence + recovery review. Decide which models survive. | |
@@ -104,7 +107,7 @@ The research pipeline runs in numbered stages. Steps marked `X.9` (and one `2.4`
 | `$sigma2` | descriptive only | descriptive only | Not used in prediction under within-subject OOD design. |
 | `$correlation` | descriptive only | descriptive only | Routinely non-convergent in hierarchical LBA; report as known limitation. |
 
-Implementing this requires patching `R/model_fitting/fit_extend.R` so `stop_criteria` is evaluated only on `$mu` + `$alpha` rows of the Rhat/ESS tables, not the full parameter set.
+This is implemented in `check_block_convergence()` in `helpers/fitting.R`: `stop_criteria` is evaluated only on `$mu` + `$alpha` rows of the Rhat/ESS tables, not the full parameter set.
 
 **All-cue prediction mechanism (step 5)**: exp3 introduces a novel "all-cue" condition (the same visual cue shown at all 4 locations simultaneously). The trained LBA model handles this without retraining: set `CueAtLoc=X` on **all 4 accumulators** rather than one cued and three NONE. The additive linear LBA then predicts (a) uniformly faster RTs, (b) no location bias, (c) linear speedup vs. single-cue. Any of these failing in empirical exp3 is informative falsification (attention-splitting, saturation, or non-additive cue combination).
 
@@ -120,11 +123,13 @@ Implementing this requires patching `R/model_fitting/fit_extend.R` so `stop_crit
 
 - `R/config.R` - all knobs (priors, RNG, paths, cores)
 - `R/model_fitting/fit_initial.R` - master batch fit
-- `R/model_fitting/fit_extend.R` - resume / extend an existing fit
+- `R/model_fitting/fit_extend_local.R` - local batch extend (2 models in parallel if cores allow; `--sequential` flag to override)
+- `R/model_fitting/fit_extend_cloud.R` - cloud single-model extend (called by `cloud_setup.sh`)
 - `R/model_fitting/helpers/logging.R` - timestamped logging, error reporting, config serialisation (no dependencies)
 - `R/model_fitting/helpers/data.R` - CSV loading, RT filtering, EMC2 factor closures; sources `logging.R`
-- `R/model_fitting/helpers/model.R` - `get_core_args`, `build_lba_model`, `check_block_convergence`, `save_model`; sources `data.R`. **Single entry point**: all callers source this file only.
-- `R/model_fitting/model1.R` - canonical template for a model variant (thin wrapper; see `build_lba_model()` in `helpers/model.R`)
+- `R/model_fitting/helpers/build_model.R` - `build_lba_model()` factory; sources `data.R` and `config.R`
+- `R/model_fitting/helpers/fitting.R` - `get_core_args`, `save_model`, `check_block_convergence`, `extend_model`, `model_log_path`; sources `build_model.R`. **Single entry point for fit scripts**.
+- `R/model_fitting/model1.R` - canonical template for a model variant (thin wrapper; see `build_lba_model()` in `helpers/build_model.R`)
 - `R/analysis/compare_models.R` - diagnostics + GoF tables
 - `load_data.py` - Python loaders and the EMC2 design-matrix builder
 - `enum_types.py` - canonical factor-level orderings

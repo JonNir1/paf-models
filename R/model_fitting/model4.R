@@ -9,7 +9,7 @@ library(EMC2)
 local({
   root <- Sys.getenv("PAF_REPO_ROOT", unset = "")
   if (nzchar(root)) source(file.path(root, "R", "model_fitting", "helpers", "model.R"))
-  else              source("R/model_fitting/helpers/model.R")
+  else              source("R/model_fitting/helpers/build_model.R")
 })
 
 
