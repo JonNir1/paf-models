@@ -9,7 +9,7 @@ if (as.integer(Sys.getenv("TEST_LEVEL", "1")) < 3L) {
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
 source(file.path(ROOT, "R", "config.R"))
-source(file.path(ROOT, "R", "model_fitting", "helpers", "model.R"))
+source(file.path(ROOT, "R", "model_fitting", "helpers", "fitting.R"))
 source(file.path(ROOT, "R", "model_fitting", "model1.R"))  # provides build_model()
 
 

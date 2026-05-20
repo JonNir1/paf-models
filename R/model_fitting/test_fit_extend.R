@@ -19,15 +19,16 @@
 #'                emc2_models/<YYMMDD>_model2_extended.rds
 #' =============================================================================
 
-source("R/model_fitting/fit_extend.R")  # defines extend_model() only (no auto-run)
+library(EMC2)
+source("R/model_fitting/helpers/fitting.R")  # defines extend_model() and config globals
 
 result <- extend_model(
   rds_filename   = "260409_model2.rds",         # smallest fitted model on disk
   log_file       = "emc2_models/log_test_smoke.txt",
-  num_cores      = 2,                           # laptop-safe
   max_tries      = 2,                           # tiny - 2 extension attempts
   step_size      = 5                            # tiny - 5 iterations per attempt
   # other args (thresholds, MIN_NUM_SAMPLES) default to globals from config.R
+  # parallelism is auto-detected by get_core_args() inside extend_model()
 )
 
 cat("\n========================================\n")
