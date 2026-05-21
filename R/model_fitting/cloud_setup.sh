@@ -53,19 +53,28 @@ do_setup() {
   echo ">>> Installing system deps..."
   sudo apt-get update -y
   sudo apt-get install -y --no-install-recommends \
-    r-base r-base-dev \
     build-essential gfortran \
     libssl-dev libcurl4-openssl-dev libxml2-dev \
     libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
     libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev \
-    git curl unzip
+    git curl unzip software-properties-common awscli
+
+  echo ">>> Installing R 4.4 from CRAN apt repo..."
+  wget -qO- https://cloud.r-project.org/bin/linux/ubuntu/marutter_pubkey.asc \
+    | sudo tee -a /etc/apt/trusted.gpg.d/cran_ubuntu_key.asc
+  sudo add-apt-repository -y "deb https://cloud.r-project.org/bin/linux/ubuntu jammy-cran40/"
+  sudo apt-get update -y
+  sudo apt-get install -y r-base r-base-dev
 
   mkdir -p "$R_LIBS_USER"
   echo "R_LIBS_USER=\"$R_LIBS_USER\"" >> "$HOME/.Renviron"
 
-  echo ">>> Installing R packages (this takes 10-20 min on a fresh VM)..."
-  Rscript -e 'install.packages(c("EMC2","dplyr","readr","tools"),
-                                repos="https://cloud.r-project.org")'
+  echo ">>> Installing R packages via RSPM pre-compiled binaries (~2 min)..."
+  Rscript -e 'install.packages(
+    c("EMC2","dplyr","readr","tools"),
+    repos      = "https://packagemanager.posit.co/cran/__linux__/jammy/latest",
+    dependencies = c("Depends","Imports","LinkingTo")
+  )'
 
   echo ">>> Cloning repo..."
   if [ ! -d "$REPO_DIR" ]; then
@@ -78,8 +87,11 @@ do_setup() {
 }
 
 # --- run: download inputs, fit one model, sync outputs -----------------------
+# Any arguments after <rds_filename> are forwarded verbatim to fit_extend_cloud.R.
+# Example: ./cloud_setup.sh run 260421_model1.rds --max-tries 3 --step-size 5
 do_run() {
   local rds_name="${1:?usage: run <rds_filename, e.g. 260421_model1.rds>}"
+  shift   # remaining args (if any) forwarded to Rscript below
   cd "$REPO_DIR"
 
   # Resolve cloud copy command and destination prefix upfront so they expand as
@@ -94,15 +106,14 @@ do_run() {
   fi
 
   echo ">>> Downloading inputs from $BUCKET ..."
-  mkdir -p data emc2_models
-  cloud_cp_from "inputs/data/emc2_design_matrix.csv" "data/emc2_design_matrix.csv"
-  cloud_cp_from "inputs/emc2_models/$rds_name"       "emc2_models/$rds_name"
+  mkdir -p emc2_models
+  cloud_cp_from "inputs/emc2_models/$rds_name" "emc2_models/$rds_name"
 
   echo ">>> Launching fit_extend_cloud.R for $rds_name ..."
   # fit_extend_cloud.R reads CP_CMD and DEST_PREFIX from the environment and
   # syncs the .rds + log to durable storage after every try (save_every=1).
   R_LIBS_USER="$R_LIBS_USER" CP_CMD="$CP_CMD" DEST_PREFIX="$DEST_PREFIX" \
-    Rscript R/model_fitting/fit_extend_cloud.R "$rds_name"
+    Rscript R/model_fitting/fit_extend_cloud.R "$rds_name" "$@"
 
   echo ">>> Done. Latest .rds and log are in $BUCKET/results/."
 }

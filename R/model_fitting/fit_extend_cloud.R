@@ -10,6 +10,14 @@
 #'   CP_CMD="aws s3 cp" DEST_PREFIX="s3://my-bucket/results" \
 #'     Rscript R/model_fitting/fit_extend_cloud.R 260421_model1.rds
 #'
+#' Optional overrides (useful for smoke tests - default to MAX_TRIES / STEP_SIZE from config.R):
+#'   --max-tries N   Override MAX_TRIES  (e.g. --max-tries 3)
+#'   --step-size N   Override STEP_SIZE  (e.g. --step-size 5)
+#'
+#' Smoke-test example:
+#'   CP_CMD="aws s3 cp" DEST_PREFIX="s3://my-bucket/results" \
+#'     Rscript R/model_fitting/fit_extend_cloud.R 260421_model1.rds --max-tries 3 --step-size 5
+#'
 #' The hook is a no-op if CP_CMD or DEST_PREFIX are unset, so the script is
 #' also safe to run locally for testing (outputs go to emc2_models/ only).
 #' =============================================================================
@@ -48,23 +56,39 @@ set.seed(RNG_SEED)
 args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 1) {
-  stop("Usage: Rscript fit_extend_cloud.R <rds_filename>\n",
-       "Example: Rscript R/model_fitting/fit_extend_cloud.R 260421_model1.rds")
+  stop("Usage: Rscript fit_extend_cloud.R <rds_filename> [--max-tries N] [--step-size N]\n",
+       "Example: Rscript R/model_fitting/fit_extend_cloud.R 260421_model1.rds\n",
+       "Smoke:   Rscript R/model_fitting/fit_extend_cloud.R 260421_model1.rds --max-tries 3 --step-size 5")
 }
 
 rds_filename <- args[[1]]
-model_log    <- model_log_path(rds_filename)
+
+# Parse optional integer overrides; NULL means "use config.R global"
+.parse_int_arg <- function(args, flag) {
+  idx <- which(args == flag)
+  if (length(idx) > 0L && idx[[1L]] < length(args)) as.integer(args[[idx[[1L]] + 1L]]) else NULL
+}
+max_tries_override <- .parse_int_arg(args, "--max-tries")
+step_size_override <- .parse_int_arg(args, "--step-size")
+
+model_log <- model_log_path(rds_filename)
 
 log_msg(
   sprintf("===== CLOUD EXTEND: %s =====", rds_filename),
   model_log, console_print = TRUE
 )
+if (!is.null(max_tries_override))
+  log_msg(sprintf("Override: --max-tries %d", max_tries_override), model_log, console_print = TRUE)
+if (!is.null(step_size_override))
+  log_msg(sprintf("Override: --step-size %d", step_size_override), model_log, console_print = TRUE)
 
 result <- tryCatch({
   extend_model(
     rds_filename   = rds_filename,
     log_file       = model_log,
     save_every     = 1L,
+    max_tries      = if (!is.null(max_tries_override)) max_tries_override else MAX_TRIES,
+    step_size      = if (!is.null(step_size_override)) step_size_override else STEP_SIZE,
     post_save_hook = .cloud_hook
   )
   "COMPLETE"
