@@ -9,17 +9,8 @@ library(EMC2)
 source("R/config.R")
 source(file.path(CODE_DIR, "analysis", "diagnostics_helpers.R"))
 
-LOG_FILE <- file.path(MODELS_INITIAL_DIR, "log.txt")
-
-
 # ------------------------------
 # Helper Functions
-
-#' helper function to make sure input string are valid
-check_valid_string <- function(s) {
-  !is.null(s) && length(s) == 1 && !is.na(s) && nzchar(s)
-}
-
 
 #' load the latest version of a model from specified directory, or raise an error
 load_model <- function(model_name, dir_path) {
@@ -70,7 +61,7 @@ if (file.exists(diag_file)) {
 } else {
   message("Creating new diagnostics table...")
   # Call the helper from diagnostics_helpers.R
-  DIAG_TABLE <- create_diagnostics_table(MODEL_LIST, LOG_FILE) 
+  DIAG_TABLE <- create_diagnostics_table(MODEL_LIST)
   # store to dist
   if (!dir.exists(RESULTS_DIR)) dir.create(RESULTS_DIR, recursive = TRUE)
   saveRDS(DIAG_TABLE, diag_file)
@@ -84,9 +75,8 @@ if (file.exists(diag_file)) {
 fit_file <- file.path(RESULTS_DIR, "model_comparison_fit.rds")
 if (!file.exists(fit_file)) {
   FIT_TABLE <- create_goodness_of_fit_table(
-    MODEL_LIST, 
-    LOG_FILE, 
-    calc_bayes_factors = FALSE, 
+    MODEL_LIST,
+    calc_bayes_factors = FALSE,
     verbose = FALSE
   )
   saveRDS(FIT_TABLE, fit_file)
