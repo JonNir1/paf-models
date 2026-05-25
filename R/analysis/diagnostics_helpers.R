@@ -6,6 +6,12 @@
 #' `create_diagnostics_table()` returns a unified convergence table for multiple models.
 
 
+#' Validate that x is a non-empty length-1 non-NA string
+check_valid_string <- function(s) {
+  !is.null(s) && length(s) == 1 && !is.na(s) && nzchar(s)
+}
+
+
 #' Create a single table comparing all diagnostic metrics across models and groups
 #' @param model_list A named list of models, e.g., list("model_1" = M1, "model_5" = M5)
 create_diagnostics_table <- function(model_list) {
