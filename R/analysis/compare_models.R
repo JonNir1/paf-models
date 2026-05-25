@@ -55,7 +55,7 @@ load_model <- function(model_name, dir_path) {
 # ------------------------------
 # Load models
 
-MODEL_NAMES <- c("model1", "model2", "model3", "model4", "model5")
+MODEL_NAMES <- c("model1", "model2", "model4", "model5")
 MODEL_LIST <- lapply(MODEL_NAMES, load_model, dir_path = MODELS_EXTEND_DIR)
 names(MODEL_LIST) <- MODEL_NAMES
 
