@@ -106,9 +106,8 @@ do_run() {
   fi
 
   echo ">>> Downloading inputs from $BUCKET ..."
-  mkdir -p data emc2_models/fit_initial emc2_models/fit_extend
-  cloud_cp_from "inputs/data/emc2_design_matrix.csv" "data/emc2_design_matrix.csv"
-  cloud_cp_from "inputs/emc2_models/$rds_name"       "emc2_models/fit_initial/$rds_name"
+  mkdir -p emc2_models/fit_initial emc2_models/fit_extend
+  cloud_cp_from "inputs/emc2_models/$rds_name" "emc2_models/fit_initial/$rds_name"
 
   echo ">>> Launching fit_extend_cloud.R for $rds_name ..."
   # fit_extend_cloud.R reads CP_CMD and DEST_PREFIX from the environment and
