@@ -35,8 +35,8 @@ N_CHAINS <- 3   # MCMC chains per model; baked into the emc object at make_emc()
 INITIAL_FIT_SAMPLES  <- 1000   # iterations run by fit_initial.R
 EXTENDED_FIT_SAMPLES <- 3000L  # extend keeps running until total iters >= this (even if Rhat/ESS met)
 MAX_TRIES <- 20   # number of times to check if "stop criteria" are met
-STEP_SIZE <- 100  # number of iterations between "stop criteria" checks
-SAVE_EVERY <- 2L  # checkpoint every N tries (2 tries x 100 iters = 200-iter checkpoints)
+STEP_SIZE <- 200  # number of iterations between "stop criteria" checks
+SAVE_EVERY <- 2L  # checkpoint every N tries (2 tries x 200 iters = 400-iter checkpoints)
 
 # Asymmetric convergence thresholds applied to $mu and $alpha only.
 # $sigma2 and $correlation are descriptive (not enforced) - see CLAUDE.md "Analysis workflow".
