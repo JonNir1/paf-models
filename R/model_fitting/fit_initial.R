@@ -55,16 +55,16 @@ model_files <- c(
 
 # Execution Loop
 for (script in model_files) {
-  
+
   start_time <- Sys.time()
   log_msg("===========================================", LOG_FILE, console_print = TRUE)
   log_msg(paste("Processing Script:", script), LOG_FILE, console_print = TRUE)
-  
+
   # Source the script to get the build_model() function and MODEL_NAME
   # Wrapped in tryCatch to prevent one broken script from stopping the whole batch
   status <- tryCatch({
-    
-    source(file.path(CODE_DIR, script))
+
+    source(file.path(CODE_DIR, "model_fitting", script))
     log_msg(paste("Model Name:\t", MODEL_NAME), LOG_FILE, console_print = TRUE)
     
     # Generate the EMC2 model object
@@ -99,7 +99,7 @@ for (script in model_files) {
       )
     
     # --- Save Result ---
-    saved_path <- save_model(fitted_model, MODEL_NAME, MODELS_DIR)
+    saved_path <- save_model(fitted_model, MODEL_NAME, MODELS_INITIAL_DIR)
     log_msg(paste("Successfully saved to:", saved_path), LOG_FILE, console_print = TRUE)
     
     "COMPLETE"

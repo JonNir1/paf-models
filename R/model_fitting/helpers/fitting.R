@@ -108,61 +108,66 @@ check_block_convergence <- function(model,
 
 
 # -------------------------
-#' Extend a previously-fit EMC2 model until $mu and $alpha converge.
+#' Extend a previously-fit EMC2 model until $mu and $alpha converge AND a
+#' minimum total sample count is reached.
 #' Self-contained: takes all config as arguments so it is safe to call in
 #' parallel (one process per model on cloud, no shared mutable state).
 #'
-#' @param rds_filename Filename of the .rds model under `models_dir`
-#'        (e.g. "260421_model1.rds")
-#' @param log_file Path to this invocation's detail log file
-#' @param models_dir Directory containing the .rds and where extended model is saved
-#' @param min_num_samples Minimum total iterations after extension
-#' @param max_tries Maximum extension attempts before bailing without full convergence
-#' @param step_size Iterations added per try
-#' @param max_rhat_mu,min_ess_mu Thresholds for $mu block
-#' @param max_rhat_alpha,min_ess_alpha Thresholds for $alpha block
-#' @param save_every NULL (default) or a positive integer. If set, the model is
-#'        saved after every `save_every` tries as an intermediate checkpoint, in
-#'        addition to the always-executed final save. Useful on spot/preemptible
-#'        cloud instances where the process can be killed mid-fit. Must satisfy
-#'        `save_every <= max_tries` (otherwise no intermediate save would ever
-#'        be written) - this is validated upfront before any heavy computation.
-#' @param post_save_hook NULL (default) or a function with signature
-#'        `function(rds_path, log_path)`. Called immediately after every save
-#'        (both intermediate checkpoints and the final save). Both file paths
-#'        are passed so the hook can sync both to durable storage (e.g. S3 or
-#'        GCS). Example: `function(rds, log) for (f in c(rds, log))
-#'        system(paste("aws s3 cp", f, "s3://my-bucket/results/"))`.
-#'        The hook runs synchronously - keep it fast or fire-and-forget the
-#'        upload yourself.
-#' @return A list with the extended model, save path, final diagnostics, and runtime
+#' @param rds_filename    Filename of the .rds to load (basename only).
+#' @param log_file        Path to this invocation's detail log file.
+#' @param source_dir      Directory to load the input .rds from (default:
+#'        MODELS_INITIAL_DIR). For re-extension of an already-extended model,
+#'        pass MODELS_EXTEND_DIR.
+#' @param models_dir      Directory where the extended .rds is saved (default:
+#'        MODELS_EXTEND_DIR).
+#' @param min_num_samples Iteration count already in the loaded model (used to
+#'        compute total iterations for the min_total_samples check). Should
+#'        match the model's actual chain length; defaults to MIN_NUM_SAMPLES.
+#' @param min_total_samples Minimum total iterations (initial + added) before
+#'        the convergence exit is allowed. Extension continues even after
+#'        Rhat/ESS criteria are met until this floor is reached.
+#' @param max_tries       Maximum extension attempts before bailing.
+#' @param step_size       Iterations added per try.
+#' @param max_rhat_mu,min_ess_mu     Thresholds for the $mu block.
+#' @param max_rhat_alpha,min_ess_alpha Thresholds for the $alpha block.
+#' @param save_every      Checkpoint every N tries (in addition to the final
+#'        save). Must satisfy save_every <= max_tries.
+#' @param post_save_hook  NULL or function(rds_path, log_path) called after
+#'        every save; use for S3/GCS sync on cloud instances.
+#' @return A list with the extended model, save path, final diagnostics, and runtime.
 extend_model <- function(rds_filename,
                          log_file,
-                         models_dir       = MODELS_DIR,
-                         min_num_samples  = MIN_NUM_SAMPLES,
-                         max_tries        = MAX_TRIES,
-                         step_size        = STEP_SIZE,
-                         max_rhat_mu      = MAX_RHAT_MU,
-                         min_ess_mu       = MIN_ESS_MU,
-                         max_rhat_alpha   = MAX_RHAT_ALPHA,
-                         min_ess_alpha    = MIN_ESS_ALPHA,
-                         save_every       = NULL,
-                         post_save_hook   = NULL) {
+                         source_dir        = MODELS_INITIAL_DIR,
+                         models_dir        = MODELS_EXTEND_DIR,
+                         min_num_samples   = MIN_NUM_SAMPLES,
+                         min_total_samples = MIN_TOTAL_SAMPLES,
+                         max_tries         = MAX_TRIES,
+                         step_size         = STEP_SIZE,
+                         max_rhat_mu       = MAX_RHAT_MU,
+                         min_ess_mu        = MIN_ESS_MU,
+                         max_rhat_alpha    = MAX_RHAT_ALPHA,
+                         min_ess_alpha     = MIN_ESS_ALPHA,
+                         save_every        = SAVE_EVERY,
+                         post_save_hook    = NULL) {
   start_time <- Sys.time()
 
   # Validate inputs BEFORE any heavy work so users learn about misconfigs
   # within milliseconds, not hours into an MCMC fit.
-  if (!is.null(save_every)) {
-    if (!is.numeric(save_every) || length(save_every) != 1 ||
-        save_every < 1 || save_every != round(save_every)) {
-      stop("save_every must be a positive integer or NULL.")
-    }
-    if (save_every > max_tries) {
-      stop(sprintf(
-        "save_every (%d) > max_tries (%d): no intermediate checkpoint would ever be written. Set save_every <= max_tries.",
-        save_every, max_tries
-      ))
-    }
+  if (!is.numeric(save_every) || length(save_every) != 1 ||
+      save_every < 1 || save_every != round(save_every)) {
+    stop("save_every must be a positive integer.")
+  }
+  if (save_every > max_tries) {
+    stop(sprintf(
+      "save_every (%d) > max_tries (%d): no intermediate checkpoint would ever be written. Set save_every <= max_tries.",
+      save_every, max_tries
+    ))
+  }
+  if (min_total_samples < min_num_samples) {
+    stop(sprintf(
+      "min_total_samples (%d) < min_num_samples (%d): nothing to extend.",
+      min_total_samples, min_num_samples
+    ))
   }
   if (!is.null(post_save_hook) && !is.function(post_save_hook)) {
     stop("post_save_hook must be a function or NULL.")
@@ -172,7 +177,7 @@ extend_model <- function(rds_filename,
   cat("", file = log_file, append = FALSE)
 
   # --- Load ---
-  full_path <- file.path(models_dir, rds_filename)
+  full_path <- file.path(source_dir, rds_filename)
   log_msg(sprintf("Loading model from %s", full_path), log_file, console_print = TRUE)
   model <- readRDS(full_path)
 
@@ -202,8 +207,8 @@ extend_model <- function(rds_filename,
   run_date <- format(Sys.Date(), "%y%m%d")
 
   log_msg(sprintf(
-    "Extension targets: mu(Rhat<%.2f, ESS>%d) | alpha(Rhat<%.2f, ESS>%d) | step_size=%d | max_tries=%d",
-    max_rhat_mu, min_ess_mu, max_rhat_alpha, min_ess_alpha, step_size, max_tries
+    "Extension targets: mu(Rhat<%.2f, ESS>%d) | alpha(Rhat<%.2f, ESS>%d) | step_size=%d | max_tries=%d | min_total_samples=%d",
+    max_rhat_mu, min_ess_mu, max_rhat_alpha, min_ess_alpha, step_size, max_tries, min_total_samples
   ), log_file, console_print = TRUE)
 
   # --- Custom asymmetric extension loop ---
@@ -261,10 +266,9 @@ extend_model <- function(rds_filename,
       ifelse(cv$alpha_converged, "OK", "WAIT")
     ), log_file, console_print = TRUE)
 
-    # Intermediate checkpoint, if requested. Protects against spot-instance
-    # preemption: if the instance dies after this save, on resume we lose at
-    # most `save_every * step_size` iterations of work.
-    if (!is.null(save_every) && (try_idx %% save_every == 0L)) {
+    # Intermediate checkpoint every `save_every` tries. Protects against
+    # spot-instance preemption: worst-case data loss = save_every * step_size iters.
+    if (try_idx %% save_every == 0L) {
       saved_path <- save_model(model, ext_model_name, models_dir,
                                date_prefix = run_date)
       log_msg(sprintf("Checkpoint after try %d: %s", try_idx, saved_path),
@@ -272,11 +276,23 @@ extend_model <- function(rds_filename,
       if (!is.null(post_save_hook)) post_save_hook(saved_path, log_file)
     }
 
-    if (cv$converged) {
+    # Exit only when BOTH conditions are satisfied:
+    #   (1) Rhat/ESS convergence criteria are met for $mu and $alpha
+    #   (2) Total iterations (initial + added this run) >= min_total_samples
+    iters_added      <- try_idx * step_size
+    total_iters      <- min_num_samples + iters_added
+    sample_floor_met <- total_iters >= min_total_samples
+
+    if (cv$converged && sample_floor_met) {
       converged <- TRUE
-      log_msg(sprintf("Converged after %d tries.", try_idx),
+      log_msg(sprintf("Converged after %d tries (~%d total iterations).",
+                      try_idx, total_iters),
               log_file, console_print = TRUE)
       break
+    } else if (cv$converged && !sample_floor_met) {
+      log_msg(sprintf("  Rhat/ESS criteria met but continuing: ~%d / %d total iterations required.",
+                      total_iters, min_total_samples),
+              log_file, console_print = TRUE)
     }
   }
 
@@ -315,10 +331,10 @@ extend_model <- function(rds_filename,
 
 
 # -------------------------
-#' Build a per-model log file path under `MODELS_DIR`.
+#' Build a per-model log file path under MODELS_EXTEND_DIR.
 #' Each fit_extend invocation writes to its own log to avoid interleaving when
 #' running multiple instances in parallel (one process per model).
-model_log_path <- function(rds_filename, models_dir = MODELS_DIR) {
+model_log_path <- function(rds_filename, models_dir = MODELS_EXTEND_DIR) {
   base <- tools::file_path_sans_ext(rds_filename)
   file.path(models_dir, paste0("log_extend_", base, ".txt"))
 }

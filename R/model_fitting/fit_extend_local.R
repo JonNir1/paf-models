@@ -49,7 +49,7 @@ run_sequential <- "--sequential" %in% args
 max_parallel <- if (run_sequential) 1L else
   min(2L, floor(parallel::detectCores() / N_CHAINS))
 
-batch_log <- file.path(MODELS_DIR, "log_extend_batch.txt")
+batch_log <- file.path(MODELS_EXTEND_DIR, "log_extend_batch.txt")
 cat("", file = batch_log, append = FALSE)  # truncate any prior batch log
 log_msg("===== LOCAL EXTEND SESSION START =====", batch_log, console_print = TRUE)
 log_msg(
@@ -80,7 +80,7 @@ log_msg(
   }
   log_file <- model_log_path(rds_filename)
   tryCatch(
-    extend_model(rds_filename, log_file = log_file, save_every = 1L),
+    extend_model(rds_filename, log_file = log_file),
     error = function(e) {
       if (exists("log_error", mode = "function")) {
         log_error(e, log_file, context = sprintf("extend_model('%s')", rds_filename))
@@ -143,7 +143,7 @@ if (max_parallel >= 2) {
     log_msg(sprintf("===== EXTEND: %s =====", mf), model_log, console_print = TRUE)
 
     status <- tryCatch({
-      extend_model(mf, log_file = model_log, save_every = 1L)
+      extend_model(mf, log_file = model_log)
       "COMPLETE"
     }, error = function(e) {
       log_error(e, model_log, context = sprintf("extend_model('%s')", mf))

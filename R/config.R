@@ -13,8 +13,10 @@ RESULTS_DIR <- "Results"
 DATA_DIR <- "data"
 DATA_FILE <- file.path(DATA_DIR, "emc2_design_matrix.csv")
 
-MODELS_DIR <- "emc2_models"
-LOG_FILE <- file.path(MODELS_DIR, "log.txt")
+MODELS_DIR         <- "emc2_models"
+MODELS_INITIAL_DIR <- file.path(MODELS_DIR, "fit_initial")   # output of fit_initial.R
+MODELS_EXTEND_DIR  <- file.path(MODELS_DIR, "fit_extend")    # output of fit_extend_*.R
+LOG_FILE <- file.path(MODELS_INITIAL_DIR, "log.txt")
 
 CONFIG_FILE <- file.path(CODE_DIR, "config.R")  # used by log_config_variables()
 
@@ -31,9 +33,11 @@ N_CHAINS <- 3   # MCMC chains per model; baked into the emc object at make_emc()
                 # runtime by get_core_args() in helpers.R — no manual core config needed.
 
 # criteria for stopping the "sample" stage of model-fitting
-MIN_NUM_SAMPLES <- 1000
+MIN_NUM_SAMPLES   <- 1000   # iterations run by fit_initial.R
+MIN_TOTAL_SAMPLES <- 3000L  # extend keeps running until total iters >= this (even if Rhat/ESS met)
 MAX_TRIES <- 20   # number of times to check if "stop criteria" are met
 STEP_SIZE <- 100  # number of iterations between "stop criteria" checks
+SAVE_EVERY <- 2L  # checkpoint every N tries (2 tries x 100 iters = 200-iter checkpoints)
 
 # Asymmetric convergence thresholds applied to $mu and $alpha only.
 # $sigma2 and $correlation are descriptive (not enforced) - see CLAUDE.md "Analysis workflow".

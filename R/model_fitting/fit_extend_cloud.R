@@ -86,7 +86,6 @@ result <- tryCatch({
   extend_model(
     rds_filename   = rds_filename,
     log_file       = model_log,
-    save_every     = 1L,
     max_tries      = if (!is.null(max_tries_override)) max_tries_override else MAX_TRIES,
     step_size      = if (!is.null(step_size_override)) step_size_override else STEP_SIZE,
     post_save_hook = .cloud_hook
