@@ -32,8 +32,8 @@ N_CHAINS <- 3   # MCMC chains per model; baked into the emc object at make_emc()
                 # runtime by get_core_args() in helpers.R — no manual core config needed.
 
 # criteria for stopping the "sample" stage of model-fitting
-MIN_NUM_SAMPLES   <- 1000   # iterations run by fit_initial.R
-MIN_TOTAL_SAMPLES <- 3000L  # extend keeps running until total iters >= this (even if Rhat/ESS met)
+INITIAL_FIT_SAMPLES  <- 1000   # iterations run by fit_initial.R
+EXTENDED_FIT_SAMPLES <- 3000L  # extend keeps running until total iters >= this (even if Rhat/ESS met)
 MAX_TRIES <- 20   # number of times to check if "stop criteria" are met
 STEP_SIZE <- 100  # number of iterations between "stop criteria" checks
 SAVE_EVERY <- 2L  # checkpoint every N tries (2 tries x 100 iters = 200-iter checkpoints)

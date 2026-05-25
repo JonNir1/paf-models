@@ -108,6 +108,22 @@ check_block_convergence <- function(model,
 
 
 # -------------------------
+#' Read the number of sampling iterations stored in an EMC2 model.
+#' EMC2 stores samples in model[[chain]]$samples$theta_mu as a 3-D array
+#' [n_pars x 1 x n_iter]; the last dimension is the iteration count.
+#' Fails loudly if the expected structure is absent (e.g. wrong object type).
+.get_n_iter <- function(model) {
+  d <- tryCatch(dim(model[[1L]]$samples$theta_mu), error = function(e) NULL)
+  if (!is.null(d) && length(d) >= 1L)
+    return(as.integer(d[length(d)]))
+  stop(paste0(
+    "Cannot determine iteration count from model[[1]]$samples$theta_mu. ",
+    "Verify the model was produced by EMC2::fit() or run_emc()."
+  ))
+}
+
+
+# -------------------------
 #' Extend a previously-fit EMC2 model until $mu and $alpha converge AND a
 #' minimum total sample count is reached.
 #' Self-contained: takes all config as arguments so it is safe to call in
@@ -120,12 +136,10 @@ check_block_convergence <- function(model,
 #'        pass MODELS_EXTEND_DIR.
 #' @param models_dir      Directory where the extended .rds is saved (default:
 #'        MODELS_EXTEND_DIR).
-#' @param min_num_samples Iteration count already in the loaded model (used to
-#'        compute total iterations for the min_total_samples check). Should
-#'        match the model's actual chain length; defaults to MIN_NUM_SAMPLES.
-#' @param min_total_samples Minimum total iterations (initial + added) before
-#'        the convergence exit is allowed. Extension continues even after
-#'        Rhat/ESS criteria are met until this floor is reached.
+#' @param extended_fit_samples Minimum total iterations before the convergence
+#'        exit is allowed. The actual starting count is read from the model
+#'        object at load time; extension continues until both Rhat/ESS criteria
+#'        are met AND total iterations >= this value.
 #' @param max_tries       Maximum extension attempts before bailing.
 #' @param step_size       Iterations added per try.
 #' @param max_rhat_mu,min_ess_mu     Thresholds for the $mu block.
@@ -137,11 +151,10 @@ check_block_convergence <- function(model,
 #' @return A list with the extended model, save path, final diagnostics, and runtime.
 extend_model <- function(rds_filename,
                          log_file,
-                         source_dir        = MODELS_INITIAL_DIR,
-                         models_dir        = MODELS_EXTEND_DIR,
-                         min_num_samples   = MIN_NUM_SAMPLES,
-                         min_total_samples = MIN_TOTAL_SAMPLES,
-                         max_tries         = MAX_TRIES,
+                         source_dir           = MODELS_INITIAL_DIR,
+                         models_dir           = MODELS_EXTEND_DIR,
+                         extended_fit_samples = EXTENDED_FIT_SAMPLES,
+                         max_tries            = MAX_TRIES,
                          step_size         = STEP_SIZE,
                          max_rhat_mu       = MAX_RHAT_MU,
                          min_ess_mu        = MIN_ESS_MU,
@@ -163,11 +176,9 @@ extend_model <- function(rds_filename,
       save_every, max_tries
     ))
   }
-  if (min_total_samples < min_num_samples) {
-    stop(sprintf(
-      "min_total_samples (%d) < min_num_samples (%d): nothing to extend.",
-      min_total_samples, min_num_samples
-    ))
+  if (!is.numeric(extended_fit_samples) || length(extended_fit_samples) != 1 ||
+      extended_fit_samples < 1 || extended_fit_samples != round(extended_fit_samples)) {
+    stop("extended_fit_samples must be a positive integer.")
   }
   if (!is.null(post_save_hook) && !is.function(post_save_hook)) {
     stop("post_save_hook must be a function or NULL.")
@@ -183,12 +194,19 @@ extend_model <- function(rds_filename,
 
   # n_chains is fixed by the emc object (list-of-chains at top level; cannot be
   # changed after make_emc()). Derive parallelism from machine at runtime.
-  n_chains  <- length(model)
-  core_args <- get_core_args(n_chains)
+  n_chains     <- length(model)
+  core_args    <- get_core_args(n_chains)
+  n_iter_start <- .get_n_iter(model)
   log_msg(
     sprintf("Core config: n_chains=%d, cores_for_chains=%d, cores_per_chain=%d (machine has %d cores)",
             n_chains, core_args$cores_for_chains, core_args$cores_per_chain,
             parallel::detectCores()),
+    log_file, console_print = TRUE
+  )
+  log_msg(
+    sprintf("Model has %d iterations; sample floor is %d (need %d more).",
+            n_iter_start, extended_fit_samples,
+            max(0L, extended_fit_samples - n_iter_start)),
     log_file, console_print = TRUE
   )
 
@@ -207,8 +225,8 @@ extend_model <- function(rds_filename,
   run_date <- format(Sys.Date(), "%y%m%d")
 
   log_msg(sprintf(
-    "Extension targets: mu(Rhat<%.2f, ESS>%d) | alpha(Rhat<%.2f, ESS>%d) | step_size=%d | max_tries=%d | min_total_samples=%d",
-    max_rhat_mu, min_ess_mu, max_rhat_alpha, min_ess_alpha, step_size, max_tries, min_total_samples
+    "Extension targets: mu(Rhat<%.2f, ESS>%d) | alpha(Rhat<%.2f, ESS>%d) | step_size=%d | max_tries=%d | extended_fit_samples=%d",
+    max_rhat_mu, min_ess_mu, max_rhat_alpha, min_ess_alpha, step_size, max_tries, extended_fit_samples
   ), log_file, console_print = TRUE)
 
   # --- Custom asymmetric extension loop ---
@@ -278,20 +296,19 @@ extend_model <- function(rds_filename,
 
     # Exit only when BOTH conditions are satisfied:
     #   (1) Rhat/ESS convergence criteria are met for $mu and $alpha
-    #   (2) Total iterations (initial + added this run) >= min_total_samples
-    iters_added      <- try_idx * step_size
-    total_iters      <- min_num_samples + iters_added
-    sample_floor_met <- total_iters >= min_total_samples
+    #   (2) Total iterations (from model load + added this run) >= extended_fit_samples
+    total_iters      <- n_iter_start + try_idx * step_size
+    sample_floor_met <- total_iters >= extended_fit_samples
 
     if (cv$converged && sample_floor_met) {
       converged <- TRUE
-      log_msg(sprintf("Converged after %d tries (~%d total iterations).",
+      log_msg(sprintf("Converged after %d tries (%d total iterations).",
                       try_idx, total_iters),
               log_file, console_print = TRUE)
       break
     } else if (cv$converged && !sample_floor_met) {
-      log_msg(sprintf("  Rhat/ESS criteria met but continuing: ~%d / %d total iterations required.",
-                      total_iters, min_total_samples),
+      log_msg(sprintf("  Rhat/ESS criteria met but continuing: %d / %d total iterations reached.",
+                      total_iters, extended_fit_samples),
               log_file, console_print = TRUE)
     }
   }

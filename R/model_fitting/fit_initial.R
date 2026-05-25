@@ -96,7 +96,7 @@ for (script in model_files) {
       current_model,
       cores_for_chains = core_args$cores_for_chains,
       cores_per_chain  = core_args$cores_per_chain,
-      iter=MIN_NUM_SAMPLES,                 # used in prod
+      iter=INITIAL_FIT_SAMPLES,             # used in prod
       # iter=5, max_tries=2, step_size=10,    # used for testing the pipeline
       )
     

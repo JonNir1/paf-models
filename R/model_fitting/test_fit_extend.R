@@ -27,7 +27,7 @@ result <- extend_model(
   log_file       = "emc2_models/log_test_smoke.txt",
   max_tries      = 2,                           # tiny - 2 extension attempts
   step_size      = 5                            # tiny - 5 iterations per attempt
-  # other args (thresholds, MIN_NUM_SAMPLES) default to globals from config.R
+  # other args (thresholds, EXTENDED_FIT_SAMPLES) default to globals from config.R
   # parallelism is auto-detected by get_core_args() inside extend_model()
 )
 
