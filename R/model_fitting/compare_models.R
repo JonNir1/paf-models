@@ -7,7 +7,7 @@ library(tools)
 library(EMC2)
 
 source("R/config.R")
-source(file.path(CODE_DIR, "analysis", "diagnostics_helpers.R"))
+source(file.path(CODE_DIR, "model_fitting", "diagnostics_helpers.R"))
 
 # ------------------------------
 # Helper Functions

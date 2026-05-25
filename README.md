@@ -47,14 +47,14 @@ paf-models/
 |   |   |- cloud_setup.sh        # Bootstrap script for cloud VMs (install R, clone repo, run)
 |   |   |- examine_model.R       # Interactive: inspect a single fitted model
 |   |   |- test_fit_extend.R     # Local smoke test for the extension pipeline
+|   |   |- compare_models.R      # Diagnostics + GoF comparison across all models
+|   |   |- diagnostics_helpers.R # Helper functions for convergence and fit summaries
 |   |   |- helpers/
 |   |       |- logging.R         # Timestamped logging, error reporting
 |   |       |- data.R            # CSV loading, RT filtering, EMC2 factor closures
 |   |       |- build_model.R     # build_lba_model() factory (shared boilerplate for all models)
 |   |       |- fitting.R         # get_core_args(), save_model(), check_block_convergence(), extend_model()
-|   |- analysis/
-|       |- compare_models.R      # Diagnostics + GoF comparison across all models
-|       |- diagnostics_helpers.R # Helper functions for convergence and fit summaries
+|   |- analysis/                 # (empty - scripts moved to model_fitting/)
 |
 |- __tests__/
 |   |- run_tests.R               # Entry point; gated by TEST_LEVEL env var (1/2/3)
@@ -93,7 +93,7 @@ Rscript R/model_fitting/fit_extend_local.R              # parallel if cores allo
 Rscript R/model_fitting/fit_extend_local.R --sequential # force sequential
 
 # Analysis
-source("R/analysis/compare_models.R")      # GoF comparison across all models
+source("R/model_fitting/compare_models.R") # GoF comparison across all models
 source("R/model_fitting/examine_model.R")  # inspect a single model
 
 # Tests
