@@ -25,7 +25,7 @@ python playground.py       # regenerates data/emc2_design_matrix.csv
 
 R (modeling pipeline; from a fresh R session at repo root):
 ```
-Rscript R/model_fitting/fit_initial.R                        # full batch: fit model1..model5 for MIN_NUM_SAMPLES iterations
+Rscript R/model_fitting/fit_initial.R                        # full batch: fit model1..model5 for INITIAL_FIT_SAMPLES iterations
 Rscript R/model_fitting/fit_extend_local.R                   # extend locally (2 models in parallel if cores allow)
 Rscript R/model_fitting/fit_extend_local.R --sequential      # extend locally, force sequential
 Rscript R/model_fitting/fit_extend_cloud.R <rds_filename>    # single-model cloud extend (called by cloud_setup.sh)
@@ -46,7 +46,7 @@ CI (GitHub Actions):
 - `use-public-rspm: true` serves pre-compiled Linux binaries; EMC2 installs in ~2 min instead of compiling from source.
 - Package caches are keyed on `.github/r-deps-level1.txt` / `r-deps-level2.txt` and auto-invalidate when the dep list changes.
 
-`fit_extend.R` reads a **hardcoded list of `.rds` filenames** at the top of the file (`model_files <- c("YYMMDD_model1.rds", ...)`). Edit that list before running.
+`fit_extend_local.R` reads a **hardcoded list of `.rds` filenames** at the top of the file (`model_files <- c("YYMMDD_model1.rds", ...)`). Edit that list before running.
 
 ## Data handoff (Python -> R)
 
@@ -60,14 +60,15 @@ The Python and R sides communicate through one file:
 
 ## Architecture
 
-- **`R/config.R`** is the single source of truth for: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), `N_CHAINS = 3` (MCMC chains baked into each model at `make_emc()` time; cannot be changed after fitting), asymmetric convergence criteria for `fit_extend.R` (`MIN_NUM_SAMPLES = 1000`, `MAX_TRIES = 20`, `STEP_SIZE = 100`, plus per-block `MAX_RHAT_MU`/`MIN_ESS_MU` and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`), every prior (`V_*`, `B_*`, `A_*`, `T0_*`, `SV_*`), and the `CONSTANTS = c(sv = log(1))` identifiability anchor. Changing a prior here propagates to all 5 models. Parallelism (`cores_for_chains`, `cores_per_chain`) is auto-detected at runtime by `get_core_args()` in `helpers/fitting.R` — no manual core config is needed.
+- **`R/config.R`** is the single source of truth for: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), `N_CHAINS = 3` (MCMC chains baked into each model at `make_emc()` time; cannot be changed after fitting), fitting params (`INITIAL_FIT_SAMPLES = 1000`, `EXTENDED_FIT_SAMPLES = 3000`, `MAX_TRIES = 20`, `STEP_SIZE = 100`, `SAVE_EVERY = 2`) plus per-block convergence thresholds (`MAX_RHAT_MU`/`MIN_ESS_MU` and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`), every prior (`V_*`, `B_*`, `A_*`, `T0_*`, `SV_*`), and the `CONSTANTS = c(sv = log(1))` identifiability anchor. Changing a prior here propagates to all 5 models. Parallelism (`cores_for_chains`, `cores_per_chain`) is auto-detected at runtime by `get_core_args()` in `helpers/fitting.R` — no manual core config is needed.
 - **Output locations** (also from `config.R`):
-  - `MODELS_DIR = "emc2_models"` (repo-root level, *not* inside `Results/`) holds fitted `.rds` files named `YYMMDD_<MODEL_NAME>.rds`.
-  - `LOG_FILE = "emc2_models/log.txt"` is the append-only batch log; each model run is bracketed by timestamped `COMPLETE` / `FAILED` markers.
+  - `MODELS_INITIAL_DIR = "emc2_models/fit_initial"` holds `.rds` files from `fit_initial.R`, named `YYMMDD_<MODEL_NAME>.rds`.
+  - `MODELS_EXTEND_DIR = "emc2_models/fit_extend"` holds `.rds` files from `fit_extend_*.R`.
+  - `LOG_FILE` is **not** in `config.R`; each script derives it locally (e.g. `file.path(MODELS_INITIAL_DIR, "log.txt")`). `fit_initial.R` writes to `emc2_models/fit_initial/log.txt`; `fit_extend_*.R` writes per-model logs to `emc2_models/fit_extend/log_extend_<name>.txt`.
   - `RESULTS_DIR = "Results"` holds the comparison RDS files (`model_comparison_diagnostics.rds`, `model_comparison_fit.rds`).
 - **Model family**: five nested LBA variants (`R/model_fitting/model1.R` .. `model5.R`) differing in the formulas for drift rate `v`, threshold `B`, and between-trial variability `sv`. Each script defines `MODEL_NAME` and a thin `build_model(data, n_chains = 3)` that delegates to `build_lba_model()` in `helpers.R`. `build_lba_model()` owns all shared boilerplate (base priors, `design()`, `prior()`, `make_emc()`); each model passes only its `v_formula`, `B_formula`, and any extra prior entries. To add a new variant, copy `model1.R` and adjust those three arguments.
 - **Two-phase fitting**:
-  - `R/model_fitting/fit_initial.R` loads data once, then `tryCatch`-wraps each `modelN.R` in turn and fits each for exactly `MIN_NUM_SAMPLES` (1000) iterations. **A model failing does not abort the batch** - check `log.txt`, not just the R console, to know whether everything finished.
+  - `R/model_fitting/fit_initial.R` loads data once, then `tryCatch`-wraps each `modelN.R` in turn and fits each for exactly `INITIAL_FIT_SAMPLES` (1000) iterations. **A model failing does not abort the batch** - check `log.txt`, not just the R console, to know whether everything finished.
   - `R/model_fitting/fit_extend_local.R` resumes previously-fit `.rds` files locally, running two models in parallel when the machine has enough cores (`>= 2 * N_CHAINS`), otherwise sequentially. Pass `--sequential` to force sequential mode. Each invocation writes to its own per-model log (`emc2_models/log_extend_<name>.txt`).
   - `R/model_fitting/fit_extend_cloud.R` extends a single model on a cloud VM (one process per machine). Reads `CP_CMD` and `DEST_PREFIX` from the environment and syncs the `.rds` + log to S3/GCS after every try. Called by `cloud_setup.sh do_run`.
   - Convergence is checked by `check_block_convergence()` in `R/model_fitting/helpers/fitting.R` using `EMC2::check()` to extract per-parameter Rhat and ESS, then applying `MAX_RHAT_MU`/`MIN_ESS_MU` to the `$mu` block and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA` to the pooled `$alpha` block. EMC2's built-in `stop_criteria` is bypassed because it cannot apply different thresholds per block.
@@ -145,7 +146,7 @@ This is implemented in `check_block_convergence()` in `helpers/fitting.R`: `stop
 ## Gotchas
 
 - Running an R script with the wrong cwd silently fails on the first `source("R/config.R")`. Always start from the repo root.
-- Per-model failures are caught by `tryCatch` in `fit_initial.R` so the batch keeps going. Treat `emc2_models/log.txt` as authoritative for run status, not stdout.
+- Per-model failures are caught by `tryCatch` in `fit_initial.R` so the batch keeps going. Treat `emc2_models/fit_initial/log.txt` as authoritative for run status, not stdout.
 - `CONSTANTS = c(sv = log(1))` in `config.R` is an **identifiability anchor** for the LBA. Removing or changing it will silently make the model non-identifiable.
 - Dependencies are not pinned in any manifest. Python imports observed: `pandas`, `numpy`, `hssm`, `pymc`, `pytensor`, `pylater`, `pyddm`, `matplotlib`. R: `EMC2`, `dplyr`, `readr`, `tools`.
 - Avoid the em-dash (-) in any text destined for academic outputs; use `-` or en-dash (–) instead. This is a per-user writing rule.

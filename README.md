@@ -73,6 +73,8 @@ paf-models/
 |
 |- data/                         # gitignored - must be supplied locally
 |- emc2_models/                  # gitignored - fitted .rds files + logs land here
+|   |- fit_initial/              #   output of fit_initial.R (1000-sample fits + log.txt)
+|   |- fit_extend/               #   output of fit_extend_*.R (extended fits + per-model logs)
 |- Results/                      # gitignored - model comparison outputs
 |- docs/                         # Meeting slides, articles, model specs (reference only)
 |- __exploratory/                # Superseded code kept for reference - do not modify
