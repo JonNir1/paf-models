@@ -11,14 +11,16 @@
 #'     Rscript R/model_fitting/fit_extend_cloud.R 260421_model1.rds
 #'
 #' Optional overrides (useful for smoke tests - default to config.R globals):
-#'   --max-tries N   Override MAX_TRIES   (e.g. --max-tries 3)
-#'   --step-size N   Override STEP_SIZE   (e.g. --step-size 5)
-#'   --save-every N  Override SAVE_EVERY  (e.g. --save-every 1)
+#'   --max-tries N    Override MAX_TRIES   (e.g. --max-tries 3)
+#'   --step-size N    Override STEP_SIZE   (e.g. --step-size 5)
+#'   --save-every N   Override SAVE_EVERY  (e.g. --save-every 1)
+#'   --suffix STR     Append STR to output .rds and log filenames
+#'                    (e.g. --suffix _smoke_test)
 #'
 #' Smoke-test example (checkpoint every try, 3 tries of 5 iterations):
 #'   CP_CMD="aws s3 cp" DEST_PREFIX="s3://my-bucket/results" \
 #'     Rscript R/model_fitting/fit_extend_cloud.R 260421_model1.rds \
-#'       --max-tries 3 --step-size 5 --save-every 1
+#'       --max-tries 3 --step-size 5 --save-every 1 --suffix _smoke_test
 #'
 #' The hook is a no-op if CP_CMD or DEST_PREFIX are unset, so the script is
 #' also safe to run locally for testing (outputs go to emc2_models/ only).
@@ -65,27 +67,40 @@ if (length(args) < 1) {
 
 rds_filename <- args[[1]]
 
-# Parse optional integer overrides; NULL means "use config.R global"
+# Parse optional overrides; NULL means "use config.R global"
 .parse_int_arg <- function(args, flag) {
   idx <- which(args == flag)
   if (length(idx) > 0L && idx[[1L]] < length(args)) as.integer(args[[idx[[1L]] + 1L]]) else NULL
 }
+.parse_str_arg <- function(args, flag) {
+  idx <- which(args == flag)
+  if (length(idx) > 0L && idx[[1L]] < length(args)) args[[idx[[1L]] + 1L]] else NULL
+}
 max_tries_override  <- .parse_int_arg(args, "--max-tries")
 step_size_override  <- .parse_int_arg(args, "--step-size")
 save_every_override <- .parse_int_arg(args, "--save-every")
+suffix_override     <- .parse_str_arg(args, "--suffix")
 
-model_log <- model_log_path(rds_filename)
+# Inject suffix into log filename so smoke-test logs are distinguishable
+model_log <- if (!is.null(suffix_override)) {
+  base <- tools::file_path_sans_ext(model_log_path(rds_filename))
+  paste0(base, suffix_override, ".txt")
+} else {
+  model_log_path(rds_filename)
+}
 
 log_msg(
   sprintf("===== CLOUD EXTEND: %s =====", rds_filename),
   model_log, console_print = TRUE
 )
 if (!is.null(max_tries_override))
-  log_msg(sprintf("Override: --max-tries %d",  max_tries_override),  model_log, console_print = TRUE)
+  log_msg(sprintf("Override: --max-tries %d",   max_tries_override),  model_log, console_print = TRUE)
 if (!is.null(step_size_override))
-  log_msg(sprintf("Override: --step-size %d",  step_size_override),  model_log, console_print = TRUE)
+  log_msg(sprintf("Override: --step-size %d",   step_size_override),  model_log, console_print = TRUE)
 if (!is.null(save_every_override))
-  log_msg(sprintf("Override: --save-every %d", save_every_override), model_log, console_print = TRUE)
+  log_msg(sprintf("Override: --save-every %d",  save_every_override), model_log, console_print = TRUE)
+if (!is.null(suffix_override))
+  log_msg(sprintf("Override: --suffix %s",       suffix_override),     model_log, console_print = TRUE)
 
 result <- tryCatch({
   extend_model(
@@ -94,6 +109,7 @@ result <- tryCatch({
     max_tries      = if (!is.null(max_tries_override))  max_tries_override  else MAX_TRIES,
     step_size      = if (!is.null(step_size_override))  step_size_override  else STEP_SIZE,
     save_every     = if (!is.null(save_every_override)) save_every_override else SAVE_EVERY,
+    name_suffix    = if (!is.null(suffix_override))     suffix_override     else "",
     post_save_hook = .cloud_hook
   )
   "COMPLETE"

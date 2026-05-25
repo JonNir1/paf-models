@@ -161,6 +161,7 @@ extend_model <- function(rds_filename,
                          max_rhat_alpha    = MAX_RHAT_ALPHA,
                          min_ess_alpha     = MIN_ESS_ALPHA,
                          save_every        = SAVE_EVERY,
+                         name_suffix       = "",
                          post_save_hook    = NULL) {
   start_time <- Sys.time()
 
@@ -217,7 +218,7 @@ extend_model <- function(rds_filename,
   #   260513_model1_extended_extended.rds  -> model1   (legacy double; also healed)
   orig_model_name <- sub("^[0-9]{6}_",     "", tools::file_path_sans_ext(rds_filename))
   orig_model_name <- sub("(_extended)+$",  "", orig_model_name)
-  ext_model_name  <- paste0(orig_model_name, "_extended")
+  ext_model_name  <- paste0(orig_model_name, "_extended", name_suffix)
 
   # Pin the date prefix at function entry so all intermediate + final saves
   # land in the SAME file even if the run crosses midnight. Without this, a
