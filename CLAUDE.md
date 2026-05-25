@@ -84,9 +84,9 @@ The research pipeline runs in numbered stages. Steps marked `X.9` (and one `2.4`
 | 0a | PAF predictions pre-registered (notes/paper) | DONE |
 | 0b | Pre-hoc exclusion: RT cutoffs (0.23-1.0 s) only; no further subject filter | DONE |
 | 1 | `fit_initial.R`: 1000 samples per model | DONE |
-| 2 | `fit_extend_local.R` with asymmetric convergence target (see below). Runs 2 models in parallel locally. | NEXT |
-| **2.4** | **Claude-only sanity check**: flag models with severe non-convergence (`$mu` Rhat > 1.1 or ESS < 200). If flagged, ping user before launching 2.5. | |
-| 2.5 | Parameter recovery: 3 sims × 4 models, parallel cloud, post-extend posterior means as ground truth. | |
+| 2 | `fit_extend_local.R` with asymmetric convergence target (see below). All models run to 3000 total iterations. | DONE |
+| **2.4** | **Claude-only sanity check**: flag models with severe non-convergence (`$mu` Rhat > 1.1 or ESS < 200). No hard flags triggered. Models 4 and 5 show marginal convergence (soft flags for 2.9 trace-plot review). Model 3 excluded from all further analyses (mechanistically identical to model 4 but less interpretable). Active set: models 1, 2, 4, 5. | DONE |
+| 2.5 | Parameter recovery: 3 sims × 4 models (1,2,4,5), parallel cloud, post-extend posterior means as ground truth. | NEXT |
 | **2.9** | **STOP & REVIEW (with PI)**: combined convergence + recovery review. Decide which models survive. | |
 | 3 | GoF panel (no Bayes factors - priors not grounded enough to trust marginal-likelihood ratios). Hierarchy: BPIC for cheap screening, PSIS-LOO-CV as primary metric (with Pareto-k diagnostic), WAIC as a confirmatory check. | |
 | **3.9** | **STOP & REVIEW (with PI)**: review Pareto-k diagnostics (flag any model with > 10% k > 0.7), check LOO/WAIC agreement, identify candidate winner(s) or co-winners. | |
