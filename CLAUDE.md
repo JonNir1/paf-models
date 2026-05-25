@@ -30,7 +30,7 @@ Rscript R/model_fitting/fit_extend_local.R                   # extend locally (2
 Rscript R/model_fitting/fit_extend_local.R --sequential      # extend locally, force sequential
 Rscript R/model_fitting/fit_extend_cloud.R <rds_filename>    # single-model cloud extend (called by cloud_setup.sh)
 source("R/model_fitting/examine_model.R")   # inspect a single fitted model
-source("R/model_fitting/compare_models.R")  # diagnostics + GoF comparison across all models
+source("R/model_fitting/fit_diagnostics.R") # diagnostics + GoF comparison across all models
 ```
 
 R (tests; requires `testthat` - `install.packages("testthat")`):
@@ -131,7 +131,7 @@ This is implemented in `check_block_convergence()` in `helpers/fitting.R`: `stop
 - `R/model_fitting/helpers/build_model.R` - `build_lba_model()` factory; sources `data.R` and `config.R`
 - `R/model_fitting/helpers/fitting.R` - `get_core_args`, `save_model`, `check_block_convergence`, `extend_model`, `model_log_path`; sources `build_model.R`. **Single entry point for fit scripts**.
 - `R/model_fitting/model1.R` - canonical template for a model variant (thin wrapper; see `build_lba_model()` in `helpers/build_model.R`)
-- `R/model_fitting/compare_models.R` - diagnostics + GoF tables
+- `R/model_fitting/fit_diagnostics.R` - convergence diagnostics + GoF tables (outputs to `Results/`)
 - `load_data.py` - Python loaders and the EMC2 design-matrix builder
 - `enum_types.py` - canonical factor-level orderings
 - `__tests__/run_tests.R` - test entry point; gated by `TEST_LEVEL` env var (1/2/3)

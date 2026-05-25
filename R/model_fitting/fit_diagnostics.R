@@ -1,5 +1,5 @@
 #' =============================================================================
-#'                    --- Model Comparison Pipeline ---
+#'                    --- Model Fitting Diagnostics ---
 #' =============================================================================
 
 library(readr)
@@ -7,7 +7,7 @@ library(tools)
 library(EMC2)
 
 source("R/config.R")
-source(file.path(CODE_DIR, "model_fitting", "diagnostics_helpers.R"))
+source(file.path(CODE_DIR, "model_fitting", "helpers", "diagnostics_helpers.R"))
 
 # ------------------------------
 # Helper Functions
