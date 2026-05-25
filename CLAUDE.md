@@ -149,6 +149,7 @@ This is implemented in `check_block_convergence()` in `helpers/fitting.R`: `stop
 - Per-model failures are caught by `tryCatch` in `fit_initial.R` so the batch keeps going. Treat `emc2_models/fit_initial/log.txt` as authoritative for run status, not stdout.
 - `CONSTANTS = c(sv = log(1))` in `config.R` is an **identifiability anchor** for the LBA. Removing or changing it will silently make the model non-identifiable.
 - Dependencies are not pinned in any manifest. Python imports observed: `pandas`, `numpy`, `hssm`, `pymc`, `pytensor`, `pylater`, `pyddm`, `matplotlib`. R: `EMC2`, `dplyr`, `readr`, `tools`.
+- R environment on the local machine: `R_HOME = C:\Program Files\R\R-4.5.2`, `R_LIBS_USER = C:\Users\nirjo\R_library\4.5`. The system library under `R_HOME` is not writable; install packages to `R_LIBS_USER`.
 - Avoid the em-dash (-) in any text destined for academic outputs; use `-` or en-dash (–) instead. This is a per-user writing rule.
 
 ## Legacy / do not modify
