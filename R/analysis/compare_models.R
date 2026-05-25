@@ -9,6 +9,8 @@ library(EMC2)
 source("R/config.R")
 source(file.path(CODE_DIR, "analysis", "diagnostics_helpers.R"))
 
+LOG_FILE <- file.path(MODELS_INITIAL_DIR, "log.txt")
+
 
 # ------------------------------
 # Helper Functions

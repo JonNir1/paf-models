@@ -16,7 +16,6 @@ DATA_FILE <- file.path(DATA_DIR, "emc2_design_matrix.csv")
 MODELS_DIR         <- "emc2_models"
 MODELS_INITIAL_DIR <- file.path(MODELS_DIR, "fit_initial")   # output of fit_initial.R
 MODELS_EXTEND_DIR  <- file.path(MODELS_DIR, "fit_extend")    # output of fit_extend_*.R
-LOG_FILE <- file.path(MODELS_INITIAL_DIR, "log.txt")
 
 CONFIG_FILE <- file.path(CODE_DIR, "config.R")  # used by log_config_variables()
 

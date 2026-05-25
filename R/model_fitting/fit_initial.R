@@ -10,6 +10,8 @@ library(EMC2)
 source("R/config.R")
 source(file.path(CODE_DIR, "model_fitting", "helpers", "fitting.R"))
 
+LOG_FILE <- file.path(MODELS_INITIAL_DIR, "log.txt")
+
 # Setup Global Reproducibility
 RNGkind(RNG_KIND)
 set.seed(RNG_SEED)
