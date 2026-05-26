@@ -114,9 +114,9 @@ Steps marked **STOP & REVIEW** are checkpoints requiring human judgment before p
 | 1 | **Initial fit** -- `fit_initial.R`: 1000 MCMC samples per model | DONE |
 | 2 | **Extend fits** -- `fit_extend_local.R`: run until asymmetric convergence criteria are met (`$mu`: Rhat < 1.05, ESS > 500; `$alpha`: Rhat < 1.1, ESS > 400; `$sigma2`/`$correlation` descriptive only) | NEXT |
 | 2.4 | *Sanity check*: flag models with severe non-convergence (mu Rhat > 1.1 or ESS < 200) before proceeding | |
-| 2.5 | **Parameter recovery** -- 3 simulations per model using post-extend posterior means as ground truth | |
+| 2.5 | **Parameter recovery** -- Replicating Strickland et al. (2026): extract (μ̂, Σ̂) from each extended fit; draw 3 independent sets of subject parameters via `make_random_effects`; simulate data on the real trial structure; refit from scratch. Evaluate with `recovery()` (RMSE + correlation) and z-scores + contraction | |
 | 2.9 | **STOP & REVIEW *(PI)***: convergence + recovery review; decide which models survive | |
-| 3 | **Goodness of fit** -- BPIC (screening), PSIS-LOO-CV (primary), WAIC (confirmatory); no Bayes factors | |
+| 3 | **Goodness of fit** -- BPIC (screening), DIC (reporting only), PSIS-LOO-CV (primary), WAIC (confirmatory); no Bayes factors | |
 | 3.9 | **STOP & REVIEW *(PI)***: Pareto-k diagnostics, LOO/WAIC agreement, identify candidate winner(s) | |
 | 4 | **Posterior predictive checks** -- per-subject KS test + theory-relevant contrasts on exp1+2 | |
 | 4.9 | **STOP & REVIEW**: PPC quality + exp1+2 vs exp3 population-shift check | |

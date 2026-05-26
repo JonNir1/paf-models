@@ -86,9 +86,9 @@ The research pipeline runs in numbered stages. Steps marked `X.9` (and one `2.4`
 | 1 | `fit_initial.R`: 1000 samples per model | DONE |
 | 2 | `fit_extend_local.R` with asymmetric convergence target (see below). All models run to 3000 total iterations. | DONE |
 | **2.4** | **Claude-only sanity check**: flag models with severe non-convergence (`$mu` Rhat > 1.1 or ESS < 200). No hard flags triggered. Models 4 and 5 show marginal convergence (soft flags for 2.9 trace-plot review). Model 3 excluded from all further analyses (mechanistically identical to model 4 but less interpretable). Active set: models 1, 2, 4, 5. | DONE |
-| 2.5 | Parameter recovery: 3 sims × 4 models (1,2,4,5), parallel cloud, post-extend posterior means as ground truth. | NEXT |
+| 2.5 | **Parameter recovery** -- Replicating Strickland et al. (2026) Supplementary: extract (μ̂, Σ̂) from each extended fit; for each of 3 simulations draw fresh subject parameters via `make_random_effects(design, μ̂, Σ̂)` and simulate data via `make_data()` on the real trial structure; refit each model from scratch using the same priors as the original fits. Evaluate recovery with EMC2's built-in `recovery()` (RMSE + correlation at μ and α levels; Strickland et al. 2026) and posterior z-scores + contraction (Schad, Betancourt & Vasishth 2021). | NEXT |
 | **2.9** | **STOP & REVIEW (with PI)**: combined convergence + recovery review. Decide which models survive. | |
-| 3 | GoF panel (no Bayes factors - priors not grounded enough to trust marginal-likelihood ratios). Hierarchy: BPIC for cheap screening, PSIS-LOO-CV as primary metric (with Pareto-k diagnostic), WAIC as a confirmatory check. | |
+| 3 | **Goodness of fit** -- BPIC (screening), DIC (reporting only, not for decisions), PSIS-LOO-CV (primary, with Pareto-k diagnostic), WAIC (confirmatory); no Bayes factors (priors not grounded enough to trust marginal-likelihood ratios). | |
 | **3.9** | **STOP & REVIEW (with PI)**: review Pareto-k diagnostics (flag any model with > 10% k > 0.7), check LOO/WAIC agreement, identify candidate winner(s) or co-winners. | |
 | 4 | PPC for top model(s): per-subject KS + theory-relevant contrasts on exp1+2. | |
 | **4.9** | **STOP & REVIEW**: PPC quality + exp1+2 vs exp3 descriptive comparison (population-shift check). | |
@@ -126,10 +126,13 @@ This is implemented in `check_block_convergence()` in `helpers/fitting.R`: `stop
 - `R/model_fitting/fit_initial.R` - master batch fit
 - `R/model_fitting/fit_extend_local.R` - local batch extend (2 models in parallel if cores allow; `--sequential` flag to override)
 - `R/model_fitting/fit_extend_cloud.R` - cloud single-model extend (called by `cloud_setup.sh`)
+- `R/model_fitting/fit_recovery_cloud.R` - cloud single-sim parameter recovery (called by `cloud_setup.sh recovery`)
+- `R/model_fitting/examine_recovery.R` - load 12 recovery fits, produce population table + subject scatter + z-score/contraction plots
 - `R/model_fitting/helpers/logging.R` - timestamped logging, error reporting, config serialisation (no dependencies)
 - `R/model_fitting/helpers/data.R` - CSV loading, RT filtering, EMC2 factor closures; sources `logging.R`
 - `R/model_fitting/helpers/build_model.R` - `build_lba_model()` factory; sources `data.R` and `config.R`
 - `R/model_fitting/helpers/fitting.R` - `get_core_args`, `save_model`, `check_block_convergence`, `extend_model`, `model_log_path`; sources `build_model.R`. **Single entry point for fit scripts**.
+- `R/model_fitting/helpers/recovery.R` - `extract_group_params`, `extract_design`, `simulate_recovery_data`; sources `fitting.R`.
 - `R/model_fitting/model1.R` - canonical template for a model variant (thin wrapper; see `build_lba_model()` in `helpers/build_model.R`)
 - `R/model_fitting/fit_diagnostics.R` - convergence diagnostics + GoF tables (outputs to `Results/`)
 - `load_data.py` - Python loaders and the EMC2 design-matrix builder

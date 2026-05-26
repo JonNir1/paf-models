@@ -74,6 +74,17 @@ B_BASELINE_MU <- log(1); B_BASELINE_SD <- 1
 B_SEARCH_MIX_MU <- log(1.5); B_SEARCH_MIX_SD <- 1
 B_SEARCH_DIF_MU <- log(2); B_SEARCH_DIF_SD <- 1
 
-# --- A and T0 Priors --- 
+# --- A and T0 Priors ---
 A_MU = log(0.5); A_SD = 1
 T0_MU = log(0.5 * MIN_SACCADE_CUTOFF); T0_SD = 1    # use the saccade cutoff as initial t0 estimate
+
+
+# ----------------------------
+# --- Recovery Fit Params (step 2.5) ---
+# Replicating Strickland et al. (2026) Supplementary methodology.
+# Relaxed thresholds vs. the real fits: recovery is diagnostic, not for inference.
+RECOVERY_FIT_SAMPLES    <- 1500L   # sample floor (vs. 3000 for real fits)
+RECOVERY_BASE_SEED      <- 100L    # reproducible per-sim seeds: BASE + sim_index
+MODELS_RECOVERY_DIR     <- file.path(MODELS_DIR, "fit_recovery")
+MAX_RHAT_MU_RECOVERY    <- 1.10;  MIN_ESS_MU_RECOVERY    <- 300
+MAX_RHAT_ALPHA_RECOVERY <- 1.10;  MIN_ESS_ALPHA_RECOVERY <- 300

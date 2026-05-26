@@ -86,6 +86,36 @@ do_setup() {
   Rscript -e 'suppressMessages(library(EMC2)); cat("EMC2 OK:", as.character(packageVersion("EMC2")), "\n")'
 }
 
+# --- recovery: download extended model, run one recovery sim, sync outputs ---
+# Usage: ./cloud_setup.sh recovery <extended_rds> <sim_index> [extra args...]
+# Example: ./cloud_setup.sh recovery 260525_model1_extended.rds 1
+do_recovery() {
+  local rds_name="${1:?usage: recovery <extended_rds> <sim_index>}"
+  local sim_index="${2:?usage: recovery <extended_rds> <sim_index>}"
+  shift 2   # remaining args (if any) forwarded to fit_recovery_cloud.R
+  cd "$REPO_DIR"
+
+  if [ "$CLOUD" = "aws" ]; then
+    CP_CMD="aws s3 cp"
+    DEST_PREFIX="s3://$BUCKET/results/recovery"
+  else
+    CP_CMD="gsutil cp"
+    DEST_PREFIX="gs://$BUCKET/results/recovery"
+  fi
+
+  echo ">>> Downloading inputs from $BUCKET ..."
+  mkdir -p emc2_models/fit_extend emc2_models/fit_recovery data
+  cloud_cp_from "inputs/fit_extend/$rds_name" "emc2_models/fit_extend/$rds_name"
+  cloud_cp_from "inputs/data/emc2_design_matrix.csv" "data/emc2_design_matrix.csv"
+
+  echo ">>> Launching fit_recovery_cloud.R for $rds_name sim=$sim_index ..."
+  R_LIBS_USER="$R_LIBS_USER" CP_CMD="$CP_CMD" DEST_PREFIX="$DEST_PREFIX" \
+    Rscript R/model_fitting/fit_recovery_cloud.R "$rds_name" "$sim_index" "$@"
+
+  echo ">>> Done. Results in $BUCKET/results/recovery/."
+}
+
+
 # --- run: download inputs, fit one model, sync outputs -----------------------
 # Any arguments after <rds_filename> are forwarded verbatim to fit_extend_cloud.R.
 # Example: ./cloud_setup.sh run 260421_model1.rds --max-tries 3 --step-size 5
@@ -120,7 +150,8 @@ do_run() {
 
 # --- entry point -------------------------------------------------------------
 case "${1:-help}" in
-  setup) do_setup ;;
-  run)   shift; do_run "$@" ;;
-  *)     echo "Usage: $0 setup|run <rds_filename>"; exit 1 ;;
+  setup)    do_setup ;;
+  run)      shift; do_run "$@" ;;
+  recovery) shift; do_recovery "$@" ;;
+  *)        echo "Usage: $0 setup|run <rds_filename>|recovery <extended_rds> <sim_index>"; exit 1 ;;
 esac
