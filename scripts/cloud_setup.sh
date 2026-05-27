@@ -59,6 +59,7 @@ do_setup() {
     libssl-dev libcurl4-openssl-dev libxml2-dev \
     libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
     libfreetype6-dev libpng-dev libtiff5-dev libjpeg-dev \
+    libuv1-dev \
     git curl unzip software-properties-common awscli
 
   echo ">>> Installing R 4.4 from CRAN apt repo..."
@@ -72,7 +73,7 @@ do_setup() {
   echo "R_LIBS_USER=\"$R_LIBS_USER\"" >> "$HOME/.Renviron"
 
   echo ">>> Installing R packages via RSPM pre-compiled binaries (~2 min)..."
-  Rscript -e 'options(pkgType="binary"); install.packages(
+  Rscript -e 'install.packages(
     c("EMC2","dplyr","readr","tools","testthat"),
     repos      = "https://packagemanager.posit.co/cran/__linux__/jammy/latest",
     dependencies = c("Depends","Imports","LinkingTo")
