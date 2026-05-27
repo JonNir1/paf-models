@@ -6,8 +6,9 @@ library(readr)
 library(tools)
 library(EMC2)
 
-source("R/config.R")
-source(file.path(CODE_DIR, "model_fitting", "helpers", "diagnostics_helpers.R"))
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/eval/eval_config.R")              # transitively: utils.R -> config.R
+source_root("R/eval/helpers/diagnostics_helpers.R")
 
 # ------------------------------
 # Helper Functions
@@ -51,12 +52,12 @@ MODEL_LIST <- lapply(MODEL_NAMES, load_model, dir_path = MODELS_EXTEND_DIR)
 names(MODEL_LIST) <- MODEL_NAMES
 
 
-if (!dir.exists(RESULTS_DIR)) dir.create(RESULTS_DIR, recursive = TRUE)
+if (!dir.exists(EVAL_DIR)) dir.create(EVAL_DIR, recursive = TRUE)
 
 .save_table <- function(df, stem) {
-  saveRDS(df, file.path(RESULTS_DIR, paste0(stem, ".rds")))
-  write_csv(df, file.path(RESULTS_DIR, paste0(stem, ".csv")))
-  message(sprintf("Saved %s.{rds,csv} to %s/", stem, RESULTS_DIR))
+  saveRDS(df, file.path(EVAL_DIR, paste0(stem, ".rds")))
+  write_csv(df, file.path(EVAL_DIR, paste0(stem, ".csv")))
+  message(sprintf("Saved %s.{rds,csv} to %s/", stem, EVAL_DIR))
 }
 
 
@@ -64,7 +65,7 @@ if (!dir.exists(RESULTS_DIR)) dir.create(RESULTS_DIR, recursive = TRUE)
 # (1) Convergence Diagnostics Table
 
 diag_stem <- "model_comparison_diagnostics"
-diag_rds  <- file.path(RESULTS_DIR, paste0(diag_stem, ".rds"))
+diag_rds  <- file.path(EVAL_DIR, paste0(diag_stem, ".rds"))
 if (file.exists(diag_rds)) {
   message("Loading diagnostics table from existing file...")
   DIAG_TABLE <- readRDS(diag_rds)
@@ -79,7 +80,7 @@ if (file.exists(diag_rds)) {
 # (2) Goodness-of-Fit Table
 
 fit_stem <- "model_comparison_fit"
-fit_rds  <- file.path(RESULTS_DIR, paste0(fit_stem, ".rds"))
+fit_rds  <- file.path(EVAL_DIR, paste0(fit_stem, ".rds"))
 if (file.exists(fit_rds)) {
   message("Loading GoF table from existing file...")
   FIT_TABLE <- readRDS(fit_rds)

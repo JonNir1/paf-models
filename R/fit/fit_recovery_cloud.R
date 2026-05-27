@@ -12,8 +12,8 @@
 #' Replicates Strickland et al. (2026) Supplementary parameter recovery protocol.
 #'
 #' Usage (called by cloud_setup.sh do_recovery, or directly for local testing):
-#'   Rscript R/model_fitting/fit_recovery_cloud.R <extended_rds> <sim_index>
-#'   e.g.: Rscript R/model_fitting/fit_recovery_cloud.R 260525_model1_extended.rds 1
+#'   Rscript R/fit/fit_recovery_cloud.R <extended_rds> <sim_index>
+#'   e.g.: Rscript R/fit/fit_recovery_cloud.R 260525_model1_extended.rds 1
 #'
 #' Optional overrides (default to config.R globals):
 #'   --max-tries N    Override MAX_TRIES for the post-fit extension loop
@@ -25,17 +25,14 @@
 #' cloud_setup.sh do_recovery). No-op if either is unset (safe for local use).
 #'
 #' Smoke-test example (no S3, 2 tries of 5 iterations):
-#'   Rscript R/model_fitting/fit_recovery_cloud.R 260525_model1_extended.rds 1 \
+#'   Rscript R/fit/fit_recovery_cloud.R 260525_model1_extended.rds 1 \
 #'     --max-tries 2 --step-size 5 --save-every 1 --suffix _smoke
 #' =============================================================================
 
 library(EMC2)
 
-local({
-  root <- Sys.getenv("PAF_REPO_ROOT", unset = "")
-  if (nzchar(root)) source(file.path(root, "R", "model_fitting", "helpers", "recovery.R"))
-  else              source("R/model_fitting/helpers/recovery.R")
-})
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/fit/helpers/recovery.R")
 
 RNGkind(RNG_KIND)
 set.seed(RNG_SEED)
@@ -63,8 +60,8 @@ args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 2) {
   stop(
     "Usage: Rscript fit_recovery_cloud.R <extended_rds> <sim_index> [options]\n",
-    "Example: Rscript R/model_fitting/fit_recovery_cloud.R 260525_model1_extended.rds 1\n",
-    "Smoke:   Rscript R/model_fitting/fit_recovery_cloud.R 260525_model1_extended.rds 1 ",
+    "Example: Rscript R/fit/fit_recovery_cloud.R 260525_model1_extended.rds 1\n",
+    "Smoke:   Rscript R/fit/fit_recovery_cloud.R 260525_model1_extended.rds 1 ",
     "--fit-samples 5 --max-tries 1 --step-size 5 --save-every 1 --suffix _smoke"
   )
 }
@@ -76,20 +73,12 @@ if (is.na(sim_index) || sim_index < 1L) {
   stop(sprintf("Invalid sim_index '%s': must be a positive integer.", args[[2]]))
 }
 
-.parse_int_arg <- function(args, flag) {
-  idx <- which(args == flag)
-  if (length(idx) > 0L && idx[[1L]] < length(args)) as.integer(args[[idx[[1L]] + 1L]]) else NULL
-}
-.parse_str_arg <- function(args, flag) {
-  idx <- which(args == flag)
-  if (length(idx) > 0L && idx[[1L]] < length(args)) args[[idx[[1L]] + 1L]] else NULL
-}
-
-max_tries_override    <- .parse_int_arg(args, "--max-tries")
-step_size_override    <- .parse_int_arg(args, "--step-size")
-save_every_override   <- .parse_int_arg(args, "--save-every")
-fit_samples_override  <- .parse_int_arg(args, "--fit-samples")
-suffix_override       <- .parse_str_arg(args, "--suffix")
+# parse_int_arg / parse_str_arg are defined in R/utils.R
+max_tries_override    <- parse_int_arg(args, "--max-tries")
+step_size_override    <- parse_int_arg(args, "--step-size")
+save_every_override   <- parse_int_arg(args, "--save-every")
+fit_samples_override  <- parse_int_arg(args, "--fit-samples")
+suffix_override       <- parse_str_arg(args, "--suffix")
 
 suffix <- if (!is.null(suffix_override)) suffix_override else ""
 
@@ -172,9 +161,8 @@ result <- tryCatch({
 
   # --- 5. Source model script to get build_model() ---
   # Map model name to its script (model1 -> model1.R, etc.)
-  model_script <- file.path("R", "model_fitting", paste0(orig_name, ".R"))
-  root <- Sys.getenv("PAF_REPO_ROOT", unset = "")
-  if (nzchar(root)) model_script <- file.path(root, model_script)
+  model_script_rel <- file.path("R", "fit", paste0(orig_name, ".R"))
+  model_script     <- file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), model_script_rel)
   if (!file.exists(model_script)) {
     stop(sprintf("Model script not found: %s", model_script))
   }

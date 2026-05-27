@@ -1,15 +1,14 @@
 #' =========================
 #' Model Diagnostics Helpers
 #' =========================
-#' A set of helper functions for extracting and parsing model diagnostics:
-#' parameter counts, Rhat & ESS values.
-#' `create_diagnostics_table()` returns a unified convergence table for multiple models.
+#' Helper functions for extracting and parsing model diagnostics: parameter
+#' counts, Rhat & ESS values. `create_diagnostics_table()` returns a unified
+#' convergence table for multiple models.
+#'
+#' Source chain: diagnostics_helpers.R -> utils.R
+#' (check_valid_string lives in utils.R)
 
-
-#' Validate that x is a non-empty length-1 non-NA string
-check_valid_string <- function(s) {
-  !is.null(s) && length(s) == 1 && !is.na(s) && nzchar(s)
-}
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 
 
 #' Create a single table comparing all diagnostic metrics across models and groups

@@ -10,16 +10,9 @@
 #'   sv ~ StimulusAtLoc,  A ~ 1,  t0 ~ 1
 #' =============================================================================
 
-local({
-  root <- Sys.getenv("PAF_REPO_ROOT", unset = "")
-  if (nzchar(root)) {
-    source(file.path(root, "R", "config.R"))
-    source(file.path(root, "R", "model_fitting", "helpers", "data.R"))
-  } else {
-    source("R/config.R")
-    source("R/model_fitting/helpers/data.R")  # chains: data.R -> logging.R
-  }
-})
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/fit/fit_config.R")        # transitively: utils.R -> config.R
+source_root("R/helpers/data.R")          # transitively: utils.R -> logging.R
 
 
 # -------------------------

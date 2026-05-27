@@ -8,14 +8,11 @@
 #'   - extend_model()            iterative MCMC extension loop with checkpointing
 #'   - model_log_path()          per-model log file path helper
 #'
-#' Source chain: fitting.R -> build_model.R -> data.R -> logging.R -> config.R
+#' Source chain: fitting.R -> build_model.R -> fit_config.R -> data.R -> logging.R -> config.R -> utils.R
 #' =============================================================================
 
-local({
-  root <- Sys.getenv("PAF_REPO_ROOT", unset = "")
-  if (nzchar(root)) source(file.path(root, "R", "model_fitting", "helpers", "build_model.R"))
-  else              source("R/model_fitting/helpers/build_model.R")
-})
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/fit/helpers/build_model.R")
 
 
 # -------------------------

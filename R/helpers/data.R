@@ -8,11 +8,8 @@
 #' that EMC2's design() calls as closure functions.
 #' =============================================================================
 
-local({
-  root <- Sys.getenv("PAF_REPO_ROOT", unset = "")
-  if (nzchar(root)) source(file.path(root, "R", "model_fitting", "helpers", "logging.R"))
-  else              source("R/model_fitting/helpers/logging.R")
-})
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/helpers/logging.R")
 
 library(readr)
 library(tools)

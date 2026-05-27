@@ -16,18 +16,19 @@
 #'      z = (mu_estimated - mu_true) / SD_posterior
 #'      contraction = 1 - var(posterior) / var(prior)
 #'
-#' Outputs saved to Results/parameter_recovery/.
+#' Outputs saved to outputs/evaluation/parameter_recovery/ (RECOVERY_EVAL_DIR).
 #'
 #' Run from the repo root after downloading all 12 .rds pairs from S3:
-#'   source("R/model_fitting/examine_recovery.R")
+#'   source("R/eval/examine_recovery.R")
 #' =============================================================================
 
-source("R/config.R")
-source("R/model_fitting/helpers/recovery.R")
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/eval/eval_config.R")             # transitively: utils.R -> config.R
+source_root("R/fit/helpers/recovery.R")         # recovery helpers live with fitting code
 library(EMC2)
 library(dplyr)
 
-RECOVERY_OUT_DIR <- file.path(RESULTS_DIR, "parameter_recovery")
+RECOVERY_OUT_DIR <- RECOVERY_EVAL_DIR
 if (!dir.exists(RECOVERY_OUT_DIR)) dir.create(RECOVERY_OUT_DIR, recursive = TRUE)
 
 MODEL_NAMES <- c("model1", "model2", "model4", "model5")

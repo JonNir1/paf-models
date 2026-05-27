@@ -10,7 +10,8 @@
 # Load Core Configurations and Helpers
 library(EMC2)
 
-source("R/config.R")
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/eval/eval_config.R")    # transitively: utils.R -> config.R
 
 
 # ---------------------

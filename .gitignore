@@ -1,5 +1,6 @@
 ##### Project-Specific Ignores #####
 data/
+outputs/
 
 ##### R.gitignore #####
 # History files

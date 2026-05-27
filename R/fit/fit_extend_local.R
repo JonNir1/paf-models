@@ -8,20 +8,17 @@
 #' try so a crash loses at most one try's work.
 #'
 #' Usage:
-#'   Rscript R/model_fitting/fit_extend_local.R              # parallel if cores allow
-#'   Rscript R/model_fitting/fit_extend_local.R --sequential # force sequential
+#'   Rscript R/fit/fit_extend_local.R              # parallel if cores allow
+#'   Rscript R/fit/fit_extend_local.R --sequential # force sequential
 #'
 #' Must run AFTER fit_initial.R. Update `model_files` below to match the actual
-#' .rds filenames in emc2_models/ before running.
+#' .rds filenames in outputs/models/ before running.
 #' =============================================================================
 
 library(EMC2)
 
-local({
-  root <- Sys.getenv("PAF_REPO_ROOT", unset = "")
-  if (nzchar(root)) source(file.path(root, "R", "model_fitting", "helpers", "fitting.R"))
-  else              source("R/model_fitting/helpers/fitting.R")
-})
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/fit/helpers/fitting.R")
 
 RNGkind(RNG_KIND)
 set.seed(RNG_SEED)
@@ -72,12 +69,8 @@ log_msg(
 
 .worker_fn <- function(rds_filename, repo_root) {
   setwd(repo_root)
-  root_env <- Sys.getenv("PAF_REPO_ROOT", unset = "")
-  if (nzchar(root_env)) {
-    source(file.path(root_env, "R", "model_fitting", "helpers", "fitting.R"))
-  } else {
-    source("R/model_fitting/helpers/fitting.R")
-  }
+  source(file.path(Sys.getenv("PAF_REPO_ROOT", repo_root), "R", "utils.R"))
+  source_root("R/fit/helpers/fitting.R")
   log_file <- model_log_path(rds_filename)
   tryCatch(
     extend_model(rds_filename, log_file = log_file),

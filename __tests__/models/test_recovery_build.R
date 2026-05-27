@@ -11,8 +11,8 @@ library(testthat)
 library(EMC2)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
-source(file.path(ROOT, "R", "model_fitting", "helpers", "recovery.R"))
-source(file.path(ROOT, "R", "model_fitting", "model1.R"))   # defines build_model()
+source(file.path(ROOT, "R", "fit", "helpers", "recovery.R"))
+source(file.path(ROOT, "R", "fit", "model1.R"))   # defines build_model()
 
 N_TEST_CHAINS <- 2L
 

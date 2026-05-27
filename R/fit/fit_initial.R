@@ -7,8 +7,8 @@
 # Load Core Configurations and Helpers
 library(EMC2)
 
-source("R/config.R")
-source(file.path(CODE_DIR, "model_fitting", "helpers", "fitting.R"))
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/fit/helpers/fitting.R")   # transitively brings fit_config.R + config.R
 
 LOG_FILE <- file.path(MODELS_INITIAL_DIR, "log.txt")
 
@@ -18,7 +18,7 @@ set.seed(RNG_SEED)
 
 # Initialize Session Logging
 log_msg("===== STARTING NEW BATCH FITTING SESSION =====\n", LOG_FILE, console_print = TRUE)
-log_config_variables(CONFIG_FILE, LOG_FILE)
+log_config_variables(FIT_CONFIG_FILE, LOG_FILE)
 
 # Data Pipeline (Load and Filter ONCE) - using variables defined in config.R
 log_msg(paste("Loading data from file", DATA_FILE), LOG_FILE, console_print = TRUE)
@@ -66,7 +66,7 @@ for (script in model_files) {
   # Wrapped in tryCatch to prevent one broken script from stopping the whole batch
   status <- tryCatch({
 
-    source(file.path(CODE_DIR, "model_fitting", script))
+    source(file.path(CODE_DIR, "fit", script))
     log_msg(paste("Model Name:\t", MODEL_NAME), LOG_FILE, console_print = TRUE)
     
     # Generate the EMC2 model object
