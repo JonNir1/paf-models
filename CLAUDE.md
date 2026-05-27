@@ -173,7 +173,7 @@ Other:
 - `__tests__/fixtures/sample_data.csv` - committed synthetic design matrix (~240 rows)
 - `__tests__/helpers/` - L1 unit tests (logging, data, model helpers, recovery helpers; no EMC2)
 - `__tests__/models/` - L2 build tests (`make_emc()` for all 5 models + recovery build chain; requires EMC2)
-- `__tests__/fit/test_fit_smoke.R` - L3 smoke tests; covers Smoke A (`fit_initial`), Smoke B (`extend_model`), Smoke C (recovery). CI manual dispatch only.
+- `__tests__/fit/test_fit_smoke.R` - L3 smoke tests; covers Smoke A (`fit_initial`), Smoke B (`extend_model`), Smoke C (recovery). CI manual dispatch only. **Smoke C is Linux-first**: EMC2 fork-parallelism is unavailable on Windows, making even the subsetted run 30+ min with crash risk. Smoke C is skipped by default on Windows; set `SMOKE_C_WINDOWS=1` to opt in non-interactively, or run interactively to get a confirmation prompt.
 - `.github/workflows/test.yml` - CI: L1 unit tests + L2 build tests (auto on push/PR)
 - `.github/workflows/smoke.yml` - CI: L3 smoke tests (manual dispatch only)
 - `.github/r-deps-level1.txt` / `r-deps-level2.txt` - package lists used by CI cache keys
@@ -184,7 +184,12 @@ Other:
 - Per-model failures are caught by `tryCatch` in `fit_initial.R` so the batch keeps going. Treat `outputs/models/fit_initial/log.txt` as authoritative for run status, not stdout.
 - `CONSTANTS = c(sv = log(1))` in `config.R` is an **identifiability anchor** for the LBA. Removing or changing it will silently make the model non-identifiable.
 - Dependencies are not pinned in any manifest. Python imports observed: `pandas`, `numpy`, `hssm`, `pymc`, `pytensor`, `pylater`, `pyddm`, `matplotlib`. R: `EMC2`, `dplyr`, `readr`, `tools`.
-- R environment on the local machine: `R_HOME = C:\Program Files\R\R-4.5.2`, `R_LIBS_USER = C:\Users\nirjo\R_library\4.5`. The system library under `R_HOME` is not writable; install packages to `R_LIBS_USER`.
+- R environment on the local machine:
+  - `R_HOME = C:\Program Files\R\R-4.5.2`
+  - `R_LIBS_USER = C:\Users\nirjo\R_library\4.5`
+  - The system library under `R_HOME` is not writable; install packages to `R_LIBS_USER`.
+  - The pattern `file.path(Sys.getenv("USERPROFILE"), "R", "library")` used in some test files resolves to the wrong path on this machine (`C:\Users\nirjo\R\library` vs the actual `R_LIBS_USER`).
+  - **Do NOT run `Rscript` via the Bash tool.** The Claude Code app has its own sandboxed R library (`AppData/Local/Packages/Claude_.../R/win-library/4.5`) with an older `rlang` that causes namespace conflicts when loading `readr` and `EMC2`. Always ask the user to run R commands in a standalone PowerShell terminal instead.
 - Avoid the em-dash (-) in any text destined for academic outputs; use `-` or en-dash (–) instead. This is a per-user writing rule.
 
 ## Known issues (deferred)
