@@ -216,6 +216,71 @@ build_model() -> build_lba_model() -> EMC2::design()
 
 ---
 
+## Cloud infrastructure (AWS, us-east-1)
+
+### Credentials & access
+- SSH key path (local): `$HOME\Documents\projects\__secrets__\paf-key.pem`
+- SSH key name (AWS): `paf-key`
+- IAM user: `paf-cli` (EC2FullAccess, S3FullAccess, IAMFullAccess)
+
+### AWS resources
+- S3 bucket: `paf-models`
+- Security group: `paf-sg` (inbound SSH port 22 open); resolve ID at runtime (see boilerplate below)
+- IAM instance profile: `paf-ec2-profile` (role: `paf-ec2-role`, S3FullAccess) — attach to every EC2 launch
+- AMI: `ami-00403f401ee6a4b98` (Ubuntu 22.04 LTS, us-east-1)
+
+### Instance types
+- **Recovery / production**: `c6a.4xlarge` (16 vCPU, 32 GB, ~$0.30/hr spot)
+- **Smoke test**: `c5.xlarge` (4 vCPU, 8 GB, ~$0.17/hr on-demand)
+
+### Spot quotas
+- Standard spot: 64 vCPUs (approved)
+- On-demand standard: 16 vCPUs (default)
+- **Always ask the user whether to use On-Demand or Spot before launching any instance.**
+
+### S3 bucket layout (`s3://paf-models/`)
+```
+inputs/
+  data/
+    emc2_design_matrix.csv          ← design matrix for make_data()
+  fit_extend/
+    260525_model1_extended.rds      ← extended fits (recovery inputs)
+    260525_model2_extended.rds
+    260525_model4_extended.rds
+    260525_model5_extended.rds
+results/
+  recovery/                         ← recovery outputs (written by cloud_setup.sh do_recovery)
+```
+`inputs/fit_initial/` is also supported by `cloud_setup.sh do_run` but those files are not currently staged.
+
+### PowerShell session boilerplate
+Run at the start of each AWS session:
+```powershell
+# Resolve security group ID
+$SG_ID = aws ec2 describe-security-groups --filters "Name=group-name,Values=paf-sg" `
+           --query "SecurityGroups[0].GroupId" --output text
+
+# Write spot-options file (avoids PowerShell JSON quoting issues)
+'{"MarketType":"spot"}' | Out-File -Encoding ascii "$env:TEMP\spot-options.json"
+```
+
+Then launch a spot instance with:
+```powershell
+aws ec2 run-instances `
+  --image-id ami-00403f401ee6a4b98 `
+  --instance-type <type> `
+  --key-name paf-key `
+  --subnet-id <subnet-id> `
+  --security-group-ids $SG_ID `
+  --iam-instance-profile Name=paf-ec2-profile `
+  --associate-public-ip-address `
+  --instance-market-options "file://$env:TEMP\spot-options.json" `
+  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=<name>}]" `
+  --query "Instances[0].InstanceId" --output text
+```
+
+**JSON args in PowerShell**: inline JSON strings are mangled by PowerShell's quote handling. Always write to a file with `-Encoding ascii` (not `utf8` — that adds a BOM) and pass via `file://`.
+
 ## Legacy / do not modify
 
 Everything in `__exploratory/` is superseded code kept for reference. Do not edit, import from, or treat as patterns for current work. Subdirectories:
