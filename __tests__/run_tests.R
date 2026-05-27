@@ -1,10 +1,28 @@
 #' =============================================================================
 #' Test suite entry point
 #'
-#' Runs tests up to the requested TEST_LEVEL (env var, default 1):
-#'   Level 1 — helpers/ unit tests (fast, <1 s each; no EMC2)
-#'   Level 2 — models/ build tests (seconds-minutes; requires EMC2 + fixture)
-#'   Level 3 — fit/ smoke tests    (minutes-hours; CI only)
+#' The suite is tiered by cost and intent. A higher tier always implies the
+#' lower tiers also run -- TEST_LEVEL=2 runs L1+L2, TEST_LEVEL=3 runs L1+L2+L3.
+#'
+#'   Level 1 -- __tests__/helpers/ : unit tests for pure helpers.
+#'              Fast (<5 s total), no EMC2 dependency. Run on every push/PR.
+#'              Files: test_logging.R, test_data.R, test_model_helpers.R,
+#'              test_recovery.R.
+#'
+#'   Level 2 -- __tests__/models/  : model-build integration tests.
+#'              Seconds--minutes, requires EMC2 + the committed sample_data.csv
+#'              fixture. Exercises make_emc() for all 5 models and the
+#'              extract -> simulate -> build_model chain. No MCMC sampling.
+#'              Run on every push/PR.
+#'              Files: test_build_models.R, test_recovery_build.R.
+#'
+#'   Level 3 -- __tests__/fit/     : end-to-end smoke tests (tiny MCMC).
+#'              Minutes--hours; CI-only (manual dispatch). Covers three
+#'              pipelines in one file (test_fit_smoke.R):
+#'                Smoke A: fit_initial   (build + fit + save)
+#'                Smoke B: extend_model  (resume + extend)
+#'                Smoke C: recovery      (extract -> simulate -> refit)
+#'              Each smoke runs n_chains=2, iter=5.
 #'
 #' Run from repo root:
 #'   Rscript __tests__/run_tests.R                      # level 1

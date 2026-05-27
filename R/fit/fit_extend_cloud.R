@@ -8,9 +8,9 @@
 #'
 #' Usage (called by cloud_setup.sh do_run, not directly):
 #'   CP_CMD="aws s3 cp" DEST_PREFIX="s3://my-bucket/results" \
-#'     Rscript R/model_fitting/fit_extend_cloud.R 260421_model1.rds
+#'     Rscript R/fit/fit_extend_cloud.R 260421_model1.rds
 #'
-#' Optional overrides (useful for smoke tests - default to config.R globals):
+#' Optional overrides (useful for smoke tests - default to fit_config.R globals):
 #'   --max-tries N    Override MAX_TRIES   (e.g. --max-tries 3)
 #'   --step-size N    Override STEP_SIZE   (e.g. --step-size 5)
 #'   --save-every N   Override SAVE_EVERY  (e.g. --save-every 1)
@@ -19,20 +19,17 @@
 #'
 #' Smoke-test example (checkpoint every try, 3 tries of 5 iterations):
 #'   CP_CMD="aws s3 cp" DEST_PREFIX="s3://my-bucket/results" \
-#'     Rscript R/model_fitting/fit_extend_cloud.R 260421_model1.rds \
+#'     Rscript R/fit/fit_extend_cloud.R 260421_model1.rds \
 #'       --max-tries 3 --step-size 5 --save-every 1 --suffix _smoke_test
 #'
 #' The hook is a no-op if CP_CMD or DEST_PREFIX are unset, so the script is
-#' also safe to run locally for testing (outputs go to emc2_models/ only).
+#' also safe to run locally for testing (outputs go to outputs/models/ only).
 #' =============================================================================
 
 library(EMC2)
 
-local({
-  root <- Sys.getenv("PAF_REPO_ROOT", unset = "")
-  if (nzchar(root)) source(file.path(root, "R", "model_fitting", "helpers", "fitting.R"))
-  else              source("R/model_fitting/helpers/fitting.R")
-})
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/fit/helpers/fitting.R")
 
 RNGkind(RNG_KIND)
 set.seed(RNG_SEED)
@@ -61,25 +58,18 @@ args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 1) {
   stop("Usage: Rscript fit_extend_cloud.R <rds_filename> [--max-tries N] [--step-size N]\n",
-       "Example: Rscript R/model_fitting/fit_extend_cloud.R 260421_model1.rds\n",
-       "Smoke:   Rscript R/model_fitting/fit_extend_cloud.R 260421_model1.rds --max-tries 3 --step-size 5")
+       "Example: Rscript R/fit/fit_extend_cloud.R 260421_model1.rds\n",
+       "Smoke:   Rscript R/fit/fit_extend_cloud.R 260421_model1.rds --max-tries 3 --step-size 5")
 }
 
 rds_filename <- args[[1]]
 
-# Parse optional overrides; NULL means "use config.R global"
-.parse_int_arg <- function(args, flag) {
-  idx <- which(args == flag)
-  if (length(idx) > 0L && idx[[1L]] < length(args)) as.integer(args[[idx[[1L]] + 1L]]) else NULL
-}
-.parse_str_arg <- function(args, flag) {
-  idx <- which(args == flag)
-  if (length(idx) > 0L && idx[[1L]] < length(args)) args[[idx[[1L]] + 1L]] else NULL
-}
-max_tries_override  <- .parse_int_arg(args, "--max-tries")
-step_size_override  <- .parse_int_arg(args, "--step-size")
-save_every_override <- .parse_int_arg(args, "--save-every")
-suffix_override     <- .parse_str_arg(args, "--suffix")
+# Parse optional overrides; NULL means "use fit_config.R global"
+# parse_int_arg / parse_str_arg are defined in R/utils.R
+max_tries_override  <- parse_int_arg(args, "--max-tries")
+step_size_override  <- parse_int_arg(args, "--step-size")
+save_every_override <- parse_int_arg(args, "--save-every")
+suffix_override     <- parse_str_arg(args, "--suffix")
 
 # Inject suffix into log filename so smoke-test logs are distinguishable
 model_log <- if (!is.null(suffix_override)) {

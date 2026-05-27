@@ -6,11 +6,8 @@
 
 library(EMC2)
 
-local({
-  root <- Sys.getenv("PAF_REPO_ROOT", unset = "")
-  if (nzchar(root)) source(file.path(root, "R", "model_fitting", "helpers", "build_model.R"))
-  else              source("R/model_fitting/helpers/build_model.R")
-})
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/fit/helpers/build_model.R")
 
 
 MODEL_NAME <- "model2"

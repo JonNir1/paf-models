@@ -8,14 +8,11 @@
 #'
 #' Used by fit_recovery_cloud.R and examine_recovery.R.
 #'
-#' Source chain: recovery.R -> fitting.R -> build_model.R -> data.R -> logging.R -> config.R
+#' Source chain: recovery.R -> fitting.R -> build_model.R -> fit_config.R -> ...
 #' =============================================================================
 
-local({
-  root <- Sys.getenv("PAF_REPO_ROOT", unset = "")
-  if (nzchar(root)) source(file.path(root, "R", "model_fitting", "helpers", "fitting.R"))
-  else              source("R/model_fitting/helpers/fitting.R")
-})
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/fit/helpers/fitting.R")
 
 
 # -------------------------

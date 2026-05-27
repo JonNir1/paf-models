@@ -7,13 +7,15 @@
 # installed and credentials configured (via IAM role or `aws configure`).
 #
 # Usage:
-#   ./R/model_fitting/cloud_setup.sh setup            # one-time R + EMC2 install
-#   ./R/model_fitting/cloud_setup.sh run <rds_name>   # download inputs, run extend, sync
+#   ./scripts/cloud_setup.sh setup            # one-time R + EMC2 install
+#   ./scripts/cloud_setup.sh run <rds_name>   # download inputs, run extend, sync
+#   ./scripts/cloud_setup.sh recovery <rds_name> <sim_index>
 #
 # Expects the following bucket layout (S3 example; GCS analogous):
 #   s3://$BUCKET/inputs/data/emc2_design_matrix.csv
-#   s3://$BUCKET/inputs/emc2_models/<initial>.rds   (one per model)
-#   s3://$BUCKET/results/                            (this is where outputs land)
+#   s3://$BUCKET/inputs/fit_initial/<initial>.rds    (one per model)
+#   s3://$BUCKET/inputs/fit_extend/<extended>.rds    (recovery input)
+#   s3://$BUCKET/results/                             (this is where outputs land)
 #
 # Configure these env vars before running, or edit the defaults below:
 #   BUCKET   - "my-paf-bucket"   (S3 bucket name, no s3:// prefix)
@@ -104,13 +106,13 @@ do_recovery() {
   fi
 
   echo ">>> Downloading inputs from $BUCKET ..."
-  mkdir -p emc2_models/fit_extend emc2_models/fit_recovery data
-  cloud_cp_from "inputs/fit_extend/$rds_name" "emc2_models/fit_extend/$rds_name"
+  mkdir -p outputs/models/fit_extend outputs/models/fit_recovery data
+  cloud_cp_from "inputs/fit_extend/$rds_name" "outputs/models/fit_extend/$rds_name"
   cloud_cp_from "inputs/data/emc2_design_matrix.csv" "data/emc2_design_matrix.csv"
 
   echo ">>> Launching fit_recovery_cloud.R for $rds_name sim=$sim_index ..."
   R_LIBS_USER="$R_LIBS_USER" CP_CMD="$CP_CMD" DEST_PREFIX="$DEST_PREFIX" \
-    Rscript R/model_fitting/fit_recovery_cloud.R "$rds_name" "$sim_index" "$@"
+    Rscript R/fit/fit_recovery_cloud.R "$rds_name" "$sim_index" "$@"
 
   echo ">>> Done. Results in $BUCKET/results/recovery/."
 }
@@ -136,14 +138,14 @@ do_run() {
   fi
 
   echo ">>> Downloading inputs from $BUCKET ..."
-  mkdir -p emc2_models/fit_initial emc2_models/fit_extend
-  cloud_cp_from "inputs/emc2_models/$rds_name" "emc2_models/fit_initial/$rds_name"
+  mkdir -p outputs/models/fit_initial outputs/models/fit_extend
+  cloud_cp_from "inputs/fit_initial/$rds_name" "outputs/models/fit_initial/$rds_name"
 
   echo ">>> Launching fit_extend_cloud.R for $rds_name ..."
   # fit_extend_cloud.R reads CP_CMD and DEST_PREFIX from the environment and
-  # syncs the .rds + log to durable storage every SAVE_EVERY tries (config.R).
+  # syncs the .rds + log to durable storage every SAVE_EVERY tries (fit_config.R).
   R_LIBS_USER="$R_LIBS_USER" CP_CMD="$CP_CMD" DEST_PREFIX="$DEST_PREFIX" \
-    Rscript R/model_fitting/fit_extend_cloud.R "$rds_name" "$@"
+    Rscript R/fit/fit_extend_cloud.R "$rds_name" "$@"
 
   echo ">>> Done. Latest .rds and log are in $BUCKET/results/."
 }

@@ -1,18 +1,14 @@
 #' =============================================================================
-#' Logging and String Utilities
+#' Logging utilities (cross-cutting: used by both fit and eval code).
 #'
-#' Pure I/O helpers with no dependencies on EMC2, data structures, or config.
-#' Provides timestamped dual-target logging (console + file), structured error
-#' reporting with stack traces, and config variable serialisation. All other
-#' helper modules depend on this one; it is safe to source standalone.
+#' Pure I/O helpers with no dependencies on EMC2 or any config. Provides
+#' timestamped dual-target logging (console + file), structured error reporting
+#' with stack traces, and config variable serialisation.
+#'
+#' Source chain: logging.R -> utils.R
 #' =============================================================================
 
-
-# -------------------------
-#' Validate that a value is a non-empty, non-NA scalar string.
-check_valid_string <- function(s) {
-  !is.null(s) && length(s) == 1 && !is.na(s) && nzchar(s)
-}
+source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 
 
 # -------------------------

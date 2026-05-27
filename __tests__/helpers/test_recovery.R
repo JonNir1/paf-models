@@ -10,9 +10,8 @@ library(testthat)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
 
-# recovery.R sources fitting.R which sources build_model.R -> data.R -> config.R.
-# All are sourced relative to PAF_REPO_ROOT.
-source(file.path(ROOT, "R", "model_fitting", "helpers", "recovery.R"))
+# recovery.R sources fitting.R -> build_model.R -> fit_config.R -> data.R -> logging.R -> config.R -> utils.R
+source(file.path(ROOT, "R", "fit", "helpers", "recovery.R"))
 
 
 # =============================================================================
