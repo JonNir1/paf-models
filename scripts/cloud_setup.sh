@@ -72,7 +72,7 @@ do_setup() {
   echo "R_LIBS_USER=\"$R_LIBS_USER\"" >> "$HOME/.Renviron"
 
   echo ">>> Installing R packages via RSPM pre-compiled binaries (~2 min)..."
-  Rscript -e 'install.packages(
+  Rscript -e 'options(pkgType="binary"); install.packages(
     c("EMC2","dplyr","readr","tools","testthat"),
     repos      = "https://packagemanager.posit.co/cran/__linux__/jammy/latest",
     dependencies = c("Depends","Imports","LinkingTo")
