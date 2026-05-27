@@ -187,6 +187,30 @@ Other:
 - R environment on the local machine: `R_HOME = C:\Program Files\R\R-4.5.2`, `R_LIBS_USER = C:\Users\nirjo\R_library\4.5`. The system library under `R_HOME` is not writable; install packages to `R_LIBS_USER`.
 - Avoid the em-dash (-) in any text destined for academic outputs; use `-` or en-dash (–) instead. This is a per-user writing rule.
 
+## Known issues (deferred)
+
+### L2 build tests fail with EMC2 `'listgreater'` error
+All 23 tests in `__tests__/models/test_build_models.R` error with:
+```
+Error in `order(rep(1:dim(data)[1], nacc), datar$lR)`:
+unimplemented type 'list' in 'listgreater'
+```
+
+The failure is in EMC2 internals:
+```
+build_model() -> build_lba_model() -> EMC2::design()
+  -> summary.emc.design() -> sampled_pars() -> minimal_design()
+  -> add_accumulators() -> order(..., datar$lR)
+```
+
+**Not refactor-introduced.** Visible in CI logs from commit `f088ab0` through `85125df` with the same error. Between `ef3b87f` and `33a667f` a separate `source(...helpers/model.R)` bug masked it (tests failed earlier at source time). Fixing that source bug (step 2.5 / the R/ refactor) un-masks this older issue.
+
+**Status**: not blocking the analysis pipeline (recovery/fit/extend pipelines work end-to-end via L3 smoke tests). To diagnose: probably an EMC2 version interaction with the fixture's pre-existing `lR` column (EMC2 wants to construct its own `lR` via `add_accumulators`; the fixture having one may confuse the design-matrix expansion). Try regenerating `__tests__/fixtures/sample_data.csv` without the `lR` column, or pinning EMC2 to a version where this worked.
+
+`__tests__/models/test_recovery_build.R` may also be affected (uses the same fixture + `build_model`).
+
+---
+
 ## Legacy / do not modify
 
 Everything in `__exploratory/` is superseded code kept for reference. Do not edit, import from, or treat as patterns for current work. Subdirectories:
