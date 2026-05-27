@@ -139,79 +139,69 @@ test_that("smoke B: diagnostics list has all convergence keys", {
 
 
 # =============================================================================
-# Smoke C: fit_recovery_cloud.R path
-# Mirrors the inner loop of fit_recovery_cloud.R end-to-end at tiny scale:
-#   extract_group_params -> simulate_recovery_data -> build_model -> fit
-# Uses the model fitted in Smoke A/B as the "extended" input.
+# Smoke C: end-to-end recovery pipeline (fit_recovery_cloud.R::run_recovery_fit)
+#
+# Calls the production function with a subsetted real-data template so the
+# make_data() pass is fast (~30 trials/subject keeps all 42 subjects so the
+# subject-parameter draw still exercises the full MVN(mu, Sigma) loop).
+#
+# Skips when the real fitted .rds and the design matrix aren't present locally
+# -- CI for L3 doesn't ship them and shouldn't have to.
 # =============================================================================
 
-# Shared state across Smoke C tests
-recovery_group_params <- NULL
-recovery_sim_result   <- NULL
-recovery_fitted       <- NULL
+source_root("R/fit/fit_recovery_cloud.R")    # exposes run_recovery_fit()
 
-test_that("smoke C: extract_group_params returns mu (named numeric) and Sigma (PD matrix)", {
-  skip_if(is.null(smoke_rds_path), "smoke A did not produce a model")
-  fitted <- readRDS(smoke_rds_path)
+EXTENDED_RDS <- file.path(ROOT, "outputs", "models", "fit_extend",
+                          "260525_model1_extended.rds")
+HAVE_REAL_INPUTS <- file.exists(EXTENDED_RDS) && file.exists(file.path(ROOT, DATA_FILE))
 
-  recovery_group_params <<- extract_group_params(fitted)
+test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data", {
+  skip_if_not(HAVE_REAL_INPUTS,
+              "smoke C needs the real extended .rds + design matrix locally")
 
-  expect_type(recovery_group_params, "list")
-  expect_setequal(names(recovery_group_params), c("mu", "Sigma"))
-  expect_type(recovery_group_params$mu, "double")
-  expect_named(recovery_group_params$mu)
-  expect_true(is.matrix(recovery_group_params$Sigma))
-  expect_equal(nrow(recovery_group_params$Sigma),
-               ncol(recovery_group_params$Sigma))
-  expect_equal(nrow(recovery_group_params$Sigma),
-               length(recovery_group_params$mu))
-  # PD check (per-sample averaging guarantees this in principle; smoke checks it
-  # is actually delivered for a tiny fit).
-  eig <- eigen(recovery_group_params$Sigma, only.values = TRUE)$values
-  expect_true(all(eig > 0),
-              label = sprintf("Sigma min eigenvalue (%.4g) > 0", min(eig)))
-})
+  # Load real extended model + filter the design matrix, then subset to keep
+  # all subjects but only ~30 trials each (~1.2k rows, ~1-2 min vs ~15 min full).
+  extended_model <- readRDS(EXTENDED_RDS)
+  raw            <- load_safe_csv(file.path(ROOT, DATA_FILE))
+  template_full  <- filter_data(raw,
+                                min_rt               = MIN_SACCADE_CUTOFF,
+                                max_rt               = MAX_SACCADE_CUTOFF,
+                                allow_target_repeats = ALLOW_TARGET_REPEAT)
+  template_small <- template_full |>
+    dplyr::group_by(subjects) |>
+    dplyr::slice_head(n = 30) |>
+    dplyr::ungroup()
 
-test_that("smoke C: simulate_recovery_data returns data + subject_pars matching template", {
-  skip_if(is.null(recovery_group_params), "smoke C step 1 did not produce group_params")
-  fitted <- readRDS(smoke_rds_path)
+  expect_equal(dplyr::n_distinct(template_small$subjects),
+               dplyr::n_distinct(template_full$subjects))
+  expect_lte(nrow(template_small), 30 * dplyr::n_distinct(template_full$subjects))
 
-  recovery_sim_result <<- simulate_recovery_data(
-    model         = fitted,
-    group_params  = recovery_group_params,
-    template_data = data,
-    seed          = 101L
+  result <- run_recovery_fit(
+    extended_model    = extended_model,
+    template_data     = template_small,
+    model_script_path = file.path(ROOT, "R", "fit", "model1.R"),
+    recovery_name     = "model1_smoke_recovery",
+    log_file          = file.path(SMOKE_DIR, "smoke_C_recovery.log"),
+    out_dir           = SMOKE_DIR,
+    sim_seed          = RECOVERY_BASE_SEED + 1L,
+    fit_samples       = 5L,
+    max_tries         = 1L,
+    step_size         = 5L,
+    save_every        = 1L,
+    max_rhat_mu       = MAX_RHAT_MU_RECOVERY,
+    min_ess_mu        = MIN_ESS_MU_RECOVERY,
+    max_rhat_alpha    = MAX_RHAT_ALPHA_RECOVERY,
+    min_ess_alpha     = MIN_ESS_ALPHA_RECOVERY,
+    name_suffix       = "_smoke"
   )
 
-  expect_type(recovery_sim_result, "list")
-  expect_setequal(names(recovery_sim_result), c("data", "subject_pars"))
-  expect_s3_class(recovery_sim_result$data, "data.frame")
-  expect_equal(nrow(recovery_sim_result$data), nrow(data))
-  expect_true(is.matrix(recovery_sim_result$subject_pars))
-})
+  expect_identical(result, "COMPLETE")
 
-test_that("smoke C: fresh build_model + fit on simulated data returns list of length n_chains", {
-  skip_if(is.null(recovery_sim_result), "smoke C step 2 did not produce sim data")
-
-  fresh_model <- build_model(recovery_sim_result$data, n_chains = 2L)
-  recovery_fitted <<- fit(
-    fresh_model,
-    iter             = 5L,
-    max_tries        = 2L,
-    step_size        = 5L,
-    cores_for_chains = 1L,
-    cores_per_chain  = 1L
-  )
-  expect_type(recovery_fitted, "list")
-  expect_length(recovery_fitted, 2L)
-})
-
-test_that("smoke C: refit on simulated data saves and round-trips via .rds", {
-  skip_if(is.null(recovery_fitted), "smoke C step 3 did not produce a fit")
-
-  saved <- save_model(recovery_fitted, "model1_smoke_recovery", SMOKE_DIR)
-  expect_true(file.exists(saved))
-  restored <- readRDS(saved)
-  expect_type(restored, "list")
-  expect_length(restored, 2L)
+  # Side-effect checks: true_alpha + initial-fit checkpoint .rds in SMOKE_DIR.
+  outs <- list.files(SMOKE_DIR, pattern = "model1_smoke_recovery.*\\.rds$",
+                     full.names = TRUE)
+  expect_true(any(grepl("true_alpha\\.rds$", outs)),
+              label = "true_alpha rds saved")
+  expect_true(length(outs) >= 2L,
+              label = "initial-fit checkpoint rds saved alongside true_alpha")
 })
