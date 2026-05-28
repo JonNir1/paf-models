@@ -70,8 +70,14 @@ source_root("R/fit/helpers/recovery.R")
 #'   recovered model checkpoint, extended .rds files to out_dir.
 run_recovery_fit <- function(extended_model, template_data, model_script_path,
                              recovery_name, log_file, out_dir, sim_seed,
-                             fit_samples, max_tries, step_size, save_every,
-                             max_rhat_mu, min_ess_mu, max_rhat_alpha, min_ess_alpha,
+                             fit_samples       = RECOVERY_FIT_SAMPLES,
+                             max_tries         = MAX_TRIES_RECOVERY,
+                             step_size         = STEP_SIZE_RECOVERY,
+                             save_every        = SAVE_EVERY,
+                             max_rhat_mu       = MAX_RHAT_MU_RECOVERY,
+                             min_ess_mu        = MIN_ESS_MU_RECOVERY,
+                             max_rhat_alpha    = MAX_RHAT_ALPHA_RECOVERY,
+                             min_ess_alpha     = MIN_ESS_ALPHA_RECOVERY,
                              name_suffix       = "",
                              post_save_hook    = NULL,
                              fit_stop_criteria = NULL) {
@@ -267,13 +273,9 @@ if (length(args) == 0L) {
       out_dir           = MODELS_RECOVERY_DIR,
       sim_seed          = RECOVERY_BASE_SEED + sim_index,
       fit_samples       = if (!is.null(fit_samples_override)) fit_samples_override else RECOVERY_FIT_SAMPLES,
-      max_tries         = if (!is.null(max_tries_override))   max_tries_override   else MAX_TRIES,
-      step_size         = if (!is.null(step_size_override))   step_size_override   else STEP_SIZE,
+      max_tries         = if (!is.null(max_tries_override))   max_tries_override   else MAX_TRIES_RECOVERY,
+      step_size         = if (!is.null(step_size_override))   step_size_override   else STEP_SIZE_RECOVERY,
       save_every        = if (!is.null(save_every_override))  save_every_override  else SAVE_EVERY,
-      max_rhat_mu       = MAX_RHAT_MU_RECOVERY,
-      min_ess_mu        = MIN_ESS_MU_RECOVERY,
-      max_rhat_alpha    = MAX_RHAT_ALPHA_RECOVERY,
-      min_ess_alpha     = MIN_ESS_ALPHA_RECOVERY,
       name_suffix       = suffix,
       post_save_hook    = .cloud_hook
     )

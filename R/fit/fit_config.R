@@ -9,37 +9,13 @@
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/config.R")
 
-
-# --- MCMC chains ---
-# Number of MCMC chains baked into each emc object at make_emc() time.
-# Cannot be changed after fitting. Parallelism (cores_for_chains, cores_per_chain)
-# is auto-detected at runtime by get_core_args() in helpers/fitting.R.
-N_CHAINS <- 3
-
-
-# --- Fitting / extending ---
-INITIAL_FIT_SAMPLES  <- 1000    # iterations run by fit_initial.R
-EXTENDED_FIT_SAMPLES <- 3000L   # extend keeps running until total iters >= this (even if Rhat/ESS met)
-MAX_TRIES  <- 20    # number of times to check whether stop criteria are met
-STEP_SIZE  <- 200   # iterations between stop-criteria checks
-SAVE_EVERY <- 2L    # checkpoint every N tries (2 x 200 iters = 400-iter checkpoints)
-
-
-# --- Convergence thresholds (asymmetric; mu tighter than alpha) ---
-# Applied to $mu and $alpha blocks only. $sigma2 and $correlation are descriptive
-# (not enforced) -- see CLAUDE.md "Analysis workflow".
-MAX_RHAT_MU    <- 1.05;  MIN_ESS_MU    <- 500   # population params reported with CIs
-MAX_RHAT_ALPHA <- 1.10;  MIN_ESS_ALPHA <- 400   # subject params feed OOD simulation
-
+# ============================================================================
+# Prior specifications
+# ============================================================================
 
 # --- Identifiability anchor for the LBA ---
 # REMOVING or CHANGING this will silently make the model non-identifiable.
 CONSTANTS <- c(sv = log(1))
-
-
-# ============================================================================
-# Prior specifications
-# ============================================================================
 
 # --- V (drift rate) ---
 V_BASELINE_MU      <- 2;     V_BASELINE_SD      <- 2
@@ -75,11 +51,36 @@ T0_MU <- log(0.5 * MIN_SACCADE_CUTOFF);  T0_SD <- 1   # use saccade cutoff as in
 
 
 # ============================================================================
-# Parameter Recovery (step 2.5)
+# Model Fitting
+# Parameters for fit_initial and fit_extend
+# ============================================================================
+
+# --- MCMC chains ---
+# Number of MCMC chains baked into each emc object at make_emc() time.
+# Cannot be changed after fitting. Parallelism (cores_for_chains, cores_per_chain)
+# is auto-detected at runtime by get_core_args() in helpers/fitting.R.
+N_CHAINS <- 3
+
+# --- Fitting / extending ---
+INITIAL_FIT_SAMPLES  <- 1000    # iterations run by fit_initial.R
+EXTENDED_FIT_SAMPLES <- 3000L   # extend keeps running until total iters >= this (even if Rhat/ESS met)
+MAX_TRIES  <- 20    # number of times to check whether stop criteria are met
+STEP_SIZE  <- 200   # iterations between stop-criteria checks
+SAVE_EVERY <- 2L    # checkpoint every N tries (2 x 200 iters = 400-iter checkpoints)
+
+
+# --- Convergence thresholds (asymmetric; mu tighter than alpha) ---
+# Applied to $mu and $alpha blocks only. $sigma2 and $correlation are descriptive (not enforced)
+MAX_RHAT_MU    <- 1.05;  MIN_ESS_MU    <- 500   # population params reported with CIs
+MAX_RHAT_ALPHA <- 1.10;  MIN_ESS_ALPHA <- 400   # subject params feed OOD simulation
+
+# ============================================================================
+# Parameter Recovery
 # Replicating Strickland et al. (2026) Supplementary methodology.
 # Relaxed thresholds vs. real fits: recovery is diagnostic, not for inference.
 # ============================================================================
-RECOVERY_FIT_SAMPLES <- 1500L   # sample floor (vs. 3000 for real fits)
+RECOVERY_FIT_SAMPLES <- 1000L   # sample floor (vs. 3000 for real fits)
 RECOVERY_BASE_SEED   <- 100L    # reproducible per-sim seeds: BASE + sim_index
-MAX_RHAT_MU_RECOVERY    <- 1.10;  MIN_ESS_MU_RECOVERY    <- 300
-MAX_RHAT_ALPHA_RECOVERY <- 1.10;  MIN_ESS_ALPHA_RECOVERY <- 300
+MAX_RHAT_MU_RECOVERY    <- 1.10 ;   MIN_ESS_MU_RECOVERY     <- 300
+MAX_RHAT_ALPHA_RECOVERY <- 1.10 ;   MIN_ESS_ALPHA_RECOVERY  <- 300
+MAX_TRIES_RECOVERY      <- 10   ;   STEP_SIZE_RECOVERY      <- 100
