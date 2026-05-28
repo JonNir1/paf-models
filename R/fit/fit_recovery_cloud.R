@@ -72,8 +72,9 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
                              recovery_name, log_file, out_dir, sim_seed,
                              fit_samples, max_tries, step_size, save_every,
                              max_rhat_mu, min_ess_mu, max_rhat_alpha, min_ess_alpha,
-                             name_suffix    = "",
-                             post_save_hook = NULL) {
+                             name_suffix       = "",
+                             post_save_hook    = NULL,
+                             fit_stop_criteria = NULL) {
 
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   run_date <- format(Sys.Date(), "%y%m%d")
@@ -123,6 +124,10 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
   fresh_model <- build_model(sim_data, n_chains = N_CHAINS)
 
   # --- 6. Initial fit (all EMC2 phases: preburn -> burn -> adapt -> sample) ---
+  # fit_stop_criteria is NULL in production (EMC2 defaults apply).
+  # For smoke tests, pass loose criteria (e.g. max_gd=Inf, low iter) to
+  # short-circuit all phases quickly; otherwise EMC2 spins trying to converge
+  # tiny chains that will never meet default thresholds.
   core_args <- get_core_args(N_CHAINS)
   log_msg(
     sprintf("Initial fit: iter=%d, cores_for_chains=%d, cores_per_chain=%d",
@@ -133,7 +138,8 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
     fresh_model,
     cores_for_chains = core_args$cores_for_chains,
     cores_per_chain  = core_args$cores_per_chain,
-    iter             = fit_samples
+    iter             = fit_samples,
+    stop_criteria    = fit_stop_criteria
   )
 
   # --- 7. Checkpoint after initial fit ---
