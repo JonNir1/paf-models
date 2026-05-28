@@ -198,6 +198,15 @@ test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data
                dplyr::n_distinct(template_full$subjects))
   expect_lte(nrow(template_small), 30 * dplyr::n_distinct(template_full$subjects))
 
+  # Loose stop_criteria so all EMC2 phases exit after iter=5 without waiting
+  # for convergence. iter sets the minimum; max_gd=Inf disables the Gelman-Rubin
+  # check, so each phase exits as soon as the minimum is reached.
+  smoke_stop_criteria <- list(
+    preburn = list(iter = 5L, max_gd = Inf),
+    burn    = list(iter = 5L, max_gd = Inf),
+    adapt   = list(iter = 5L, max_gd = Inf)
+  )
+
   result <- run_recovery_fit(
     extended_model    = extended_model,
     template_data     = template_small,
@@ -214,7 +223,8 @@ test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data
     min_ess_mu        = MIN_ESS_MU_RECOVERY,
     max_rhat_alpha    = MAX_RHAT_ALPHA_RECOVERY,
     min_ess_alpha     = MIN_ESS_ALPHA_RECOVERY,
-    name_suffix       = "_smoke"
+    name_suffix       = "_smoke",
+    fit_stop_criteria = smoke_stop_criteria
   )
 
   expect_identical(result, "COMPLETE")
