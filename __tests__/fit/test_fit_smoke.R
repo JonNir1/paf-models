@@ -19,6 +19,15 @@ source_root("R/fit/model1.R")              # provides build_model()
 SMOKE_DIR <- file.path(tempdir(), paste0("paf_smoke_", Sys.getpid()))
 dir.create(SMOKE_DIR, recursive = TRUE)
 
+# Shared stop_criteria: max_gd=Inf forces each EMC2 phase to exit after its
+# minimum iteration count, preventing covariance degeneracy with tiny chains.
+SMOKE_STOP_CRITERIA <- list(
+  preburn = list(iter = 10L, max_gd = Inf),
+  burn    = list(iter = 20L, max_gd = Inf),
+  adapt   = list(iter = 10L, max_gd = Inf),
+  sample  = list(iter = 20L, max_gd = Inf)
+)
+
 raw  <- load_safe_csv(file.path(ROOT, "__tests__", "fixtures", "sample_data.csv"))
 data <- filter_data(raw,
                     min_rt               = MIN_SACCADE_CUTOFF,
@@ -40,7 +49,8 @@ test_that("smoke A: fit() returns a list of length n_chains", {
                 max_tries        = 2L,
                 step_size        = 5L,
                 cores_for_chains = 1L,
-                cores_per_chain  = 1L)
+                cores_per_chain  = 1L,
+                stop_criteria    = SMOKE_STOP_CRITERIA)
   expect_type(fitted, "list")
   expect_length(fitted, 2L)
 
@@ -180,16 +190,6 @@ test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data
                dplyr::n_distinct(template_full$subjects))
   expect_lte(nrow(template_small), 30 * dplyr::n_distinct(template_full$subjects))
 
-  # Loose stop_criteria so all EMC2 phases exit after iter=5 without waiting
-  # for convergence. iter sets the minimum; max_gd=Inf disables the Gelman-Rubin
-  # check, so each phase exits as soon as the minimum is reached.
-  smoke_stop_criteria <- list(
-    preburn = list(iter = 10L, max_gd = Inf),
-    burn    = list(iter = 20L, max_gd = Inf),
-    adapt   = list(iter = 10L, max_gd = Inf),
-    sample  = list(iter = 20L, max_gd = Inf)
-  )
-
   result <- run_recovery_fit(
     extended_model    = extended_model,
     template_data     = template_small,
@@ -207,7 +207,7 @@ test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data
     max_rhat_alpha    = MAX_RHAT_ALPHA_RECOVERY,
     min_ess_alpha     = MIN_ESS_ALPHA_RECOVERY,
     name_suffix       = "_smoke",
-    fit_stop_criteria = smoke_stop_criteria
+    fit_stop_criteria = SMOKE_STOP_CRITERIA
   )
 
   expect_identical(result, "COMPLETE")
