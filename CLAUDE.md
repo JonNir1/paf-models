@@ -173,7 +173,7 @@ Other:
 - `__tests__/fixtures/sample_data.csv` - committed synthetic design matrix (~240 rows)
 - `__tests__/helpers/` - L1 unit tests (logging, data, model helpers, recovery helpers; no EMC2)
 - `__tests__/models/` - L2 build tests (`make_emc()` for all 5 models + recovery build chain; requires EMC2)
-- `__tests__/fit/test_fit_smoke.R` - L3 smoke tests; covers Smoke A (`fit_initial`), Smoke B (`extend_model`), Smoke C (recovery). CI manual dispatch only. **Smoke C is Linux-first**: EMC2 fork-parallelism is unavailable on Windows, making even the subsetted run 30+ min with crash risk. Smoke C is skipped by default on Windows; set `SMOKE_C_WINDOWS=1` to opt in non-interactively, or run interactively to get a confirmation prompt.
+- `__tests__/fit/test_fit_smoke.R` - L3 smoke tests; covers Smoke A (`fit_initial`), Smoke B (`extend_model`), Smoke C (recovery). CI manual dispatch only. Smoke C uses bounded `stop_criteria` (`max_gd=Inf`) so all EMC2 phases exit after a fixed iteration count — runtime is deterministic on all platforms (~7-10 min on Windows with `cores_for_chains=1`).
 - `.github/workflows/test.yml` - CI: L1 unit tests + L2 build tests (auto on push/PR)
 - `.github/workflows/smoke.yml` - CI: L3 smoke tests (manual dispatch only)
 - `.github/r-deps-level1.txt` / `r-deps-level2.txt` - package lists used by CI cache keys

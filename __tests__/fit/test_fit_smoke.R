@@ -148,15 +148,9 @@ test_that("smoke B: diagnostics list has all convergence keys", {
 # Skips when the real fitted .rds and the design matrix aren't present locally
 # -- CI for L3 doesn't ship them and shouldn't have to.
 #
-# LINUX-FIRST: EMC2 chains run in parallel via fork on Linux. On Windows,
-# get_core_args() forces cores_for_chains=1 (no fork), so the initial fit()
-# and each extend step run fully sequentially. Even with subsetted data this
-# can take 30+ min and may crash low-memory machines.
-#
-# Windows guardrail: Smoke C is skipped by default on Windows.
-# To run it anyway:
-#   - Non-interactively: set env var SMOKE_C_WINDOWS=1 before running
-#   - Interactively:     you will be prompted to confirm
+# Runtime: bounded stop_criteria (max_gd=Inf) makes all EMC2 phases exit after
+# their minimum iteration count, so total runtime is deterministic on all
+# platforms (~7-10 min on Windows with cores_for_chains=1).
 # =============================================================================
 
 source_root("R/fit/fit_recovery_cloud.R")    # exposes run_recovery_fit()
@@ -165,21 +159,9 @@ EXTENDED_RDS <- file.path(ROOT, "outputs", "models", "fit_extend",
                           "260525_model1_extended.rds")
 HAVE_REAL_INPUTS <- file.exists(EXTENDED_RDS) && file.exists(file.path(ROOT, DATA_FILE))
 
-ON_WINDOWS <- .Platform$OS.type == "windows"
-WINDOWS_APPROVED <- !ON_WINDOWS ||
-  identical(Sys.getenv("SMOKE_C_WINDOWS"), "1") ||
-  (interactive() && {
-    ans <- readline(
-      "Smoke C: EMC2 runs sequentially on Windows (30+ min, crash risk). Continue? [y/N] "
-    )
-    grepl("^[yY]", ans)
-  })
-
 test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data", {
   skip_if_not(HAVE_REAL_INPUTS,
               "smoke C needs the real extended .rds + design matrix locally")
-  skip_if_not(WINDOWS_APPROVED,
-              "smoke C skipped on Windows (set SMOKE_C_WINDOWS=1 or run interactively to override)")
 
   # Load real extended model + filter the design matrix, then subset to keep
   # all subjects but only ~30 trials each (~1.2k rows, ~1-2 min vs ~15 min full).
