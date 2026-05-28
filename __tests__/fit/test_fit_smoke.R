@@ -187,7 +187,7 @@ test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data
     preburn = list(iter = 10L, max_gd = Inf),
     burn    = list(iter = 20L, max_gd = Inf),
     adapt   = list(iter = 10L, max_gd = Inf),
-    sample  = list(iter = 20L, max_gd = Inf),
+    sample  = list(iter = 20L, max_gd = Inf)
   )
 
   result <- run_recovery_fit(

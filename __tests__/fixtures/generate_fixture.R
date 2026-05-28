@@ -65,7 +65,6 @@ for (sub in seq_len(N_SUBJECTS)) {
         rt                   = rt,
         R                    = R,
         S                    = S,
-        lR                   = lR,
         cue_location         = cue_loc,
         target_location      = target_loc,
         prev_target_location = prev_target,
