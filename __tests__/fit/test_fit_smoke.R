@@ -202,9 +202,10 @@ test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data
   # for convergence. iter sets the minimum; max_gd=Inf disables the Gelman-Rubin
   # check, so each phase exits as soon as the minimum is reached.
   smoke_stop_criteria <- list(
-    preburn = list(iter = 5L, max_gd = Inf),
-    burn    = list(iter = 5L, max_gd = Inf),
-    adapt   = list(iter = 5L, max_gd = Inf)
+    preburn = list(iter = 10L, max_gd = Inf),
+    burn    = list(iter = 20L, max_gd = Inf),
+    adapt   = list(iter = 10L, max_gd = Inf),
+    sample  = list(iter = 20L, max_gd = Inf),
   )
 
   result <- run_recovery_fit(
@@ -216,8 +217,8 @@ test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data
     out_dir           = SMOKE_DIR,
     sim_seed          = RECOVERY_BASE_SEED + 1L,
     fit_samples       = 5L,
-    max_tries         = 1L,
-    step_size         = 5L,
+    max_tries         = 2L,
+    step_size         = 10L,
     save_every        = 1L,
     max_rhat_mu       = MAX_RHAT_MU_RECOVERY,
     min_ess_mu        = MIN_ESS_MU_RECOVERY,
