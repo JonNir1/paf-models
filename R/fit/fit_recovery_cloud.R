@@ -237,11 +237,11 @@ if (length(args) == 0L) {
           log_file, console_print = TRUE)
   log_msg(sprintf("Output name: %s", recovery_name), log_file, console_print = TRUE)
   for (override in list(
-         c("--fit-samples", fit_samples_override),
-         c("--max-tries",   max_tries_override),
-         c("--step-size",   step_size_override),
-         c("--save-every",  save_every_override),
-         c("--suffix",      suffix_override))) {
+         list("--fit-samples", fit_samples_override),
+         list("--max-tries",   max_tries_override),
+         list("--step-size",   step_size_override),
+         list("--save-every",  save_every_override),
+         list("--suffix",      suffix_override))) {
     if (!is.null(override[[2]]))
       log_msg(sprintf("Override: %s %s", override[[1]], override[[2]]),
               log_file, console_print = TRUE)
