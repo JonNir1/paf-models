@@ -63,7 +63,10 @@ paf-models/
 |           |- diagnostics_helpers.R  # Rhat/ESS extraction, diag/GoF table builders
 |
 |- scripts/
-|   |- cloud_setup.sh            # Cloud VM bootstrap + run/recovery dispatcher (bash)
+|   |- helpers.sh                # Shared config defaults + cloud copy helpers (sourced by scripts below)
+|   |- vm_setup.sh               # One-time R + EMC2 install on a fresh Ubuntu VM
+|   |- run_extend.sh             # Download initial .rds, run fit_extend_cloud.R, sync results
+|   |- run_recovery.sh           # Download extended .rds, run fit_recovery_cloud.R, sync results
 |
 |- __tests__/
 |   |- run_tests.R               # Entry point; gated by TEST_LEVEL env var (1/2/3)

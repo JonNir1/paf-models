@@ -16,7 +16,7 @@
 #' template_data (avoiding the ~15-minute make_data() pass on the full 14.5k
 #' dataset). The script below is the CLI wrapper around that function.
 #'
-#' Usage (called by cloud_setup.sh do_recovery, or directly for local testing):
+#' Usage (called by scripts/run_recovery.sh, or directly for local testing):
 #'   Rscript R/fit/fit_recovery_cloud.R <extended_rds> <sim_index>
 #'   e.g.: Rscript R/fit/fit_recovery_cloud.R 260525_model1_extended.rds 1
 #'
@@ -28,7 +28,7 @@
 #'   --suffix STR     Append STR to output filenames (e.g. _smoke)
 #'
 #' Cloud sync: reads CP_CMD and DEST_PREFIX from the environment (set by
-#' cloud_setup.sh do_recovery). No-op if either is unset (safe for local use).
+#' scripts/run_recovery.sh). No-op if either is unset (safe for local use).
 #' =============================================================================
 
 library(EMC2)

@@ -4,9 +4,9 @@
 #' Extends one previously-fit model on a cloud VM. Designed for parallel
 #' execution: one process per machine, each handling a single model. After
 #' every try the model and log are synced to durable storage via a hook that
-#' reads CP_CMD and DEST_PREFIX from the environment (set by cloud_setup.sh).
+#' reads CP_CMD and DEST_PREFIX from the environment (set by scripts/run_extend.sh).
 #'
-#' Usage (called by cloud_setup.sh do_run, not directly):
+#' Usage (called by scripts/run_extend.sh, not directly):
 #'   CP_CMD="aws s3 cp" DEST_PREFIX="s3://my-bucket/results" \
 #'     Rscript R/fit/fit_extend_cloud.R 260421_model1.rds
 #'
@@ -37,7 +37,7 @@ set.seed(RNG_SEED)
 
 # =============================================================================
 #  Cloud sync hook: reads CP_CMD + DEST_PREFIX from the environment at call
-#  time (not definition time) so values set by cloud_setup.sh are picked up
+#  time (not definition time) so values set by scripts/run_extend.sh are picked up
 #  correctly. No-op when either variable is unset.
 # =============================================================================
 
