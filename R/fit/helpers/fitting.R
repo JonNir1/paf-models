@@ -229,14 +229,53 @@ extend_model <- function(rds_filename,
     max_rhat_mu, min_ess_mu, max_rhat_alpha, min_ess_alpha, step_size, max_tries, extended_fit_samples
   ), log_file, console_print = TRUE)
 
+  # --- Pre-loop convergence check ---
+  # If the model was already extended to a sufficient sample count it may already
+  # satisfy all Rhat/ESS criteria. Check once up-front and skip the loop entirely
+  # if criteria are already met, avoiding one wasted extension step.
+  log_msg("Checking initial convergence before extension loop...",
+          log_file, console_print = TRUE)
+  cv <- check_block_convergence(model,
+                                max_rhat_mu, min_ess_mu,
+                                max_rhat_alpha, min_ess_alpha)
+  log_msg(sprintf(
+    "  mu:    Rhat=%.4f (<%.2f) | ESS=%.0f (>%d)  [%s]",
+    cv$mu_max_rhat, max_rhat_mu, cv$mu_min_ess, min_ess_mu,
+    ifelse(cv$mu_converged, "OK", "WAIT")
+  ), log_file, console_print = TRUE)
+  log_msg(sprintf(
+    "  alpha: Rhat=%.4f (<%.2f) | ESS=%.0f (>%d)  [%s]",
+    cv$alpha_max_rhat, max_rhat_alpha, cv$alpha_min_ess, min_ess_alpha,
+    ifelse(cv$alpha_converged, "OK", "WAIT")
+  ), log_file, console_print = TRUE)
+
+  if (cv$converged && n_iter_start >= extended_fit_samples) {
+    log_msg(
+      sprintf("Already converged at %d iterations — skipping extension loop.", n_iter_start),
+      log_file, console_print = TRUE
+    )
+    saved_path   <- save_model(model, ext_model_name, models_dir, date_prefix = run_date)
+    log_msg(paste("Saved extended model to:", saved_path), log_file, console_print = TRUE)
+    if (!is.null(post_save_hook)) post_save_hook(saved_path, log_file)
+    duration_min <- as.numeric(difftime(Sys.time(), start_time, units = "mins"))
+    log_msg(sprintf("Total runtime: %.2f minutes", duration_min), log_file, console_print = TRUE)
+    return(list(
+      model        = model,
+      saved_path   = saved_path,
+      diagnostics  = cv,
+      n_tries      = 0L,
+      converged    = TRUE,
+      duration_min = duration_min
+    ))
+  }
+
   # --- Custom asymmetric extension loop ---
   # EMC2's built-in stop_criteria treats all parameters uniformly, so we cannot
   # use it to enforce different thresholds on $mu vs $alpha. Instead we add
   # `step_size` iterations per try via run_emc(max_tries=1, step_size=step_size)
   # and evaluate block-specific convergence ourselves between tries.
   converged <- FALSE
-  cv <- NULL
-  try_idx <- 0L
+  try_idx   <- 0L
   for (try_idx in seq_len(max_tries)) {
     log_msg(sprintf("Try %d/%d: adding %d iterations (cores_for_chains=%d, cores_per_chain=%d)...",
                     try_idx, max_tries, step_size,
