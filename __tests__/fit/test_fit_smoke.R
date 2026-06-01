@@ -86,16 +86,17 @@ test_that("smoke B: extend_model returns a list with all expected keys", {
 
   rds_filename <- basename(smoke_rds_path)
   result <- extend_model(
-    rds_filename  = rds_filename,
-    log_file      = file.path(SMOKE_DIR, "smoke_extend.log"),
-    models_dir    = SMOKE_DIR,
-    min_num_samples = 1L,
-    max_tries     = 2L,
-    step_size     = 5L,
-    max_rhat_mu   = MAX_RHAT_MU,
-    min_ess_mu    = MIN_ESS_MU,
-    max_rhat_alpha  = MAX_RHAT_ALPHA,
-    min_ess_alpha   = MIN_ESS_ALPHA
+    rds_filename         = rds_filename,
+    log_file             = file.path(SMOKE_DIR, "smoke_extend.log"),
+    source_dir           = SMOKE_DIR,
+    models_dir           = SMOKE_DIR,
+    extended_fit_samples = 1L,
+    max_tries            = 2L,
+    step_size            = 5L,
+    max_rhat_mu          = MAX_RHAT_MU,
+    min_ess_mu           = MIN_ESS_MU,
+    max_rhat_alpha       = MAX_RHAT_ALPHA,
+    min_ess_alpha        = MIN_ESS_ALPHA
   )
 
   expect_type(result, "list")
@@ -109,16 +110,17 @@ test_that("smoke B: extended .rds file is written to disk", {
 
   rds_filename <- basename(smoke_rds_path)
   result <- extend_model(
-    rds_filename  = rds_filename,
-    log_file      = file.path(SMOKE_DIR, "smoke_extend2.log"),
-    models_dir    = SMOKE_DIR,
-    min_num_samples = 1L,
-    max_tries     = 2L,
-    step_size     = 5L,
-    max_rhat_mu   = MAX_RHAT_MU,
-    min_ess_mu    = MIN_ESS_MU,
-    max_rhat_alpha  = MAX_RHAT_ALPHA,
-    min_ess_alpha   = MIN_ESS_ALPHA
+    rds_filename         = rds_filename,
+    log_file             = file.path(SMOKE_DIR, "smoke_extend2.log"),
+    source_dir           = SMOKE_DIR,
+    models_dir           = SMOKE_DIR,
+    extended_fit_samples = 1L,
+    max_tries            = 2L,
+    step_size            = 5L,
+    max_rhat_mu          = MAX_RHAT_MU,
+    min_ess_mu           = MIN_ESS_MU,
+    max_rhat_alpha       = MAX_RHAT_ALPHA,
+    min_ess_alpha        = MIN_ESS_ALPHA
   )
 
   expect_true(file.exists(result$saved_path))
@@ -130,21 +132,51 @@ test_that("smoke B: diagnostics list has all convergence keys", {
 
   rds_filename <- basename(smoke_rds_path)
   result <- extend_model(
-    rds_filename  = rds_filename,
-    log_file      = file.path(SMOKE_DIR, "smoke_extend3.log"),
-    models_dir    = SMOKE_DIR,
-    min_num_samples = 1L,
-    max_tries     = 2L,
-    step_size     = 5L,
-    max_rhat_mu   = MAX_RHAT_MU,
-    min_ess_mu    = MIN_ESS_MU,
-    max_rhat_alpha  = MAX_RHAT_ALPHA,
-    min_ess_alpha   = MIN_ESS_ALPHA
+    rds_filename         = rds_filename,
+    log_file             = file.path(SMOKE_DIR, "smoke_extend3.log"),
+    source_dir           = SMOKE_DIR,
+    models_dir           = SMOKE_DIR,
+    extended_fit_samples = 1L,
+    max_tries            = 2L,
+    step_size            = 5L,
+    max_rhat_mu          = MAX_RHAT_MU,
+    min_ess_mu           = MIN_ESS_MU,
+    max_rhat_alpha       = MAX_RHAT_ALPHA,
+    min_ess_alpha        = MIN_ESS_ALPHA
   )
 
   diag_keys <- c("converged", "mu_converged", "alpha_converged",
                  "mu_max_rhat", "mu_min_ess", "alpha_max_rhat", "alpha_min_ess")
   expect_setequal(names(result$diagnostics), diag_keys)
+})
+
+test_that("smoke B: extend_model skips loop when model already meets all criteria", {
+  skip_if(is.null(smoke_rds_path), "smoke A did not produce a model")
+
+  # Trivially-satisfied thresholds (Rhat < 100, ESS > 0) guarantee the
+  # pre-loop convergence check passes for any fitted model, regardless of
+  # actual chain quality. Combined with extended_fit_samples = 1L the sample
+  # floor is also immediately met, so the extension loop must be skipped.
+  rds_filename <- basename(smoke_rds_path)
+  log_file     <- file.path(SMOKE_DIR, "smoke_extend_preconverged.log")
+
+  result <- extend_model(
+    rds_filename         = rds_filename,
+    log_file             = log_file,
+    source_dir           = SMOKE_DIR,
+    models_dir           = SMOKE_DIR,
+    extended_fit_samples = 1L,
+    max_tries            = 5L,
+    step_size            = 5L,
+    max_rhat_mu          = 100.0,
+    min_ess_mu           = 0L,
+    max_rhat_alpha       = 100.0,
+    min_ess_alpha        = 0L
+  )
+
+  expect_equal(result$n_tries, 0L)
+  expect_true(result$converged)
+  expect_true(any(grepl("Already converged", readLines(log_file))))
 })
 
 
