@@ -159,7 +159,8 @@ extend_model <- function(rds_filename,
                          min_ess_alpha     = MIN_ESS_ALPHA,
                          save_every        = SAVE_EVERY,
                          name_suffix       = "",
-                         post_save_hook    = NULL) {
+                         post_save_hook    = NULL,
+                         append_log        = FALSE) {
   start_time <- Sys.time()
 
   # Validate inputs BEFORE any heavy work so users learn about misconfigs
@@ -182,8 +183,9 @@ extend_model <- function(rds_filename,
     stop("post_save_hook must be a function or NULL.")
   }
 
-  # Truncate any prior content - each invocation starts a fresh log
-  cat("", file = log_file, append = FALSE)
+  # Fresh log by default; pass append_log=TRUE to preserve earlier entries
+  # (e.g. when called from run_recovery_fit() which shares the same log file).
+  cat("", file = log_file, append = append_log)
 
   # --- Load ---
   full_path <- file.path(source_dir, rds_filename)

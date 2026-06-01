@@ -171,7 +171,8 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
     min_ess_alpha        = min_ess_alpha,
     save_every           = save_every,
     name_suffix          = name_suffix,
-    post_save_hook       = post_save_hook
+    post_save_hook       = post_save_hook,
+    append_log           = TRUE
   )
 
   "COMPLETE"
