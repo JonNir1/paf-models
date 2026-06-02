@@ -1,6 +1,10 @@
 ##### Project-Specific Ignores #####
 data/
 outputs/
+docs/
+_deckbuild/
+_scratch_*.R
+Rplots.pdf
 
 ##### R.gitignore #####
 # History files
