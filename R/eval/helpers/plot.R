@@ -95,18 +95,18 @@ plot_recovery_scatter <- function(points_df, stats_df = NULL) {
   library(ggplot2)
   if (is.null(points_df$identifiable)) points_df$identifiable <- TRUE
   points_df$id_lab <- ifelse(points_df$identifiable,
-                             "identifiable core", "structurally unidentifiable")
+                             "core parameters", "StimulusAtLoc x SearchDifficulty block")
 
   p <- ggplot(points_df, aes(true, est, color = id_lab)) +
     geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
     geom_point(size = 1, alpha = 0.4) +
     facet_wrap(~model, scales = "free") +
-    scale_color_manual(values = c("identifiable core" = "#2c7fb8",
-                                  "structurally unidentifiable" = "#d7301f"),
+    scale_color_manual(values = c("core parameters" = "#2c7fb8",
+                                  "StimulusAtLoc x SearchDifficulty block" = "#d7301f"),
                        name = NULL) +
     labs(x = "True alpha", y = "Estimated alpha (posterior mean)",
          title = "Subject-level recovery: estimated vs true alpha",
-         subtitle = "Red = StimulusAtLoc x SearchDifficulty block (structurally unidentifiable in models 4/5)") +
+         subtitle = "Red = the StimulusAtLoc x SearchDifficulty block - unidentifiable in models 4 & 5, identifiable in 1 & 2") +
     theme_bw(base_size = 12) +
     theme(legend.position = "bottom")
 
