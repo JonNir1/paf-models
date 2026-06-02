@@ -71,19 +71,19 @@ The Python and R sides communicate through one file:
 ## Architecture
 
 - **`R/` layout**: split into three layers.
-  - `R/config.R` — project-level: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), `DATA_FILE`, and output dir paths (`OUTPUTS_DIR`, `MODELS_DIR`, `EVAL_DIR`, `MODELS_{INITIAL,EXTEND,RECOVERY}_DIR`). Sourced (directly or transitively) by every script.
+  - `R/config.R` — project-level: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), the asymmetric convergence thresholds (`MAX_RHAT_MU`/`MIN_ESS_MU` + `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`; used by BOTH the fit and eval layers), `DATA_FILE`, and output dir paths (`OUTPUTS_DIR`, `MODELS_DIR`, `EVAL_DIR`, `MODELS_{INITIAL,EXTEND,RECOVERY}_DIR`). Sourced (directly or transitively) by every script.
   - `R/utils.R` — `source_root(rel)`, `parse_int_arg`, `parse_str_arg`, `check_valid_string`. Sourced as the FIRST line of every R file via `source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))`.
-  - `R/fit/` — fitting code (`fit_*.R`, `model{1..5}.R`) + `R/fit/fit_config.R` (priors, `N_CHAINS = 3`, fit params `INITIAL_FIT_SAMPLES=1000`/`EXTENDED_FIT_SAMPLES=3000`/`MAX_TRIES=20`/`STEP_SIZE=200`/`SAVE_EVERY=2`, convergence thresholds `MAX_RHAT_MU`/`MIN_ESS_MU` + alpha pair, recovery params, and the `CONSTANTS = c(sv = log(1))` identifiability anchor). Changing a prior here propagates to all 5 models.
-  - `R/eval/` — evaluation code (`diagnostics.R`, `examine_*.R`) + `R/eval/eval_config.R` (currently minimal — placeholder for step-3 GoF thresholds).
+  - `R/fit/` — fitting code (`fit_*.R`, `model{1..5}.R`) + `R/fit/fit_config.R` (priors, `N_CHAINS = 3`, fit params `INITIAL_FIT_SAMPLES=1000`/`EXTENDED_FIT_SAMPLES=3000`/`MAX_TRIES=20`/`STEP_SIZE=200`/`SAVE_EVERY=2`, recovery params, and the `CONSTANTS = c(sv = log(1))` identifiability anchor). The asymmetric convergence thresholds were relocated to `R/config.R` (shared with eval). Changing a prior here propagates to all 5 models.
+  - `R/eval/` — evaluation code: `convergence.R` (step-2.9 convergence table + verdict), `model_comparison.R` (GoF/DIC/BPIC; step-3 scaffolding), `recovery.R` (parameter-recovery analysis), `review_convergence_recovery.R` (step-2.9 synthesis), `examine_model.R` (interactive) + `R/eval/eval_config.R`.
   - `R/helpers/` — cross-cutting helpers used by both fit and eval: `logging.R`, `data.R`.
   - `R/fit/helpers/` — fit-only helpers: `build_model.R`, `fitting.R`, `recovery.R`.
-  - `R/eval/helpers/` — eval-only helpers: `diagnostics_helpers.R`.
+  - `R/eval/helpers/` — eval-only helpers: `convergence.R` (Rhat/ESS extraction + verdict), `recovery.R` (recovery-eval computations), `plot.R` (Plotly figures), `io.R` (`load_model`, `save_eval_table`, `newer_than_inputs`).
   - Parallelism (`cores_for_chains`, `cores_per_chain`) is auto-detected at runtime by `get_core_args()` in `R/fit/helpers/fitting.R` — no manual core config is needed.
 - **Output locations** (from `R/config.R`):
   - `MODELS_INITIAL_DIR  = "outputs/models/fit_initial"`  — `.rds` files from `fit_initial.R`, named `YYMMDD_<MODEL_NAME>.rds`.
   - `MODELS_EXTEND_DIR   = "outputs/models/fit_extend"`   — `.rds` files from `fit_extend_*.R`.
   - `MODELS_RECOVERY_DIR = "outputs/models/fit_recovery"` — `.rds` files from `fit_recovery_cloud.R`.
-  - `EVAL_DIR            = "outputs/evaluation"`          — comparison/diagnostic outputs (`model_comparison_diagnostics.{rds,csv}`, `model_comparison_fit.{rds,csv}`); recovery analysis lands under `outputs/evaluation/parameter_recovery/`.
+  - `EVAL_DIR            = "outputs/evaluation"`          — eval outputs (`convergence.{rds,csv}` from `convergence.R`; `model_comparison.{rds,csv}` from `model_comparison.R`; `review_2_9_summary.{rds,csv}` from the 2.9 synthesis); recovery analysis lands under `outputs/evaluation/parameter_recovery/`.
   - `LOG_FILE` is **not** in `config.R`; each script derives it locally (e.g. `file.path(MODELS_INITIAL_DIR, "log.txt")`). `fit_initial.R` writes to `outputs/models/fit_initial/log.txt`; `fit_extend_*.R` writes per-model logs to `outputs/models/fit_extend/log_extend_<name>.txt`.
 - **Model family**: five nested LBA variants (`R/fit/model1.R` .. `model5.R`) differing in the formulas for drift rate `v`, threshold `B`, and between-trial variability `sv`. Each script defines `MODEL_NAME` and a thin `build_model(data, n_chains = 3)` that delegates to `build_lba_model()` in `R/fit/helpers/build_model.R`. `build_lba_model()` owns all shared boilerplate (base priors, `design()`, `prior()`, `make_emc()`); each model passes only its `v_formula`, `B_formula`, and any extra prior entries. To add a new variant, copy `model1.R` and adjust those three arguments.
 - **Two-phase fitting**:
@@ -92,7 +92,7 @@ The Python and R sides communicate through one file:
   - `R/fit/fit_extend_cloud.R` extends a single model on a cloud VM (one process per machine). Reads `CP_CMD` and `DEST_PREFIX` from the environment and syncs the `.rds` + log to S3/GCS after every try. Called by `scripts/run_extend.sh`.
   - Convergence is checked by `check_block_convergence()` in `R/fit/helpers/fitting.R` using `EMC2::check()` to extract per-parameter Rhat and ESS, then applying `MAX_RHAT_MU`/`MIN_ESS_MU` to the `$mu` block and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA` to the pooled `$alpha` block. EMC2's built-in `stop_criteria` is bypassed because it cannot apply different thresholds per block.
 - **Enum to factor bridge**: `enum_types.py` defines the canonical level orderings (`LocationTypeEnum`, `DistractorTypeEnum`, `SearchDifficultyTypeEnum`, `CueSizeTypeEnum`, `SideTypeEnum`). R does **not** import these. Instead, `R/helpers/data.R` re-encodes them through closure functions (`StimulusAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`, `SearchDifficulty`) that EMC2's `design()` calls. Adding or renaming a factor level requires changes on **both** sides.
-- **Latest-version lookup**: `R/eval/diagnostics.R` `load_model()` parses the `YYMMDD_` prefix and always returns the most recent `.rds` for a given model name.
+- **Latest-version lookup**: `R/eval/helpers/io.R` `load_model()` parses the `YYMMDD_` prefix and always returns the most recent `.rds` for a given model name.
 
 ## Analysis workflow
 
@@ -148,7 +148,7 @@ Project-level:
 - `R/helpers/data.R` - CSV loading, RT filtering, EMC2 factor closures; sources `logging.R`
 
 Fitting (`R/fit/`):
-- `R/fit/fit_config.R` - priors, `N_CHAINS`, fit/convergence params, recovery params, `CONSTANTS`
+- `R/fit/fit_config.R` - priors, `N_CHAINS`, fit params, recovery params, `CONSTANTS` (asymmetric convergence thresholds now in `R/config.R`)
 - `R/fit/fit_initial.R` - master batch fit
 - `R/fit/fit_extend_local.R` - local batch extend (2 models in parallel if cores allow; `--sequential` flag to override)
 - `R/fit/fit_extend_cloud.R` - cloud single-model extend (called by `scripts/run_extend.sh`)
@@ -159,11 +159,16 @@ Fitting (`R/fit/`):
 - `R/fit/helpers/recovery.R` - `extract_group_params`, `extract_design`, `simulate_recovery_data`; sources `fitting.R`.
 
 Evaluation (`R/eval/`):
-- `R/eval/eval_config.R` - GoF/eval params (currently minimal; placeholder for step 3)
-- `R/eval/diagnostics.R` - convergence diagnostics + GoF tables (outputs to `outputs/evaluation/`)
+- `R/eval/eval_config.R` - eval params + `RECOVERY_EVAL_DIR` (currently minimal)
+- `R/eval/convergence.R` - step-2.9 convergence table + verdict (writes `convergence.{rds,csv}`)
+- `R/eval/model_comparison.R` - GoF/model comparison (DIC/BPIC; step-3 scaffolding; writes `model_comparison.{rds,csv}`)
+- `R/eval/recovery.R` - load 12 `_extended` recovery fits, produce population table + subject scatter + z-score/contraction plots
+- `R/eval/review_convergence_recovery.R` - step-2.9 synthesis (joins convergence verdict + recovery; writes `review_2_9_summary.{rds,csv}`)
 - `R/eval/examine_model.R` - inspect a single fitted model
-- `R/eval/examine_recovery.R` - load 12 recovery fits, produce population table + subject scatter + z-score/contraction plots
-- `R/eval/helpers/diagnostics_helpers.R` - parameter counts, Rhat/ESS extraction, comparison-table builder
+- `R/eval/helpers/convergence.R` - Rhat/ESS extraction, `create_convergence_table()`, `add_convergence_verdict()`
+- `R/eval/helpers/recovery.R` - recovery-eval computations (prior-SD extraction, z-score/contraction, RMSE/r)
+- `R/eval/helpers/plot.R` - Plotly figure builders + `save_plotly_png()` (PNG export with HTML fallback)
+- `R/eval/helpers/io.R` - `load_model()`, `save_eval_table()`, `newer_than_inputs()` (shared eval I/O)
 
 Other:
 - `scripts/helpers.sh` - shared config defaults and cloud copy helpers (sourced by the scripts below)
@@ -192,7 +197,8 @@ Other:
   - `R_LIBS_USER = C:\Users\nirjo\R_library\4.5`
   - The system library under `R_HOME` is not writable; install packages to `R_LIBS_USER`.
   - The pattern `file.path(Sys.getenv("USERPROFILE"), "R", "library")` used in some test files resolves to the wrong path on this machine (`C:\Users\nirjo\R\library` vs the actual `R_LIBS_USER`).
-  - **Do NOT run `Rscript` via the Bash tool.** The Claude Code app has its own sandboxed R library (`AppData/Local/Packages/Claude_.../R/win-library/4.5`) with an older `rlang` that causes namespace conflicts when loading `readr` and `EMC2`. Always ask the user to run R commands in a standalone PowerShell terminal instead.
+  - **Running `Rscript` from the Bash tool: set `R_LIBS_USER` first.** Bare `Rscript` falls back to the Claude app's sandboxed R library (`AppData/Local/Packages/Claude_.../R/win-library/4.5`) which has an older `rlang` that conflicts when loading `readr`/`EMC2`. Prefixing with `R_LIBS_USER="C:/Users/nirjo/R_library/4.5"` puts the user library first and `readr`/`dplyr`/`EMC2 3.4.1` load cleanly (verified). The PATH `Rscript` is already the real `R-4.5.2`. Recipe: `R_LIBS_USER="C:/Users/nirjo/R_library/4.5" Rscript <script>`. **eval/check/recovery analysis can run locally this way; heavy MCMC fitting still belongs on the cloud.** Note: `outputs/` and `data/` live in the main checkout, not the worktree — run eval from the main-repo cwd with `PAF_REPO_ROOT` pointed at the worktree to use edited code against real data.
+- **EMC2 API / object structure reference**: https://www.rdocumentation.org/packages/EMC2/versions/3.3.0 (function docs for `check()`, `get_pars()`, `recovery()`, `make_data()`, `make_random_effects()`, etc.). The rdocumentation mirror is for 3.3.0; the local install is **3.4.1**, so verify against the installed version if a signature or return shape differs. Empirically confirmed shapes (3.4.1): `check()` returns per-block `chk[[g]][[g]]` as a 2-row matrix (row 1 Rhat, row 2 ESS), with `chk$alpha` a per-subject list of such matrices; `get_pars(selection="mu")` returns an mcmc.list; `get_pars(selection="alpha", return_mcmc=TRUE)` is **parameter-keyed** (list of length n_pars, each `[samples x subjects]`); `prior$theta_mu_var` holds the population-mean prior covariance (`sqrt(diag(.))` = prior SDs); `recovery(do_plot=FALSE)` returns a per-parameter list with `$stats` (pearson/spearman/rmse/coverage) and `$quantiles`.
 - Avoid the em-dash (-) in any text destined for academic outputs; use `-` or en-dash (–) instead. This is a per-user writing rule.
 
 ## Known issues (deferred)

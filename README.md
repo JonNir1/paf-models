@@ -55,12 +55,17 @@ paf-models/
 |   |       |- fitting.R         # get_core_args(), save_model(), check_block_convergence(), extend_model()
 |   |       |- recovery.R        # extract_group_params(), extract_design(), simulate_recovery_data()
 |   |- eval/
-|       |- eval_config.R         # Placeholder for step-3 GoF params
-|       |- diagnostics.R         # Convergence diagnostics + GoF tables (outputs to outputs/evaluation/)
+|       |- eval_config.R         # Eval params + RECOVERY_EVAL_DIR (minimal)
+|       |- convergence.R         # Convergence table + step-2.9 verdict (outputs convergence.{rds,csv})
+|       |- model_comparison.R    # GoF/model comparison (DIC/BPIC; step-3 scaffolding)
+|       |- recovery.R            # Load 12 _extended recovery fits; population table, scatter, z/contraction
+|       |- review_convergence_recovery.R  # Step-2.9 synthesis (convergence verdict + recovery)
 |       |- examine_model.R       # Interactive: inspect a single fitted model
-|       |- examine_recovery.R    # Load 12 recovery fits; population table, scatter, z/contraction
 |       |- helpers/
-|           |- diagnostics_helpers.R  # Rhat/ESS extraction, diag/GoF table builders
+|           |- convergence.R    # Rhat/ESS extraction, create_convergence_table(), add_convergence_verdict()
+|           |- recovery.R        # Recovery-eval computations (prior-SD, z/contraction, RMSE/r)
+|           |- plot.R            # Plotly figure builders + save_plotly_png()
+|           |- io.R             # load_model(), save_eval_table(), newer_than_inputs()
 |
 |- scripts/
 |   |- helpers.sh                # Shared config defaults + cloud copy helpers (sourced by scripts below)
@@ -107,9 +112,11 @@ Rscript R/fit/fit_extend_local.R              # parallel if cores allow
 Rscript R/fit/fit_extend_local.R --sequential # force sequential
 
 # Analysis
-source("R/eval/diagnostics.R")        # convergence diagnostics + GoF comparison
-source("R/eval/examine_model.R")      # inspect a single model
-source("R/eval/examine_recovery.R")   # step-2.5 recovery analysis (after cloud runs)
+source("R/eval/convergence.R")                 # convergence table + step-2.9 verdict
+source("R/eval/model_comparison.R")            # GoF/model comparison (DIC/BPIC; step-3 scaffolding)
+source("R/eval/recovery.R")                    # step-2.5 recovery analysis (after cloud runs)
+source("R/eval/review_convergence_recovery.R") # step-2.9 synthesis (convergence + recovery)
+source("R/eval/examine_model.R")               # inspect a single model
 
 # Tests (tiered; higher TEST_LEVEL implies lower tiers)
 Rscript __tests__/run_tests.R                    # L1: unit tests (<5 s, no EMC2)
