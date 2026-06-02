@@ -70,9 +70,8 @@ SAVE_EVERY <- 2L    # checkpoint every N tries (2 x 200 iters = 400-iter checkpo
 
 
 # --- Convergence thresholds (asymmetric; mu tighter than alpha) ---
-# Applied to $mu and $alpha blocks only. $sigma2 and $correlation are descriptive (not enforced)
-MAX_RHAT_MU    <- 1.05;  MIN_ESS_MU    <- 500   # population params reported with CIs
-MAX_RHAT_ALPHA <- 1.10;  MIN_ESS_ALPHA <- 400   # subject params feed OOD simulation
+# RELOCATED to R/config.R (sourced above) so the evaluation layer can reuse them
+# as a single source of truth: MAX_RHAT_MU, MIN_ESS_MU, MAX_RHAT_ALPHA, MIN_ESS_ALPHA.
 
 # ============================================================================
 # Parameter Recovery

@@ -22,6 +22,15 @@ MAX_SACCADE_CUTOFF  <- 1.0
 ALLOW_TARGET_REPEAT <- TRUE
 
 
+# --- Convergence thresholds (asymmetric; mu tighter than alpha) ---
+# Cross-cutting analysis decision, used by BOTH the fitting layer (extend_model
+# stop criteria, R/fit/helpers/fitting.R) and the evaluation layer (the step-2.9
+# convergence verdict, R/eval/helpers/convergence.R). Applied to the $mu and
+# $alpha blocks only; $sigma2 and $correlation are descriptive (not enforced).
+MAX_RHAT_MU    <- 1.05;  MIN_ESS_MU    <- 500   # population params reported with CIs
+MAX_RHAT_ALPHA <- 1.10;  MIN_ESS_ALPHA <- 400   # subject params feed OOD simulation
+
+
 # --- Paths ---
 CODE_DIR    <- "R"
 DATA_DIR    <- "data"
