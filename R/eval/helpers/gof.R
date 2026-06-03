@@ -130,8 +130,9 @@ extract_log_lik_matrix <- function(fitted_model, max_samples = 2000L, cores = 1L
     n_t    <- n_trials_per_subj[s]
     block  <- matrix(NA_real_, nrow = n_samples, ncol = n_t)
     for (ii in seq_len(n_samples)) {
-      p_vec       <- sapply(alpha, `[`, s_idx[ii], s)
-      pars_mat    <- get_pars_matrix(p_vec, dadm_s, model_obj)
+      p_vec        <- sapply(alpha, `[`, s_idx[ii], s)
+      names(p_vec) <- names(alpha)   # sapply appends .colname (subj ID); restore plain param names
+      pars_mat     <- get_pars_matrix(p_vec, dadm_s, model_obj)
       block[ii, ] <- log_lik_per_trial(pars_mat, dadm_s, model_obj)
     }
     block
