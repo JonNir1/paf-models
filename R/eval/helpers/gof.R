@@ -23,6 +23,8 @@
 #'   extract_log_lik_matrix()
 #'   loo_summary_row()
 #'   make_loo_comparison_df()
+#'   create_goodness_of_fit_table()
+#'   create_loo_table()
 #' =============================================================================
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
@@ -190,4 +192,65 @@ make_loo_comparison_df <- function(loo_list) {
   df$model <- rownames(comp_mat)
   rownames(df) <- NULL
   df[, c("model", "elpd_diff", "se_diff")]
+}
+
+
+#' DIC / BPIC comparison table via EMC2::compare().
+#'
+#' Fast (no LL matrix needed). DIC is reported only; BPIC is for screening.
+#' No Bayes Factors (pre-registration: priors not grounded enough).
+#'
+#' @param model_list         Named list of fitted EMC2 model objects.
+#' @param calc_bayes_factors Logical; default FALSE.
+#' @param verbose            Logical; if TRUE, print compare()'s own summary.
+#' @return data.frame, one row per model.
+create_goodness_of_fit_table <- function(
+    model_list, calc_bayes_factors = FALSE, verbose = FALSE
+) {
+  comp_results <- compare(
+    model_list,
+    print_summary   = verbose,
+    BayesFactor     = calc_bayes_factors,
+    cores_for_props = 4,
+    cores_per_prop  = 1
+  )
+  comp_df        <- as.data.frame(comp_results)
+  comp_df$model  <- rownames(comp_df)
+  comp_df$mean_LL    <- comp_df$meanD / -2   # meanD = -2 * mean(log lik)
+  comp_df$num_params <- sapply(model_list, function(m) m[[1]][["n_pars"]])
+
+  cols <- c("model", "num_params", "EffectiveN", "DIC", "wDIC",
+            "BPIC", "wBPIC", "mean_LL", "meanD", "Dmean", "minD")
+  if (calc_bayes_factors) cols <- c(cols, "BF")
+  comp_df[, cols]
+}
+
+
+#' LOO / WAIC summary table for a list of fitted models.
+#'
+#' Calls extract_log_lik_matrix() + loo::loo() + loo::waic() per model.
+#' Caches per-model loo objects to LOO_DIR/<model_name>_loo.rds for use by
+#' make_loo_comparison_df() and plot_pareto_k().
+#'
+#' LOO_DIR, PARETO_K_THRESHOLD, and PARETO_K_BAD_FRAC must be in scope
+#' (provided by eval_config.R via the caller).
+#'
+#' @param model_list  Named list of fitted EMC2 model objects.
+#' @param max_samples Thin posterior to at most this many samples (default 2000).
+#' @param cores       Parallelism over subjects; on Windows falls back to serial.
+#' @return data.frame, one row per model (columns from loo_summary_row()).
+create_loo_table <- function(model_list, max_samples = 2000L, cores = 1L) {
+  dir.create(LOO_DIR, recursive = TRUE, showWarnings = FALSE)
+  rows <- lapply(names(model_list), function(mname) {
+    message(sprintf("  [LOO] extracting log-lik matrix for %s ...", mname))
+    ll_mat   <- extract_log_lik_matrix(model_list[[mname]], max_samples, cores)
+    message(sprintf("  [LOO] running loo::loo() for %s ...", mname))
+    loo_obj  <- loo::loo(ll_mat, cores = cores)
+    waic_obj <- loo::waic(ll_mat)
+    saveRDS(loo_obj, file.path(LOO_DIR, paste0(mname, "_loo.rds")))
+    loo_summary_row(mname, loo_obj, waic_obj,
+                    pareto_k_threshold = PARETO_K_THRESHOLD,
+                    pareto_k_bad_frac  = PARETO_K_BAD_FRAC)
+  })
+  do.call(rbind, rows)
 }
