@@ -105,9 +105,11 @@ extract_log_lik_matrix <- function(fitted_model, max_samples = 2000L, cores = 1L
   data_list     <- fitted_model[[1]]$data
   n_subj        <- length(data_list)
 
-  # Alpha samples: list[par_name][n_all_samples x n_subj]
-  alpha   <- get_pars(fitted_model, selection = "alpha", return_mcmc = TRUE)
-  n_all   <- nrow(alpha[[1]])
+  # Alpha samples: get_pars returns list[par_name] of mcmc.list objects.
+  # Collapse chains via as.matrix() -> list[par_name][total_samples x n_subj].
+  alpha_raw <- get_pars(fitted_model, selection = "alpha", return_mcmc = TRUE)
+  alpha     <- lapply(alpha_raw, as.matrix)
+  n_all     <- nrow(alpha[[1]])
 
   s_idx <- if (n_all > max_samples) {
     round(seq(1, n_all, length.out = max_samples))
