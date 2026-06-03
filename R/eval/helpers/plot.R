@@ -123,6 +123,62 @@ plot_recovery_scatter <- function(points_df, stats_df = NULL) {
 }
 
 
+#' Per-model Pareto-k distribution (step-3 LOO diagnostic).
+#'
+#' Each trial contributes one k-hat value.  Vertical guides at 0.5 ("ok") and
+#' 0.7 ("bad") follow the loo-package / Vehtari et al. 2017 convention.
+#' Observations with k > 0.7 are coloured red to make the flag immediately
+#' visible; the rest are blue.
+#'
+#' @param pareto_df data.frame with columns `model` (character) and `k_hat`
+#'   (numeric), one row per trial.
+#' @return A ggplot.
+plot_pareto_k <- function(pareto_df) {
+  library(ggplot2)
+  pareto_df$bad <- pareto_df$k_hat > 0.7
+  ggplot(pareto_df, aes(k_hat, fill = bad)) +
+    geom_histogram(bins = 40, color = "white", linewidth = 0.2) +
+    geom_vline(xintercept = 0.5, linetype = "dashed",  color = "orange") +
+    geom_vline(xintercept = 0.7, linetype = "solid",   color = "red") +
+    facet_wrap(~model, scales = "free_y") +
+    scale_fill_manual(values = c("FALSE" = "#2c7fb8", "TRUE" = "#d7301f"),
+                      labels = c("FALSE" = "k <= 0.7", "TRUE" = "k > 0.7"),
+                      name = NULL) +
+    labs(x = "Pareto k", y = "Count",
+         title = "Pareto-k diagnostic per model (step 3 LOO)",
+         subtitle = "Orange dashed = 0.5 ('ok'); red solid = 0.7 ('bad', Vehtari et al. 2017)") +
+    theme_bw(base_size = 12) +
+    theme(legend.position = "bottom")
+}
+
+
+#' LOO-CV ELPD comparison across models (step-3 model selection).
+#'
+#' Displays pairwise ELPD differences relative to the best model (elpd_diff = 0)
+#' with ± 2 SE error bars.  A difference of |elpd_diff| < 2 * se_diff is
+#' practically indistinguishable.
+#'
+#' @param loo_comp_df data.frame from make_loo_comparison_df(): columns
+#'   `model`, `elpd_diff`, `se_diff`.
+#' @return A ggplot.
+plot_loo_comparison <- function(loo_comp_df) {
+  library(ggplot2)
+  df <- loo_comp_df
+  df$model <- factor(df$model, levels = rev(df$model))  # best model at top
+  ggplot(df, aes(elpd_diff, model)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
+    geom_errorbarh(aes(xmin = elpd_diff - 2 * se_diff,
+                       xmax = elpd_diff + 2 * se_diff),
+                   height = 0.2, color = "#2c7fb8") +
+    geom_point(size = 3, color = "#2c7fb8") +
+    labs(x = "ELPD difference vs best model",
+         y = NULL,
+         title = "LOO-CV ELPD model comparison (step 3)",
+         subtitle = "Error bars = +/- 2 SE; reference model at 0") +
+    theme_bw(base_size = 12)
+}
+
+
 #' Posterior z-score vs contraction (Schad, Betancourt & Vasishth 2021).
 #'
 #' @param zscore_df Columns model, parameter, z_score, contraction.

@@ -4,24 +4,30 @@
 #' SCAFFOLDING for steps 3.X. Relocated out of the convergence script so that
 #' convergence (step 2.9) and model comparison (step 3) stay cleanly separated.
 #'
-#' Currently computes the EMC2 information criteria available via compare()
-#' (DIC, BPIC, EffectiveN, mean log-likelihood). The step-3 plan additionally
-#' calls for WAIC and PSIS-LOO-CV (with Pareto-k) as the primary criteria, and
-#' explicitly NO Bayes Factors (priors are not grounded enough to trust marginal-
-#' likelihood ratios). A future agent picking up step 3 should extend
-#' create_goodness_of_fit_table() (or add sibling functions) accordingly and add
-#' the corresponding L1/L2/L3 tests.
+#' Implements step 3: DIC / BPIC via EMC2::compare() (fast, no caching) and
+#' PSIS-LOO-CV + WAIC via the loo package (slow, mtime-cached).  Primary model
+#' selection criterion is ELPD-LOO; WAIC is confirmatory; DIC is reported only.
+#' No Bayes Factors (priors not grounded enough to trust marginal-likelihood
+#' ratios).
 #'
-#' Writes outputs/evaluation/model_comparison.{rds,csv}.
+#' Writes:
+#'   outputs/evaluation/model_comparison.{rds,csv}  -- DIC/BPIC table
+#'   outputs/evaluation/loo/loo_table.{rds,csv}      -- LOO/WAIC summary
+#'   outputs/evaluation/loo/loo_comparison.{rds,csv} -- pairwise ELPD diffs
+#'   outputs/evaluation/loo/pareto_k_per_model.png
+#'   outputs/evaluation/loo/loo_comparison.png
 #'
 #' Run from the repo root:  source("R/eval/model_comparison.R")
 #' =============================================================================
 
 library(EMC2)
+library(loo)
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/eval/eval_config.R")              # transitively: utils.R -> config.R
 source_root("R/eval/helpers/io.R")               # load_model, save_eval_table, newer_than_inputs
+source_root("R/eval/helpers/gof.R")              # log_lik_per_trial, extract_log_lik_matrix, loo_summary_row, make_loo_comparison_df
+source_root("R/eval/helpers/plot.R")             # plot_pareto_k, plot_loo_comparison, save_ggplot_png
 
 
 #' Create a Goodness-of-Fit comparison table.
@@ -57,20 +63,91 @@ create_goodness_of_fit_table <- function(
 }
 
 
+#' Build the LOO / WAIC summary table for a list of fitted models.
+#'
+#' Calls extract_log_lik_matrix() + loo::loo() + loo::waic() per model.
+#' Individual loo objects are cached to LOO_DIR/<model_name>_loo.rds so that
+#' make_loo_comparison_df() and plot_pareto_k() can load them without
+#' recomputing.
+#'
+#' @param model_list  Named list of fitted EMC2 model objects.
+#' @param max_samples Passed to extract_log_lik_matrix() (default 2000).
+#' @param cores       Passed to extract_log_lik_matrix() and loo::loo().
+#' @return data.frame, one row per model (columns from loo_summary_row()).
+create_loo_table <- function(model_list, max_samples = 2000L, cores = 1L) {
+  dir.create(LOO_DIR, recursive = TRUE, showWarnings = FALSE)
+  rows <- lapply(names(model_list), function(mname) {
+    message(sprintf("  [LOO] extracting log-lik matrix for %s ...", mname))
+    ll_mat   <- extract_log_lik_matrix(model_list[[mname]], max_samples, cores)
+    message(sprintf("  [LOO] running loo::loo() for %s ...", mname))
+    loo_obj  <- loo::loo(ll_mat, cores = cores)
+    waic_obj <- loo::waic(ll_mat)
+    saveRDS(loo_obj, file.path(LOO_DIR, paste0(mname, "_loo.rds")))
+    loo_summary_row(mname, loo_obj, waic_obj,
+                    pareto_k_threshold = PARETO_K_THRESHOLD,
+                    pareto_k_bad_frac  = PARETO_K_BAD_FRAC)
+  })
+  do.call(rbind, rows)
+}
+
+
 # ------------------------------
 # Driver: build + persist the GoF table for the active model set.
-# Sourcing this file runs compare() (which can be slow). Set the env var
-# PAF_SKIP_MODEL_COMPARISON=1 to source it for the function definition only
-# (e.g. from tests) without triggering the comparison.
+# Sourcing this file runs compare() (and optionally LOO, which is slow).
+# Set the env var PAF_SKIP_MODEL_COMPARISON=1 to source it for the function
+# definitions only (e.g. from tests) without triggering any computation.
 
 if (!nzchar(Sys.getenv("PAF_SKIP_MODEL_COMPARISON"))) {
   MODEL_NAMES <- c("model1", "model2", "model4", "model5")
-  MODEL_LIST  <- lapply(MODEL_NAMES, load_model, dir_path = MODELS_EXTEND_DIR)
+
+  # Resolve paths for mtime-based caching (mirrors convergence.R pattern)
+  MODEL_PATHS <- vapply(MODEL_NAMES, function(mn) {
+    pattern <- paste0(".*_", mn, "(_extended)?\\.rds$")
+    files   <- list.files(MODELS_EXTEND_DIR, full.names = TRUE)
+    matches <- files[grepl(pattern, basename(files))]
+    if (length(matches) == 0) stop(sprintf("No fit for %s in %s", mn, MODELS_EXTEND_DIR))
+    dates <- as.Date(sub("_.*", "", basename(matches)), format = "%y%m%d")
+    matches[which.max(dates)]
+  }, character(1))
+
+  MODEL_LIST <- lapply(MODEL_NAMES, load_model, dir_path = MODELS_EXTEND_DIR)
   names(MODEL_LIST) <- MODEL_NAMES
 
+  # DIC / BPIC (fast; no caching needed)
   FIT_TABLE <- create_goodness_of_fit_table(
     MODEL_LIST, calc_bayes_factors = FALSE, verbose = FALSE
   )
   save_eval_table(FIT_TABLE, "model_comparison")
   print(FIT_TABLE)
+
+  # LOO / WAIC (slow; mtime-cached)
+  loo_cache <- file.path(LOO_DIR, "loo_table.rds")
+  if (newer_than_inputs(loo_cache, MODEL_PATHS)) {
+    message("LOO cache is current; loading loo_table from disk.")
+    LOO_TABLE <- readRDS(loo_cache)
+  } else {
+    message("Computing LOO / WAIC (this takes several minutes per model)...")
+    LOO_TABLE <- create_loo_table(MODEL_LIST)
+    save_eval_table(LOO_TABLE, "loo_table", dir = LOO_DIR)
+
+    # Pairwise ELPD comparison
+    loo_objs        <- lapply(MODEL_NAMES, function(nm) {
+      readRDS(file.path(LOO_DIR, paste0(nm, "_loo.rds")))
+    })
+    names(loo_objs) <- MODEL_NAMES
+    LOO_COMPARISON  <- make_loo_comparison_df(loo_objs)
+    save_eval_table(LOO_COMPARISON, "loo_comparison", dir = LOO_DIR)
+
+    # Pareto-k and ELPD plots
+    pareto_df <- do.call(rbind, lapply(MODEL_NAMES, function(nm) {
+      k <- readRDS(file.path(LOO_DIR, paste0(nm, "_loo.rds")))$diagnostics$pareto_k
+      data.frame(model = nm, k_hat = k, stringsAsFactors = FALSE)
+    }))
+    save_ggplot_png(plot_pareto_k(pareto_df),
+                    file.path(LOO_DIR, "pareto_k_per_model.png"), height = 6)
+    save_ggplot_png(plot_loo_comparison(LOO_COMPARISON),
+                    file.path(LOO_DIR, "loo_comparison.png"), width = 7, height = 5)
+  }
+
+  print(LOO_TABLE)
 }
