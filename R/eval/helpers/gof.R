@@ -207,7 +207,7 @@ make_loo_comparison_df <- function(loo_list) {
 create_goodness_of_fit_table <- function(
     model_list, calc_bayes_factors = FALSE, verbose = FALSE
 ) {
-  comp_results <- compare(
+  comp_results <- EMC2::compare(
     model_list,
     print_summary   = verbose,
     BayesFactor     = calc_bayes_factors,
