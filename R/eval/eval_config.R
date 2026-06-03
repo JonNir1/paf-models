@@ -31,3 +31,9 @@ RECOVERY_EVAL_DIR <- file.path(EVAL_DIR, "parameter_recovery")
 # silently dropped from the fitted models.
 STRUCTURAL_UNIDENTIFIABLE_PATTERN <-
   "^v_StimulusAtLoc[DE](:SearchDifficulty(MIXED|DIFFICULT))?$"
+
+
+# --- Step 3: LOO / WAIC thresholds (loo package / Vehtari et al. 2017 convention) ---
+PARETO_K_THRESHOLD <- 0.7    # k > 0.7 = "bad"; k > 0.5 = "ok but cautious"
+PARETO_K_BAD_FRAC  <- 0.10   # >10% bad k triggers PI flag at step 3.9
+LOO_DIR <- file.path(EVAL_DIR, "loo")
