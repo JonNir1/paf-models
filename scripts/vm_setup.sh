@@ -17,6 +17,7 @@
 # =============================================================================
 
 set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive   # suppress all apt interactive prompts
 
 source "$(dirname "$0")/helpers.sh"
 
