@@ -1,0 +1,82 @@
+############################################
+##  PowerShell (local) — launch instance  ##
+############################################
+
+$SG_ID = aws ec2 describe-security-groups --filters "Name=group-name,Values=paf-sg" `
+           --query "SecurityGroups[0].GroupId" --output text
+
+'{"MarketType":"spot"}' | Out-File -Encoding ascii "$env:TEMP\spot-options.json"
+
+$INSTANCE_TYPE = "c5.large"      # TODO: choose c5.large / c5.xlarge / c6a.4xlarge / etc.
+$INSTANCE_NAME = "paf-instance"  # TODO: set informative name, e.g. "paf-ppc-model1"
+
+# Optional: pin to a specific subnet (recommended to avoid capacity issues).
+# List subnets: aws ec2 describe-subnets --query "Subnets[*].[SubnetId,AvailabilityZone]" --output table
+# $SUBNET_ID = "subnet-xxxxxxxxxxxxxxxxx"
+
+$ID = aws ec2 run-instances `
+  --image-id ami-00403f401ee6a4b98 `
+  --instance-type $INSTANCE_TYPE `
+  --key-name paf-key `
+  --security-group-ids $SG_ID `
+  --iam-instance-profile Name=paf-ec2-profile `
+  --associate-public-ip-address `
+  --instance-market-options "file://$env:TEMP\spot-options.json" `
+  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$INSTANCE_NAME}]" `
+  --query "Instances[0].InstanceId" --output text
+
+aws ec2 wait instance-running --instance-ids $ID
+
+$IP = aws ec2 describe-instances --instance-ids $ID `
+  --query "Reservations[0].Instances[0].PublicIpAddress" --output text
+
+ssh -i "$HOME\Documents\projects\__secrets__\paf-key.pem" ubuntu@$IP
+
+
+
+###########################
+##  Inside EC2 Instance  ##
+##  (bash, not PowerShell) ##
+###########################
+
+BUCKET=paf-models
+
+# --- machine setup (one-time per VM) --- #
+REPO_URL=https://github.com/JonNir1/paf-models.git
+
+sudo git clone "$REPO_URL" /opt/paf-models
+sudo chown -R "$USER":"$USER" /opt/paf-models
+cd /opt/paf-models
+
+./scripts/vm_setup.sh  # takes ~5 minutes
+
+# --- run the script --- #
+# Replace <script> and <args> with the appropriate values, e.g.:
+#   run_extend.sh   260525_model1_extended.rds
+#   run_recovery.sh 260525_model1_extended.rds 1
+#   run_ppc.sh      260525_model1_extended.rds
+#
+# The script downloads its own inputs from S3 and syncs outputs back automatically.
+# No manual aws s3 cp needed before or after.
+
+nohup env BUCKET=paf-models CLOUD=aws ./scripts/<script> <args> > ~/run.log 2>&1 &
+echo "PID: $!"
+
+# --- monitor --- #
+tail -f ~/run.log
+
+# --- (optional) manual sync of any remaining outputs --- #
+# Script hooks sync model .rds files automatically.
+# Use this only for additional outputs not covered by the hook.
+# RESULTS_SUB_DIR=ppc   # e.g. ppc / recovery / extend
+# aws s3 sync outputs/models/fit_ppc/ "s3://paf-models/results/$RESULTS_SUB_DIR/"
+
+
+###############################################
+##  PowerShell (local) — terminate + verify  ##
+###############################################
+
+aws ec2 terminate-instances --instance-ids $ID
+aws ec2 wait instance-terminated --instance-ids $ID
+aws ec2 describe-instances --instance-ids $ID `
+  --query "Reservations[0].Instances[0].State.Name" --output text  # -> "terminated"
