@@ -100,7 +100,7 @@ run_ppc_simulation <- function(extended_model, template_data,
     } else {
       sim_list[[i]] <- sim_i
     }
-    if (i %% 50L == 0L || i == length(alpha_list)) {
+    if (i %% 10L == 0L || i == length(alpha_list)) {
       log_msg(sprintf("  %d / %d draws complete (%d failed)",
                       i, length(alpha_list), n_failed),
               log_file, console_print = TRUE)
