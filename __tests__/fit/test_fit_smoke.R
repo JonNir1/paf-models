@@ -196,6 +196,7 @@ test_that("smoke B: extend_model skips loop when model already meets all criteri
 # =============================================================================
 
 source_root("R/fit/fit_recovery_cloud.R")    # exposes run_recovery_fit()
+source_root("R/fit/fit_ppc_cloud.R")         # exposes run_ppc_simulation()
 
 EXTENDED_RDS <- file.path(ROOT, "outputs", "models", "fit_extend",
                           "260525_model1_extended.rds")
@@ -251,4 +252,57 @@ test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data
               label = "true_alpha rds saved")
   expect_true(length(outs) >= 2L,
               label = "initial-fit checkpoint rds saved alongside true_alpha")
+})
+
+
+# =============================================================================
+# Smoke D: PPC simulation pipeline (fit_ppc_cloud.R::run_ppc_simulation)
+#
+# Uses the same real extended model as smoke C (if available). Draws 5 posterior
+# predictive datasets and verifies the output structure. No MCMC -- runs in
+# seconds once the model is loaded.
+# =============================================================================
+
+test_that("smoke D: run_ppc_simulation produces a list of data frames", {
+  skip_if_not(HAVE_REAL_INPUTS,
+              "smoke D needs the real extended .rds + design matrix locally")
+
+  extended_model <- readRDS(EXTENDED_RDS)
+  raw            <- load_safe_csv(file.path(ROOT, DATA_FILE))
+  template_full  <- filter_data(raw,
+                                min_rt               = MIN_SACCADE_CUTOFF,
+                                max_rt               = MAX_SACCADE_CUTOFF,
+                                allow_target_repeats = ALLOW_TARGET_REPEAT)
+  # Subset to 30 trials/subject for speed
+  template_small <- template_full |>
+    dplyr::group_by(subjects) |>
+    dplyr::slice_head(n = 30) |>
+    dplyr::ungroup()
+
+  n_draws <- 5L
+  result <- run_ppc_simulation(
+    extended_model = extended_model,
+    template_data  = template_small,
+    ppc_name       = "model1_smoke",
+    log_file       = file.path(SMOKE_DIR, "smoke_D_ppc.log"),
+    out_dir        = SMOKE_DIR,
+    n_draws        = n_draws,
+    sim_seed       = RNG_SEED,
+    name_suffix    = "_smoke"
+  )
+
+  # Result is a list of data frames
+  expect_type(result, "list")
+  expect_length(result, n_draws)
+  for (i in seq_along(result)) {
+    expect_s3_class(result[[i]], "data.frame")
+    expect_true(nrow(result[[i]]) > 0L)
+    expect_true(all(c("subjects", "rt", "R") %in% names(result[[i]])))
+    expect_equal(nrow(result[[i]]), nrow(template_small))
+  }
+
+  # Output .rds file is written to disk
+  out_files <- list.files(SMOKE_DIR, pattern = "model1_smoke_ppc_smoke\\.rds$",
+                          full.names = TRUE)
+  expect_true(length(out_files) >= 1L, label = "ppc .rds saved to disk")
 })

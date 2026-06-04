@@ -33,6 +33,13 @@ STRUCTURAL_UNIDENTIFIABLE_PATTERN <-
   "^v_StimulusAtLoc[DE](:SearchDifficulty(MIXED|DIFFICULT))?$"
 
 
+# --- Step 4: PPC config ---
+PPC_EVAL_DIR <- file.path(EVAL_DIR, "ppc")
+PPC_N_DRAWS  <- 500L    # posterior predictive draws per model
+PPC_AD_ALPHA <- 0.05    # FDR-adjusted significance threshold for Anderson-Darling test
+PPC_MODELS_DIR <- file.path(MODELS_DIR, "fit_ppc")  # where fit_ppc_cloud.R writes .rds files
+
+
 # --- Step 3: LOO / WAIC thresholds (loo package / Vehtari et al. 2017 convention) ---
 PARETO_K_THRESHOLD <- 0.7    # k > 0.7 = "bad"; k > 0.5 = "ok but cautious"
 PARETO_K_BAD_FRAC  <- 0.10   # >10% bad k triggers PI flag at step 3.9

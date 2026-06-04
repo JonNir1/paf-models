@@ -100,6 +100,64 @@ extract_design <- function(model) {
 
 
 # -------------------------
+#' Sample T sets of subject-level parameters directly from the posterior.
+#'
+#' Used by fit_ppc_cloud.R to generate posterior predictive datasets without
+#' the MVN approximation used by simulate_recovery_data().
+#'
+#' get_pars(alpha, return_mcmc=TRUE) returns a parameter-keyed list (length
+#' n_pars), each element a [n_samples x n_subjects] matrix (chains collapsed).
+#' We evenly subsample n_draws indices to reduce autocorrelation.
+#'
+#' NOTE: The resulting matrices have named columns matching the parameter space
+#' and are intended to be passed directly to make_data(). Verify that column
+#' naming matches make_random_effects() output when first running on a real fit.
+#'
+#' @param model   A fitted EMC2 model (emc class), sampling stage completed.
+#' @param n_draws Number of posterior draws to return.
+#' @param seed    Optional integer RNG seed (affects draw-index jitter if any).
+#' @return List of n_draws matrices, each [n_subjects x n_pars] with named columns.
+sample_posterior_alphas <- function(model, n_draws, seed = NULL) {
+  library(EMC2)
+  if (!is.null(seed)) set.seed(seed)
+
+  alpha_raw <- get_pars(model, selection = "alpha", stage = "sample",
+                        map = FALSE, return_mcmc = TRUE)
+
+  # Collapse each element to a plain [n_samples x n_subjects] matrix.
+  # Each element may be a plain matrix or an mcmc.list of per-chain matrices.
+  par_mats <- lapply(alpha_raw, function(x) {
+    if (inherits(x, "mcmc.list") || (is.list(x) && !is.data.frame(x))) {
+      do.call(rbind, lapply(x, as.matrix))
+    } else {
+      as.matrix(x)
+    }
+  })
+
+  n_samples  <- nrow(par_mats[[1]])
+  n_subjects <- ncol(par_mats[[1]])
+  par_names  <- names(par_mats)
+
+  if (n_draws > n_samples) {
+    warning(sprintf(
+      "n_draws (%d) exceeds available posterior samples (%d); using %d draws.",
+      n_draws, n_samples, n_samples
+    ))
+    n_draws <- n_samples
+  }
+
+  draw_idx <- unique(round(seq(1, n_samples, length.out = n_draws)))
+
+  lapply(draw_idx, function(i) {
+    # vapply(list_of_k, FUN_returning_length_n, ...) -> [n x k] matrix
+    mat <- vapply(par_mats, function(m) m[i, ], numeric(n_subjects))
+    colnames(mat) <- par_names
+    mat
+  })
+}
+
+
+# -------------------------
 #' Draw fresh subject parameters and simulate a recovery dataset.
 #'
 #' Implements Strickland et al. (2026) Supplementary protocol:
