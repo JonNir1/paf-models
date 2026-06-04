@@ -136,17 +136,25 @@ plot_recovery_scatter <- function(points_df, stats_df = NULL) {
 plot_pareto_k <- function(pareto_df) {
   library(ggplot2)
   pareto_df$bad <- pareto_df$k_hat > 0.7
+
+  # Data-driven axis: show bulk of distribution while keeping 0.7 threshold
+  # visible.  Use coord_cartesian (not xlim) so histogram bins are computed on
+  # the full data before zooming -- outliers are clipped, not dropped.
+  k_lo <- max(floor(quantile(pareto_df$k_hat, 0.001) * 10) / 10, -0.5)
+  k_hi <- max(0.8, ceiling(quantile(pareto_df$k_hat, 0.999) * 10) / 10)
+
   ggplot(pareto_df, aes(k_hat, fill = bad)) +
     geom_histogram(bins = 40, color = "white", linewidth = 0.2) +
     geom_vline(xintercept = 0.5, linetype = "dashed",  color = "orange") +
     geom_vline(xintercept = 0.7, linetype = "solid",   color = "red") +
     facet_wrap(~model, scales = "free_y") +
+    coord_cartesian(xlim = c(k_lo, k_hi)) +
     scale_fill_manual(values = c("FALSE" = "#2c7fb8", "TRUE" = "#d7301f"),
                       labels = c("FALSE" = "k <= 0.7", "TRUE" = "k > 0.7"),
                       name = NULL) +
     labs(x = "Pareto k", y = "Count",
          title = "Pareto-k diagnostic per model (step 3 LOO)",
-         subtitle = "Orange dashed = 0.5 ('ok'); red solid = 0.7 ('bad', Vehtari et al. 2017)") +
+         subtitle = "Orange dashed = 0.5 ('ok'); red solid = 0.7 ('bad', Vehtari et al. 2017). X-axis clipped to 99.9th percentile.") +
     theme_bw(base_size = 12) +
     theme(legend.position = "bottom")
 }
@@ -167,9 +175,9 @@ plot_loo_comparison <- function(loo_comp_df) {
   df$model <- factor(df$model, levels = rev(df$model))  # best model at top
   ggplot(df, aes(elpd_diff, model)) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "grey40") +
-    geom_errorbarh(aes(xmin = elpd_diff - 2 * se_diff,
-                       xmax = elpd_diff + 2 * se_diff),
-                   height = 0.2, color = "#2c7fb8") +
+    geom_errorbar(aes(xmin = elpd_diff - 2 * se_diff,
+                      xmax = elpd_diff + 2 * se_diff),
+                  width = 0.2, color = "#2c7fb8") +
     geom_point(size = 3, color = "#2c7fb8") +
     labs(x = "ELPD difference vs best model",
          y = NULL,
