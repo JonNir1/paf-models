@@ -9,7 +9,8 @@
 #   ./scripts/run_ppc.sh <extended_rds> [extra args forwarded to fit_ppc_cloud.R]
 # Example:
 #   ./scripts/run_ppc.sh 260525_model1_extended.rds
-#   ./scripts/run_ppc.sh 260525_model1_extended.rds --n-draws 50
+#   ./scripts/run_ppc.sh 260525_model1_extended.rds --n-draws 20
+#   ./scripts/run_ppc.sh 260525_model1_extended.rds --save-every 50
 #
 # Configure these env vars before running, or edit the defaults in helpers.sh:
 #   BUCKET   - "paf-models"

@@ -19,8 +19,9 @@
 #'   e.g.: Rscript R/fit/fit_ppc_cloud.R 260525_model1_extended.rds
 #'
 #' Optional overrides (default to eval_config.R / fit_config.R globals):
-#'   --n-draws N    Number of posterior draws to simulate (default: PPC_N_DRAWS)
-#'   --suffix STR   Append STR to output filename (e.g. _smoke)
+#'   --n-draws N     Number of posterior draws to simulate (default: PPC_N_DRAWS)
+#'   --save-every N  Checkpoint every N draws and sync to S3 (default: 100; 0 = end only)
+#'   --suffix STR    Append STR to output filename (e.g. _smoke)
 #'
 #' Cloud sync: reads CP_CMD and DEST_PREFIX from the environment (set by
 #' scripts/run_ppc.sh). No-op if either is unset (safe for local use).
@@ -46,6 +47,7 @@ source_root("R/eval/eval_config.R")       # PPC_N_DRAWS, PPC_MODELS_DIR via MODE
 #' @param log_file        Path to write timestamped progress lines.
 #' @param out_dir         Directory for the output .rds file.
 #' @param n_draws         Number of posterior predictive draws to simulate.
+#' @param save_every      Save + sync a checkpoint every N draws (0 = end only).
 #' @param sim_seed        Integer RNG seed for sample_posterior_alphas().
 #' @param name_suffix     Suffix appended to output filename.
 #' @param post_save_hook  Optional function(rds_path, log_path) for cloud sync.
@@ -54,6 +56,7 @@ source_root("R/eval/eval_config.R")       # PPC_N_DRAWS, PPC_MODELS_DIR via MODE
 run_ppc_simulation <- function(extended_model, template_data,
                                ppc_name, log_file, out_dir,
                                n_draws       = PPC_N_DRAWS,
+                               save_every    = 100L,
                                sim_seed      = NULL,
                                name_suffix   = "",
                                post_save_hook = NULL) {
@@ -65,7 +68,8 @@ run_ppc_simulation <- function(extended_model, template_data,
   log_msg(sprintf("Template data: %d trials, %d subjects",
                   nrow(template_data), dplyr::n_distinct(template_data$subjects)),
           log_file, console_print = TRUE)
-  log_msg(sprintf("Posterior predictive draws: %d", n_draws),
+  log_msg(sprintf("Posterior predictive draws: %d  (checkpoint every %d)",
+                  n_draws, if (save_every > 0L) save_every else n_draws),
           log_file, console_print = TRUE)
 
   # --- 1. Sample posterior alphas ---
@@ -79,6 +83,10 @@ run_ppc_simulation <- function(extended_model, template_data,
           log_file, console_print = TRUE)
 
   design_obj <- extract_design(extended_model)
+
+  # Output path is fixed upfront; checkpoints overwrite the same file.
+  out_name <- sprintf("%s_%s_ppc%s.rds", run_date, ppc_name, name_suffix)
+  out_path <- file.path(out_dir, out_name)
 
   # --- 2. Simulate one dataset per draw ---
   log_msg("Simulating posterior predictive datasets...", log_file, console_print = TRUE)
@@ -100,30 +108,36 @@ run_ppc_simulation <- function(extended_model, template_data,
     } else {
       sim_list[[i]] <- sim_i
     }
+
+    # Progress log every 10 draws
     if (i %% 10L == 0L || i == length(alpha_list)) {
       log_msg(sprintf("  %d / %d draws complete (%d failed)",
                       i, length(alpha_list), n_failed),
               log_file, console_print = TRUE)
     }
+
+    # Checkpoint: save + sync every save_every draws and always at the end
+    is_checkpoint <- (save_every > 0L && i %% save_every == 0L) ||
+                     i == length(alpha_list)
+    if (is_checkpoint) {
+      completed_so_far <- Filter(Negate(is.null), sim_list[seq_len(i)])
+      saveRDS(completed_so_far, out_path)
+      log_msg(sprintf("  Checkpoint: %d draws -> %s", length(completed_so_far), out_path),
+              log_file, console_print = TRUE)
+      post_save_hook(out_path, log_file)
+    }
   }
 
-  sim_list <- Filter(Negate(is.null), sim_list)
+  completed <- Filter(Negate(is.null), sim_list)
   log_msg(sprintf("Simulation complete: %d successful draws (of %d requested).",
-                  length(sim_list), n_draws),
+                  length(completed), n_draws),
           log_file, console_print = TRUE)
 
-  if (length(sim_list) == 0L) {
+  if (length(completed) == 0L) {
     stop("All make_data() calls failed. Check posterior alpha dimensions vs design.")
   }
 
-  # --- 3. Save to RDS ---
-  out_name <- sprintf("%s_%s_ppc%s.rds", run_date, ppc_name, name_suffix)
-  out_path <- file.path(out_dir, out_name)
-  saveRDS(sim_list, out_path)
-  log_msg(sprintf("Saved PPC simulations: %s", out_path), log_file, console_print = TRUE)
-  post_save_hook(out_path, log_file)
-
-  invisible(sim_list)
+  invisible(completed)
 }
 
 
@@ -159,8 +173,9 @@ if (length(args) == 0L) {
 
   extended_rds <- args[[1L]]
 
-  n_draws_override <- parse_int_arg(args, "--n-draws")
-  suffix_override  <- parse_str_arg(args, "--suffix")
+  n_draws_override    <- parse_int_arg(args, "--n-draws")
+  save_every_override <- parse_int_arg(args, "--save-every")
+  suffix_override     <- parse_str_arg(args, "--suffix")
   suffix <- if (!is.null(suffix_override)) suffix_override else ""
 
   # Derive model name from rds filename: strip date prefix + _extended suffix
@@ -180,6 +195,9 @@ if (length(args) == 0L) {
           log_file, console_print = TRUE)
   if (!is.null(n_draws_override))
     log_msg(sprintf("Override: --n-draws %d", n_draws_override),
+            log_file, console_print = TRUE)
+  if (!is.null(save_every_override))
+    log_msg(sprintf("Override: --save-every %d", save_every_override),
             log_file, console_print = TRUE)
   if (nzchar(suffix))
     log_msg(sprintf("Override: --suffix %s", suffix), log_file, console_print = TRUE)
@@ -204,7 +222,8 @@ if (length(args) == 0L) {
       ppc_name       = ppc_name,
       log_file       = log_file,
       out_dir        = ppc_out_dir,
-      n_draws        = if (!is.null(n_draws_override)) n_draws_override else PPC_N_DRAWS,
+      n_draws        = if (!is.null(n_draws_override))    n_draws_override    else PPC_N_DRAWS,
+      save_every     = if (!is.null(save_every_override)) save_every_override else 100L,
       sim_seed       = RNG_SEED,
       name_suffix    = suffix,
       post_save_hook = .cloud_hook
