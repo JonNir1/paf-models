@@ -2,7 +2,7 @@
 #' Level-1 unit tests for PPC eval helpers (no EMC2 required):
 #'   - compute_dist_stats()         (R/eval/helpers/ppc.R)
 #'   - compute_choice_proportions() (R/eval/helpers/ppc.R)
-#'   - compute_qpf_table()          (R/eval/helpers/ppc.R)
+#'   - compute_qpf_table()          (R/eval/helpers/ppc.R) [marginal + by_response]
 #' =============================================================================
 
 .libPaths(c(file.path(Sys.getenv("USERPROFILE"), "R", "library"), .libPaths()))
@@ -54,15 +54,13 @@ source(file.path(ROOT, "R", "eval", "helpers", "ppc.R"))
 # =============================================================================
 
 test_that("compute_dist_stats returns correct columns and shape", {
-  skip_if_not_installed("ADGofTest")
   set.seed(42L)
   obs  <- .mk_obs(n_subj = 4L, n_trials = 30L)
   ppcs <- .mk_ppc(obs, T = 5L)
   out  <- compute_dist_stats(ppcs, obs, "model1")
 
   expect_s3_class(out, "data.frame")
-  expect_named(out, c("model", "subject", "ks_d", "ks_p", "ad", "ad_p",
-                      "ad_p_fdr", "fdr_pass"),
+  expect_named(out, c("model", "subject", "ks_d", "ks_p", "ks_p_fdr", "fdr_pass"),
                ignore.order = FALSE)
   expect_equal(nrow(out), 4L)
   expect_true(all(out$model == "model1"))
@@ -70,19 +68,18 @@ test_that("compute_dist_stats returns correct columns and shape", {
 })
 
 test_that("compute_dist_stats applies BH FDR within model", {
-  skip_if_not_installed("ADGofTest")
   set.seed(123L)
   obs  <- .mk_obs(n_subj = 10L, n_trials = 50L)
   ppcs <- .mk_ppc(obs, T = 10L)
   out  <- compute_dist_stats(ppcs, obs, "model1")
 
-  # ad_p_fdr should be >= ad_p (BH correction is conservative)
-  valid <- !is.na(out$ad_p) & !is.na(out$ad_p_fdr)
-  expect_true(all(out$ad_p_fdr[valid] >= out$ad_p[valid]))
+  # ks_p_fdr should be >= ks_p (BH correction is conservative)
+  valid <- !is.na(out$ks_p) & !is.na(out$ks_p_fdr)
+  expect_true(all(out$ks_p_fdr[valid] >= out$ks_p[valid]))
 
-  # fdr_pass should equal (ad_p_fdr >= PPC_AD_ALPHA)
+  # fdr_pass should equal (ks_p_fdr >= PPC_AD_ALPHA)
   expect_equal(out$fdr_pass[valid],
-               out$ad_p_fdr[valid] >= PPC_AD_ALPHA)
+               out$ks_p_fdr[valid] >= PPC_AD_ALPHA)
 })
 
 
@@ -182,4 +179,92 @@ test_that("CI bounds bracket the median", {
   valid <- !is.na(out$pred_ci_lo) & !is.na(out$pred_ci_hi) & !is.na(out$pred_median)
   expect_true(all(out$pred_ci_lo[valid] <= out$pred_median[valid] + 1e-10))
   expect_true(all(out$pred_ci_hi[valid] >= out$pred_median[valid] - 1e-10))
+})
+
+
+# =============================================================================
+# compute_qpf_table(by_response = TRUE)
+# =============================================================================
+
+# Mixed-response mock data: saccades go to all 4 locations, yielding T/D/E types.
+# S = "T,D,E,E" so: loc1 = T, loc2 = D, loc3 = E, loc4 = E.
+# R cycles through 1..4 so response_type cycles T, D, E, E.
+.mk_obs_mixed <- function(n_subj = 4L, n_trials_per_type = 20L) {
+  # Each subject gets n_trials_per_type each of T, D, E (4 * n_trials_per_type total)
+  resp_locs <- c(rep(1L, n_trials_per_type),   # T
+                 rep(2L, n_trials_per_type),   # D
+                 rep(3L, n_trials_per_type))   # E
+  n_each <- length(resp_locs)
+  subjects <- rep(seq_len(n_subj), each = n_each)
+  rt <- runif(n_subj * n_each, min = 0.25, max = 0.90)
+  data.frame(
+    subjects          = subjects,
+    rt                = rt,
+    R                 = rep(resp_locs, n_subj),
+    S                 = "T,D,E,E",
+    cue_size          = "NONE",
+    search_difficulty = "EASY",
+    experiment        = "exp_1",
+    stringsAsFactors  = FALSE
+  )
+}
+
+.mk_ppc_mixed <- function(obs_data, T = 10L) {
+  lapply(seq_len(T), function(i) {
+    d    <- obs_data
+    d$rt <- pmax(d$rt + rnorm(nrow(d), sd = 0.02), 0.10)
+    d
+  })
+}
+
+test_that("compute_qpf_table(by_response=TRUE) returns response_type column", {
+  set.seed(21L)
+  obs  <- .mk_obs_mixed(n_subj = 3L, n_trials_per_type = 20L)
+  ppcs <- .mk_ppc_mixed(obs, T = 5L)
+  out  <- compute_qpf_table(ppcs, obs, "model1", by_response = TRUE)
+
+  expect_s3_class(out, "data.frame")
+  expect_true("response_type" %in% names(out))
+  expect_true(all(out$response_type %in% c("T", "D", "E")))
+  # Standard columns still present
+  expect_true(all(c("model", "quantile", "obs", "pred_median",
+                    "pred_ci_lo", "pred_ci_hi") %in% names(out)))
+})
+
+test_that("compute_qpf_table(by_response=TRUE) quantiles are monotone per type", {
+  set.seed(22L)
+  obs  <- .mk_obs_mixed(n_subj = 3L, n_trials_per_type = 30L)
+  ppcs <- .mk_ppc_mixed(obs, T = 8L)
+  out  <- compute_qpf_table(ppcs, obs, "model2", by_response = TRUE)
+
+  cond_key <- paste(out$experiment, out$cue_size, out$search_difficulty,
+                    out$response_type)
+  for (key in unique(cond_key)) {
+    sub <- out[cond_key == key, ]
+    sub <- sub[order(sub$quantile), ]
+    expect_true(all(diff(sub$obs) >= -1e-10),
+                info = sprintf("obs quantiles not monotone for: %s", key))
+    expect_true(all(diff(sub$pred_median) >= -1e-10),
+                info = sprintf("pred_median not monotone for: %s", key))
+  }
+})
+
+test_that("compute_qpf_table(by_response=TRUE) skips cells below min_n", {
+  set.seed(23L)
+  # Build obs with only T responses (no D or E) so D and E are sparse
+  obs_t_only <- .mk_obs(n_subj = 3L, n_trials = 20L)   # all R=1 = T
+  ppcs <- .mk_ppc(obs_t_only, T = 5L)
+  out  <- compute_qpf_table(ppcs, obs_t_only, "model4",
+                              by_response = TRUE, min_n = 10L)
+  # Only T rows should appear (D and E have 0 observations -> below min_n)
+  expect_true(all(out$response_type == "T"))
+})
+
+test_that("compute_qpf_table(by_response=FALSE) is unchanged (no response_type col)", {
+  set.seed(24L)
+  obs  <- .mk_obs(n_subj = 3L, n_trials = 20L)
+  ppcs <- .mk_ppc(obs, T = 5L)
+  out  <- compute_qpf_table(ppcs, obs, "model1", by_response = FALSE)
+  expect_false("response_type" %in% names(out))
+  expect_equal(sort(unique(out$quantile)), c(0.10, 0.25, 0.50, 0.75, 0.90))
 })
