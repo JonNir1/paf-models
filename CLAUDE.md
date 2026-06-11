@@ -17,10 +17,10 @@ Every R `source()` and every Python relative import assumes the **repo root** as
 
 There is **no linter or build system**. A `testthat` test suite lives in `__tests__/`. Verifying a change: run the relevant script AND the appropriate test level below.
 
-Python (data pipeline):
+Python (legacy data scripts -- no longer needed by the pipeline; preserved for reference):
 ```
 python load_data.py        # loads + filters Exp1, Exp2 in-memory
-python playground.py       # regenerates data/emc2_design_matrix.csv
+python playground.py       # regenerates data/emc2_design_matrix.csv (legacy intermediate)
 ```
 
 R (modeling pipeline; from a fresh R session at repo root):
@@ -58,15 +58,15 @@ When adding a new pipeline, add a unit test at L1 (for any pure helper), a build
 
 `fit_extend_local.R` reads a **hardcoded list of `.rds` filenames** at the top of the file (`model_files <- c("YYMMDD_model1.rds", ...)`). Edit that list before running.
 
-## Data handoff (Python -> R)
+## Data loading (R-native pipeline)
 
-The Python and R sides communicate through one file:
+The pipeline reads raw experiment CSVs directly in R:
 
-1. `load_data.py:46` `load_as_emc2_design_matrix()` reads `data/exp{1,2}/Exp{1,2}_clean.csv`, applies `enum_types.py` mappings, and produces a DataFrame.
-2. `playground.py` writes it to `data/emc2_design_matrix.csv`.
-3. `R/helpers/data.R` `load_safe_csv()` reads that CSV and enforces ordered factors: `search_difficulty` ∈ {EASY < MIXED < DIFFICULT}, `cue_size` ∈ {NONE < SMALL < MEDIUM < LARGE}.
+1. `R/helpers/data.R` `load_data()` reads `data/exp{1,2}/Exp{1,2}_clean.csv`, applies all column transforms (renaming, distractor-string construction, RT conversion, boolean mapping, cue-size encoding), enforces ordered factors (`search_difficulty` ∈ {EASY < MIXED < DIFFICULT}, `cue_size` ∈ {NONE < SMALL < MEDIUM < LARGE}), and applies RT cutoffs -- returning the same 15-column tibble as before.
 
-`data/` is **gitignored** (see `.gitignore:2`). A fresh clone has no data; the cleaned CSVs and the design matrix must be supplied locally.
+`data/` is **gitignored** (see `.gitignore:2`). A fresh clone has no data; the raw cleaned CSVs must be supplied locally.
+
+**Legacy files** (preserved but not used by the pipeline): `load_data.py`, `enum_types.py`, `playground.py`, `data/emc2_design_matrix.csv`. The Python scripts and the intermediate CSV remain for reference but the R pipeline no longer depends on them.
 
 ## Architecture
 
@@ -142,10 +142,10 @@ This is implemented in `check_block_convergence()` in `R/fit/helpers/fitting.R`:
 ## Important files
 
 Project-level:
-- `R/config.R` - RNG, RT cutoffs, paths (`OUTPUTS_DIR`, `MODELS_*_DIR`, `EVAL_DIR`, `DATA_FILE`)
+- `R/config.R` - RNG, RT cutoffs, paths (`OUTPUTS_DIR`, `MODELS_*_DIR`, `EVAL_DIR`, `DATA_DIR`, `DATA_FILE`)
 - `R/utils.R` - `source_root()` plus `parse_int_arg`, `parse_str_arg`, `check_valid_string`
 - `R/helpers/logging.R` - timestamped logging, error reporting, config serialisation
-- `R/helpers/data.R` - CSV loading, RT filtering, EMC2 factor closures; sources `logging.R`
+- `R/helpers/data.R` - **entry point `load_data()`** reads raw CSVs end-to-end; `filter_data()` for custom RT cutoffs on an already-loaded tibble; EMC2 factor closures (`StimulusAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`, `SearchDifficulty`); sources `logging.R`
 
 Fitting (`R/fit/`):
 - `R/fit/fit_config.R` - priors, `N_CHAINS`, fit params, recovery params, `CONSTANTS` (asymmetric convergence thresholds now in `R/config.R`)

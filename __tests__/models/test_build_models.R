@@ -11,7 +11,16 @@ source(file.path(ROOT, "__tests__", "models", "shared_assertions.R"))
 # n_chains = 2 (faster than 3; sufficient to verify structure).
 N_TEST_CHAINS <- 2L
 
-raw  <- load_safe_csv(file.path(ROOT, "__tests__", "fixtures", "sample_data.csv"))
+raw  <- readr::read_csv(file.path(ROOT, "__tests__", "fixtures", "sample_data.csv"),
+                        show_col_types = FALSE) %>%
+  dplyr::mutate(
+    search_difficulty    = factor(search_difficulty, levels=c("EASY","MIXED","DIFFICULT"), ordered=TRUE),
+    cue_size             = factor(cue_size, levels=c("NONE","SMALL","MEDIUM","LARGE"), ordered=TRUE),
+    R=factor(R), cue_location=factor(cue_location),
+    target_location=factor(target_location), prev_target_location=factor(prev_target_location)
+  ) %>%
+  dplyr::mutate(dplyr::across(dplyr::where(is.character), factor),
+                dplyr::across(dplyr::where(is.logical), factor))
 data <- filter_data(raw, min_rt = MIN_SACCADE_CUTOFF, max_rt = MAX_SACCADE_CUTOFF,
                     allow_target_repeats = ALLOW_TARGET_REPEAT)
 

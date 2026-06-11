@@ -5,38 +5,17 @@ source(file.path(ROOT, "R", "helpers", "data.R"))
 
 FIXTURE <- file.path(ROOT, "__tests__", "fixtures", "sample_data.csv")
 
-
-# =============================================================================
-# load_safe_csv
-# =============================================================================
-
-test_that("load_safe_csv: non-existent path throws informative error", {
-  expect_error(load_safe_csv("no/such/file.csv"), regexp = "not found")
-})
-
-test_that("load_safe_csv: non-CSV extension throws error", {
-  f <- tempfile(fileext = ".txt")
-  writeLines("a,b", f)
-  expect_error(load_safe_csv(f), regexp = "csv")
-})
-
-test_that("load_safe_csv: fixture returns a data frame", {
-  df <- load_safe_csv(FIXTURE)
-  expect_s3_class(df, "data.frame")
-  expect_gt(nrow(df), 0)
-})
-
-test_that("load_safe_csv: search_difficulty is ordered factor EASY < MIXED < DIFFICULT", {
-  df <- load_safe_csv(FIXTURE)
-  expect_true(is.ordered(df$search_difficulty))
-  expect_equal(levels(df$search_difficulty), c("EASY", "MIXED", "DIFFICULT"))
-})
-
-test_that("load_safe_csv: cue_size is ordered factor NONE < SMALL < MEDIUM < LARGE", {
-  df <- load_safe_csv(FIXTURE)
-  expect_true(is.ordered(df$cue_size))
-  expect_equal(levels(df$cue_size), c("NONE", "SMALL", "MEDIUM", "LARGE"))
-})
+# Helper: read the fixture CSV and apply EMC2 factor encoding (replaces old load_safe_csv).
+fixture_df <- function() {
+  readr::read_csv(FIXTURE, show_col_types = FALSE) %>%
+    mutate(
+      search_difficulty    = factor(search_difficulty, levels=c("EASY","MIXED","DIFFICULT"), ordered=TRUE),
+      cue_size             = factor(cue_size, levels=c("NONE","SMALL","MEDIUM","LARGE"), ordered=TRUE),
+      R=factor(R), cue_location=factor(cue_location),
+      target_location=factor(target_location), prev_target_location=factor(prev_target_location)
+    ) %>%
+    mutate(across(where(is.character), factor), across(where(is.logical), factor))
+}
 
 
 # =============================================================================
@@ -44,8 +23,7 @@ test_that("load_safe_csv: cue_size is ordered factor NONE < SMALL < MEDIUM < LAR
 # =============================================================================
 
 test_that("filter_data: max_rt < min_rt throws error", {
-  df <- load_safe_csv(FIXTURE)
-  expect_error(filter_data(df, min_rt = 0.8, max_rt = 0.2))
+  expect_error(filter_data(fixture_df(), min_rt = 0.8, max_rt = 0.2))
 })
 
 test_that("filter_data: missing rt column throws error", {
@@ -54,27 +32,25 @@ test_that("filter_data: missing rt column throws error", {
 })
 
 test_that("filter_data: RT boundaries are inclusive", {
-  df <- load_safe_csv(FIXTURE)
-  lo <- min(df$rt); hi <- max(df$rt)
+  df  <- fixture_df()
+  lo  <- min(df$rt); hi <- max(df$rt)
   out <- filter_data(df, min_rt = lo, max_rt = hi)
   expect_true(any(out$rt == lo))
   expect_true(any(out$rt == hi))
 })
 
 test_that("filter_data: allow_target_repeats = FALSE removes repeated-target rows", {
-  df <- load_safe_csv(FIXTURE)
-  out <- filter_data(df, allow_target_repeats = FALSE)
+  out <- filter_data(fixture_df(), allow_target_repeats = FALSE)
   expect_equal(sum(as.logical(as.character(out$is_target_repeated))), 0)
 })
 
 test_that("filter_data: experiment = 1 keeps only exp_1 rows", {
-  df <- load_safe_csv(FIXTURE)
-  out <- filter_data(df, experiment = 1)
+  out <- filter_data(fixture_df(), experiment = 1)
   expect_true(all(as.character(out$experiment) == "exp_1"))
 })
 
 test_that("filter_data: constant-valued columns are dropped", {
-  df <- load_safe_csv(FIXTURE)
+  df <- fixture_df()
   # artificially introduce a constant column
   df$constant_col <- 99L
   out <- filter_data(df)
@@ -82,7 +58,7 @@ test_that("filter_data: constant-valued columns are dropped", {
 })
 
 test_that("filter_data: returned row count is correct", {
-  df <- load_safe_csv(FIXTURE)
+  df  <- fixture_df()
   out <- filter_data(df, min_rt = 0.3, max_rt = 0.8)
   expect_equal(nrow(out), sum(df$rt >= 0.3 & df$rt <= 0.8))
 })
@@ -210,4 +186,89 @@ test_that("SearchDifficulty: factor levels are EASY < MIXED < DIFFICULT", {
   df  <- make_search_df(c("T,E,E,E", "T,D,E,E", "T,D,D,D"))
   res <- SearchDifficulty(df)
   expect_equal(levels(res), c("EASY", "MIXED", "DIFFICULT"))
+})
+
+
+# =============================================================================
+# .map_distractor
+# =============================================================================
+
+test_that(".map_distractor: 1 -> T", {
+  expect_equal(.map_distractor(1L), "T")
+})
+
+test_that(".map_distractor: 2 -> D", {
+  expect_equal(.map_distractor(2L), "D")
+})
+
+test_that(".map_distractor: 3 -> E", {
+  expect_equal(.map_distractor(3L), "E")
+})
+
+test_that(".map_distractor: 0 -> U", {
+  expect_equal(.map_distractor(0L), "U")
+})
+
+test_that(".map_distractor: vectorized over a row", {
+  expect_equal(.map_distractor(c(1L, 2L, 3L, 0L)), c("T", "D", "E", "U"))
+})
+
+
+# =============================================================================
+# .parse_reploc
+# =============================================================================
+
+test_that(".parse_reploc: 'oldloc' -> TRUE", {
+  expect_true(.parse_reploc("oldloc"))
+})
+
+test_that(".parse_reploc: 'same' -> TRUE", {
+  expect_true(.parse_reploc("same"))
+})
+
+test_that(".parse_reploc: 'newloc' -> FALSE", {
+  expect_false(.parse_reploc("newloc"))
+})
+
+test_that(".parse_reploc: 'diff' -> FALSE", {
+  expect_false(.parse_reploc("diff"))
+})
+
+
+# =============================================================================
+# .parse_cue_at_prev
+# =============================================================================
+
+test_that(".parse_cue_at_prev: '1' -> TRUE", {
+  expect_true(.parse_cue_at_prev("1"))
+})
+
+test_that(".parse_cue_at_prev: 'congruent' -> TRUE", {
+  expect_true(.parse_cue_at_prev("congruent"))
+})
+
+test_that(".parse_cue_at_prev: '0' -> FALSE", {
+  expect_false(.parse_cue_at_prev("0"))
+})
+
+test_that(".parse_cue_at_prev: 'incongurent' (typo in source) -> FALSE", {
+  expect_false(.parse_cue_at_prev("incongurent"))
+})
+
+test_that(".parse_cue_at_prev: 'incongruent' (correct spelling) -> FALSE", {
+  expect_false(.parse_cue_at_prev("incongruent"))
+})
+
+
+# =============================================================================
+# load_data: input validation (no real data required)
+# =============================================================================
+
+test_that("load_data: non-existent data_dir throws informative error", {
+  expect_error(load_data(data_dir = file.path(tempdir(), "no_such_dir")),
+               regexp = "not found")
+})
+
+test_that("load_data: max_rt < min_rt throws error", {
+  expect_error(load_data(data_dir = tempdir(), min_rt = 0.8, max_rt = 0.2))
 })

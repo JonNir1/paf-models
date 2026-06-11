@@ -254,13 +254,11 @@ if (length(args) == 0L) {
             log_file, console_print = TRUE)
     extended_model <- readRDS(ext_path)
 
-    log_msg(sprintf("Loading template data from: %s", DATA_FILE),
+    log_msg(sprintf("Loading template data from raw CSVs in: %s", DATA_DIR),
             log_file, console_print = TRUE)
-    raw_data      <- load_safe_csv(DATA_FILE)
-    template_data <- filter_data(raw_data,
-                                 min_rt               = MIN_SACCADE_CUTOFF,
-                                 max_rt               = MAX_SACCADE_CUTOFF,
-                                 allow_target_repeats = ALLOW_TARGET_REPEAT)
+    template_data <- load_data(min_rt               = MIN_SACCADE_CUTOFF,
+                               max_rt               = MAX_SACCADE_CUTOFF,
+                               allow_target_repeats = ALLOW_TARGET_REPEAT)
 
     model_script <- file.path(Sys.getenv("PAF_REPO_ROOT", getwd()),
                               "R", "fit", paste0(orig_name, ".R"))

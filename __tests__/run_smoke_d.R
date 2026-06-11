@@ -17,18 +17,17 @@ cat("Smoke D output dir:", SMOKE_DIR, "\n")
 MAIN_DIR     <- getwd()
 EXTENDED_RDS <- file.path(MAIN_DIR, "outputs", "models", "fit_extend",
                            "260525_model1_extended.rds")
-HAVE_REAL_INPUTS <- file.exists(EXTENDED_RDS) && file.exists(file.path(MAIN_DIR, DATA_FILE))
+HAVE_REAL_INPUTS <- file.exists(EXTENDED_RDS) &&
+  file.exists(file.path(MAIN_DIR, DATA_DIR, "exp1", "Exp1_clean.csv"))
 
 test_that("smoke D: run_ppc_simulation produces a list of data frames", {
   skip_if_not(HAVE_REAL_INPUTS,
               "smoke D needs the real extended .rds + design matrix locally")
 
   extended_model <- readRDS(EXTENDED_RDS)
-  raw            <- load_safe_csv(file.path(MAIN_DIR, DATA_FILE))
-  template_full  <- filter_data(raw,
-                                min_rt               = MIN_SACCADE_CUTOFF,
-                                max_rt               = MAX_SACCADE_CUTOFF,
-                                allow_target_repeats = ALLOW_TARGET_REPEAT)
+  template_full  <- load_data(min_rt               = MIN_SACCADE_CUTOFF,
+                              max_rt               = MAX_SACCADE_CUTOFF,
+                              allow_target_repeats = ALLOW_TARGET_REPEAT)
   template_small <- template_full |>
     dplyr::group_by(subjects) |>
     dplyr::slice_head(n = 30) |>

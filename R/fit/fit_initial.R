@@ -21,26 +21,15 @@ log_msg("===== STARTING NEW BATCH FITTING SESSION =====\n", LOG_FILE, console_pr
 log_config_variables(FIT_CONFIG_FILE, LOG_FILE)
 
 # Data Pipeline (Load and Filter ONCE) - using variables defined in config.R
-log_msg(paste("Loading data from file", DATA_FILE), LOG_FILE, console_print = TRUE)
-raw_data <- load_safe_csv(DATA_FILE)
-
-clean_data <- filter_data(
-  raw_data, 
-  min_rt = MIN_SACCADE_CUTOFF, 
-  max_rt = MAX_SACCADE_CUTOFF,
+log_msg(paste("Loading data from raw CSVs in:", DATA_DIR), LOG_FILE, console_print = TRUE)
+clean_data <- load_data(
+  min_rt               = MIN_SACCADE_CUTOFF,
+  max_rt               = MAX_SACCADE_CUTOFF,
   allow_target_repeats = ALLOW_TARGET_REPEAT
 )
 log_msg(
-  sprintf("Data Summary: Loaded %d lines from %d unique subjects", 
-          nrow(clean_data), n_distinct(clean_data$sub)), 
-  LOG_FILE, console_print = TRUE
-)
-
-excluded_count <- nrow(raw_data) - nrow(clean_data)
-log_msg(
-  sprintf("Exclusion: Removed %d trials (%.1f%%) based on RT cutoffs [%.2f, %.2f]", 
-          excluded_count, (excluded_count/nrow(raw_data))*100, 
-          MIN_SACCADE_CUTOFF, MAX_SACCADE_CUTOFF), 
+  sprintf("Data Summary: Loaded %d lines from %d unique subjects",
+          nrow(clean_data), n_distinct(clean_data$subjects)),
   LOG_FILE, console_print = TRUE
 )
 log_msg("------------------------------\n", LOG_FILE, console_print = FALSE)
