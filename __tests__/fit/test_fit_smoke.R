@@ -28,7 +28,16 @@ SMOKE_STOP_CRITERIA <- list(
   sample  = list(iter = 20L, max_gd = Inf)
 )
 
-raw  <- load_safe_csv(file.path(ROOT, "__tests__", "fixtures", "sample_data.csv"))
+raw  <- readr::read_csv(file.path(ROOT, "__tests__", "fixtures", "sample_data.csv"),
+                        show_col_types = FALSE) %>%
+  dplyr::mutate(
+    search_difficulty    = factor(search_difficulty, levels=c("EASY","MIXED","DIFFICULT"), ordered=TRUE),
+    cue_size             = factor(cue_size, levels=c("NONE","SMALL","MEDIUM","LARGE"), ordered=TRUE),
+    R=factor(R), cue_location=factor(cue_location),
+    target_location=factor(target_location), prev_target_location=factor(prev_target_location)
+  ) %>%
+  dplyr::mutate(dplyr::across(dplyr::where(is.character), factor),
+                dplyr::across(dplyr::where(is.logical), factor))
 data <- filter_data(raw,
                     min_rt               = MIN_SACCADE_CUTOFF,
                     max_rt               = MAX_SACCADE_CUTOFF,
@@ -200,7 +209,8 @@ source_root("R/fit/fit_ppc_cloud.R")         # exposes run_ppc_simulation()
 
 EXTENDED_RDS <- file.path(ROOT, "outputs", "models", "fit_extend",
                           "260525_model1_extended.rds")
-HAVE_REAL_INPUTS <- file.exists(EXTENDED_RDS) && file.exists(file.path(ROOT, DATA_FILE))
+HAVE_REAL_INPUTS <- file.exists(EXTENDED_RDS) &&
+  file.exists(file.path(ROOT, DATA_DIR, "exp1", "Exp1_clean.csv"))
 
 test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data", {
   skip_if_not(HAVE_REAL_INPUTS,
@@ -209,11 +219,9 @@ test_that("smoke C: run_recovery_fit completes end-to-end on subsetted real data
   # Load real extended model + filter the design matrix, then subset to keep
   # all subjects but only ~30 trials each (~1.2k rows, ~1-2 min vs ~15 min full).
   extended_model <- readRDS(EXTENDED_RDS)
-  raw            <- load_safe_csv(file.path(ROOT, DATA_FILE))
-  template_full  <- filter_data(raw,
-                                min_rt               = MIN_SACCADE_CUTOFF,
-                                max_rt               = MAX_SACCADE_CUTOFF,
-                                allow_target_repeats = ALLOW_TARGET_REPEAT)
+  template_full  <- load_data(min_rt               = MIN_SACCADE_CUTOFF,
+                              max_rt               = MAX_SACCADE_CUTOFF,
+                              allow_target_repeats = ALLOW_TARGET_REPEAT)
   template_small <- template_full |>
     dplyr::group_by(subjects) |>
     dplyr::slice_head(n = 30) |>
@@ -268,11 +276,9 @@ test_that("smoke D: run_ppc_simulation produces a list of data frames", {
               "smoke D needs the real extended .rds + design matrix locally")
 
   extended_model <- readRDS(EXTENDED_RDS)
-  raw            <- load_safe_csv(file.path(ROOT, DATA_FILE))
-  template_full  <- filter_data(raw,
-                                min_rt               = MIN_SACCADE_CUTOFF,
-                                max_rt               = MAX_SACCADE_CUTOFF,
-                                allow_target_repeats = ALLOW_TARGET_REPEAT)
+  template_full  <- load_data(min_rt               = MIN_SACCADE_CUTOFF,
+                              max_rt               = MAX_SACCADE_CUTOFF,
+                              allow_target_repeats = ALLOW_TARGET_REPEAT)
   # Subset to 30 trials/subject for speed
   template_small <- template_full |>
     dplyr::group_by(subjects) |>

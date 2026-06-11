@@ -17,7 +17,17 @@ source(file.path(ROOT, "R", "fit", "model1.R"))   # defines build_model()
 N_TEST_CHAINS <- 2L
 
 # Load fixture data (same as used by test_build_models.R)
-raw_fixture <- load_safe_csv(file.path(ROOT, "__tests__", "fixtures", "sample_data.csv"))
+raw_fixture <- readr::read_csv(
+  file.path(ROOT, "__tests__", "fixtures", "sample_data.csv"), show_col_types = FALSE
+) %>%
+  dplyr::mutate(
+    search_difficulty    = factor(search_difficulty, levels=c("EASY","MIXED","DIFFICULT"), ordered=TRUE),
+    cue_size             = factor(cue_size, levels=c("NONE","SMALL","MEDIUM","LARGE"), ordered=TRUE),
+    R=factor(R), cue_location=factor(cue_location),
+    target_location=factor(target_location), prev_target_location=factor(prev_target_location)
+  ) %>%
+  dplyr::mutate(dplyr::across(dplyr::where(is.character), factor),
+                dplyr::across(dplyr::where(is.logical), factor))
 fixture_data <- filter_data(raw_fixture,
                             min_rt               = MIN_SACCADE_CUTOFF,
                             max_rt               = MAX_SACCADE_CUTOFF,

@@ -27,7 +27,7 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/eval/eval_config.R")      # PPC_EVAL_DIR, PPC_MODELS_DIR, PPC_N_DRAWS, ...
 source_root("R/eval/helpers/ppc.R")      # compute_* + plot_ppc_*
 source_root("R/eval/helpers/plot.R")     # save_ggplot_png
-source_root("R/helpers/data.R")          # load_safe_csv, filter_data
+source_root("R/helpers/data.R")          # load_data
 
 if (!dir.exists(PPC_EVAL_DIR)) dir.create(PPC_EVAL_DIR, recursive = TRUE)
 
@@ -51,11 +51,9 @@ MODEL_NAMES <- c("model1", "model2", "model4", "model5")
 # =============================================================================
 
 message("Loading observed data...")
-raw_data  <- load_safe_csv(DATA_FILE)
-obs_data  <- filter_data(raw_data,
-                          min_rt               = MIN_SACCADE_CUTOFF,
-                          max_rt               = MAX_SACCADE_CUTOFF,
-                          allow_target_repeats = ALLOW_TARGET_REPEAT)
+obs_data  <- load_data(min_rt               = MIN_SACCADE_CUTOFF,
+                       max_rt               = MAX_SACCADE_CUTOFF,
+                       allow_target_repeats = ALLOW_TARGET_REPEAT)
 message(sprintf("Observed data: %d trials, %d subjects",
                 nrow(obs_data), dplyr::n_distinct(obs_data$subjects)))
 
