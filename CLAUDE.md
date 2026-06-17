@@ -71,7 +71,7 @@ The pipeline reads raw experiment CSVs directly in R:
 ## Architecture
 
 - **`R/` layout**: split into three layers.
-  - `R/config.R` — project-level: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), the asymmetric convergence thresholds (`MAX_RHAT_MU`/`MIN_ESS_MU` + `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`; used by BOTH the fit and eval layers), `DATA_FILE`, and output dir paths (`OUTPUTS_DIR`, `MODELS_DIR`, `EVAL_DIR`, `MODELS_{INITIAL,EXTEND,RECOVERY}_DIR`). Sourced (directly or transitively) by every script.
+  - `R/config.R` — project-level: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), the asymmetric convergence thresholds (`MAX_RHAT_MU`/`MIN_ESS_MU` + `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`; used by BOTH the fit and eval layers), and output dir paths (`OUTPUTS_DIR`, `MODELS_DIR`, `EVAL_DIR`, `MODELS_{INITIAL,EXTEND,RECOVERY}_DIR`). Sourced (directly or transitively) by every script.
   - `R/utils.R` — `source_root(rel)`, `parse_int_arg`, `parse_str_arg`, `check_valid_string`. Sourced as the FIRST line of every R file via `source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))`.
   - `R/fit/` — fitting code (`fit_*.R`, `model{1..5}.R`) + `R/fit/fit_config.R` (priors, `N_CHAINS = 3`, fit params `INITIAL_FIT_SAMPLES=1000`/`EXTENDED_FIT_SAMPLES=3000`/`MAX_TRIES=20`/`STEP_SIZE=200`/`SAVE_EVERY=2`, recovery params, and the `CONSTANTS = c(sv = log(1))` identifiability anchor). The asymmetric convergence thresholds were relocated to `R/config.R` (shared with eval). Changing a prior here propagates to all 5 models.
   - `R/eval/` — evaluation code: `convergence.R` (step-2.9 convergence table + verdict), `model_comparison.R` (GoF/DIC/BPIC; step-3 scaffolding), `recovery.R` (parameter-recovery analysis), `review_convergence_recovery.R` (step-2.9 synthesis), `examine_model.R` (interactive) + `R/eval/eval_config.R`.
@@ -142,7 +142,7 @@ This is implemented in `check_block_convergence()` in `R/fit/helpers/fitting.R`:
 ## Important files
 
 Project-level:
-- `R/config.R` - RNG, RT cutoffs, paths (`OUTPUTS_DIR`, `MODELS_*_DIR`, `EVAL_DIR`, `DATA_DIR`, `DATA_FILE`)
+- `R/config.R` - RNG, RT cutoffs, paths (`OUTPUTS_DIR`, `MODELS_*_DIR`, `EVAL_DIR`, `DATA_DIR`)
 - `R/utils.R` - `source_root()` plus `parse_int_arg`, `parse_str_arg`, `check_valid_string`
 - `R/helpers/logging.R` - timestamped logging, error reporting, config serialisation
 - `R/helpers/data.R` - **entry point `load_data()`** reads raw CSVs end-to-end; `filter_data()` for custom RT cutoffs on an already-loaded tibble; EMC2 factor closures (`StimulusAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`, `SearchDifficulty`); sources `logging.R`
@@ -252,7 +252,10 @@ build_model() -> build_lba_model() -> EMC2::design()
 ```
 inputs/
   data/
-    emc2_design_matrix.csv          ← design matrix for make_data()
+    exp1/
+      Exp1_clean.csv                ← raw experiment 1 data (input to load_data())
+    exp2/
+      Exp2_clean.csv                ← raw experiment 2 data (input to load_data())
   fit_extend/
     260525_model1_extended.rds      ← extended fits (recovery inputs)
     260525_model2_extended.rds

@@ -35,9 +35,10 @@ else
 fi
 
 echo ">>> Downloading inputs from $BUCKET ..."
-mkdir -p outputs/models/fit_extend outputs/models/fit_recovery data
+mkdir -p outputs/models/fit_extend outputs/models/fit_recovery data/exp1 data/exp2
 cloud_cp_from "inputs/fit_extend/$rds_name" "outputs/models/fit_extend/$rds_name"
-cloud_cp_from "inputs/data/emc2_design_matrix.csv" "data/emc2_design_matrix.csv"
+cloud_cp_from "inputs/data/exp1/Exp1_clean.csv" "data/exp1/Exp1_clean.csv"
+cloud_cp_from "inputs/data/exp2/Exp2_clean.csv" "data/exp2/Exp2_clean.csv"
 
 echo ">>> Launching fit_recovery_cloud.R for $rds_name sim=$sim_index ..."
 R_LIBS_USER="$R_LIBS_USER" CP_CMD="$CP_CMD" DEST_PREFIX="$DEST_PREFIX" \
