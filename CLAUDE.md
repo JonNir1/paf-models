@@ -4,24 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Bayesian hierarchical cognitive modeling of the **PAF (Priority Accumulation Framework)** theory of visual attention, fit to saccade-latency data from two visual-search experiments. Bilingual:
-
-- **Python** ingests and reshapes the raw experimental CSVs into a single EMC2-ready design matrix.
-- **R + `EMC2`** fits a family of hierarchical LBA (Linear Ballistic Accumulator) models and runs model comparison.
+Bayesian hierarchical cognitive modeling of the **PAF (Priority Accumulation Framework)** theory of visual attention, fit to saccade-latency data from two visual-search experiments. The full stack is **R + `EMC2`**: `R/helpers/data.R` ingests and reshapes the raw experimental CSVs, and a family of hierarchical LBA (Linear Ballistic Accumulator) models is fit and compared. (A legacy Python data pipeline was retired; see **Archived code** below.)
 
 ## Run from the repo root
 
-Every R `source()` and every Python relative import assumes the **repo root** as the working directory (e.g. `source("R/config.R")` appears inside scripts that themselves live under `R/`). Do not `cd` into a subdirectory before running anything.
+Every R `source()` assumes the **repo root** as the working directory (e.g. `source("R/config.R")` appears inside scripts that themselves live under `R/`). Do not `cd` into a subdirectory before running anything.
 
 ## Common commands
 
 There is **no linter or build system**. A `testthat` test suite lives in `__tests__/`. Verifying a change: run the relevant script AND the appropriate test level below.
-
-Python (legacy data scripts -- no longer needed by the pipeline; preserved for reference):
-```
-python load_data.py        # loads + filters Exp1, Exp2 in-memory
-python playground.py       # regenerates data/emc2_design_matrix.csv (legacy intermediate)
-```
 
 R (modeling pipeline; from a fresh R session at repo root):
 ```
@@ -66,7 +57,7 @@ The pipeline reads raw experiment CSVs directly in R:
 
 `data/` is **gitignored** (see `.gitignore:2`). A fresh clone has no data; the raw cleaned CSVs must be supplied locally.
 
-**Legacy files** (preserved but not used by the pipeline): `load_data.py`, `enum_types.py`, `playground.py`, `data/emc2_design_matrix.csv`. The Python scripts and the intermediate CSV remain for reference but the R pipeline no longer depends on them.
+The earlier Python data pipeline (`load_data.py`, `enum_types.py`, `playground.py`) and its `data/emc2_design_matrix.csv` intermediate were retired and removed from `main`; they live on the `archive/legacy-python` branch (see **Archived code** below).
 
 ## Architecture
 
@@ -74,16 +65,16 @@ The pipeline reads raw experiment CSVs directly in R:
   - `R/config.R` — project-level: RNG (`seed = 42`, `L'Ecuyer-CMRG`), saccade RT cutoffs (0.23 to 1.0 s), the asymmetric convergence thresholds (`MAX_RHAT_MU`/`MIN_ESS_MU` + `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA`; used by BOTH the fit and eval layers), and output dir paths (`OUTPUTS_DIR`, `MODELS_DIR`, `EVAL_DIR`, `MODELS_{INITIAL,EXTEND,RECOVERY}_DIR`). Sourced (directly or transitively) by every script.
   - `R/utils.R` — `source_root(rel)`, `parse_int_arg`, `parse_str_arg`, `check_valid_string`. Sourced as the FIRST line of every R file via `source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))`.
   - `R/fit/` — fitting code (`fit_*.R`, `model{1..5}.R`) + `R/fit/fit_config.R` (priors, `N_CHAINS = 3`, fit params `INITIAL_FIT_SAMPLES=1000`/`EXTENDED_FIT_SAMPLES=3000`/`MAX_TRIES=20`/`STEP_SIZE=200`/`SAVE_EVERY=2`, recovery params, and the `CONSTANTS = c(sv = log(1))` identifiability anchor). The asymmetric convergence thresholds were relocated to `R/config.R` (shared with eval). Changing a prior here propagates to all 5 models.
-  - `R/eval/` — evaluation code: `convergence.R` (step-2.9 convergence table + verdict), `model_comparison.R` (GoF/DIC/BPIC; step-3 scaffolding), `recovery.R` (parameter-recovery analysis), `review_convergence_recovery.R` (step-2.9 synthesis), `examine_model.R` (interactive) + `R/eval/eval_config.R`.
+  - `R/eval/` — evaluation code: `convergence.R` (step-2.9 convergence table + verdict), `goodness_of_fit.R` (GoF/DIC/BPIC; step-3 scaffolding), `recovery.R` (parameter-recovery analysis), `ppc.R` (step-4 posterior predictive checks), `review_convergence_and_recovery.R` (step-2.9 synthesis), `examine_model.R` (interactive) + `R/eval/eval_config.R`.
   - `R/helpers/` — cross-cutting helpers used by both fit and eval: `logging.R`, `data.R`.
   - `R/fit/helpers/` — fit-only helpers: `build_model.R`, `fitting.R`, `recovery.R`.
-  - `R/eval/helpers/` — eval-only helpers: `convergence.R` (Rhat/ESS extraction + verdict), `recovery.R` (recovery-eval computations), `plot.R` (Plotly figures), `io.R` (`load_model`, `save_eval_table`, `newer_than_inputs`).
+  - `R/eval/helpers/` — eval-only helpers: `convergence.R` (Rhat/ESS extraction + verdict), `recovery.R` (recovery-eval computations), `gof.R` (GoF computations), `ppc.R` (PPC computations), `plot.R` (Plotly figures), `io.R` (`load_model`, `save_eval_table`, `newer_than_inputs`).
   - Parallelism (`cores_for_chains`, `cores_per_chain`) is auto-detected at runtime by `get_core_args()` in `R/fit/helpers/fitting.R` — no manual core config is needed.
 - **Output locations** (from `R/config.R`):
   - `MODELS_INITIAL_DIR  = "outputs/models/fit_initial"`  — `.rds` files from `fit_initial.R`, named `YYMMDD_<MODEL_NAME>.rds`.
   - `MODELS_EXTEND_DIR   = "outputs/models/fit_extend"`   — `.rds` files from `fit_extend_*.R`.
   - `MODELS_RECOVERY_DIR = "outputs/models/fit_recovery"` — `.rds` files from `fit_recovery_cloud.R`.
-  - `EVAL_DIR            = "outputs/evaluation"`          — eval outputs (`convergence.{rds,csv}` from `convergence.R`; `model_comparison.{rds,csv}` from `model_comparison.R`; `review_2_9_summary.{rds,csv}` from the 2.9 synthesis); recovery analysis lands under `outputs/evaluation/parameter_recovery/`.
+  - `EVAL_DIR            = "outputs/evaluation"`          — eval outputs (`convergence.{rds,csv}` from `convergence.R`; `model_comparison.{rds,csv}` from `goodness_of_fit.R`; `review_2_9_summary.{rds,csv}` from the 2.9 synthesis); recovery analysis lands under `outputs/evaluation/parameter_recovery/`.
   - `LOG_FILE` is **not** in `config.R`; each script derives it locally (e.g. `file.path(MODELS_INITIAL_DIR, "log.txt")`). `fit_initial.R` writes to `outputs/models/fit_initial/log.txt`; `fit_extend_*.R` writes per-model logs to `outputs/models/fit_extend/log_extend_<name>.txt`.
 - **Model family**: five nested LBA variants (`R/fit/model1.R` .. `model5.R`) differing in the formulas for drift rate `v`, threshold `B`, and between-trial variability `sv`. Each script defines `MODEL_NAME` and a thin `build_model(data, n_chains = 3)` that delegates to `build_lba_model()` in `R/fit/helpers/build_model.R`. `build_lba_model()` owns all shared boilerplate (base priors, `design()`, `prior()`, `make_emc()`); each model passes only its `v_formula`, `B_formula`, and any extra prior entries. To add a new variant, copy `model1.R` and adjust those three arguments.
 - **Two-phase fitting**:
@@ -91,7 +82,7 @@ The pipeline reads raw experiment CSVs directly in R:
   - `R/fit/fit_extend_local.R` resumes previously-fit `.rds` files locally, running two models in parallel when the machine has enough cores (`>= 2 * N_CHAINS`), otherwise sequentially. Pass `--sequential` to force sequential mode. Each invocation writes to its own per-model log (`outputs/models/fit_extend/log_extend_<name>.txt`).
   - `R/fit/fit_extend_cloud.R` extends a single model on a cloud VM (one process per machine). Reads `CP_CMD` and `DEST_PREFIX` from the environment and syncs the `.rds` + log to S3/GCS after every try. Called by `scripts/run_extend.sh`.
   - Convergence is checked by `check_block_convergence()` in `R/fit/helpers/fitting.R` using `EMC2::check()` to extract per-parameter Rhat and ESS, then applying `MAX_RHAT_MU`/`MIN_ESS_MU` to the `$mu` block and `MAX_RHAT_ALPHA`/`MIN_ESS_ALPHA` to the pooled `$alpha` block. EMC2's built-in `stop_criteria` is bypassed because it cannot apply different thresholds per block.
-- **Enum to factor bridge**: `enum_types.py` defines the canonical level orderings (`LocationTypeEnum`, `DistractorTypeEnum`, `SearchDifficultyTypeEnum`, `CueSizeTypeEnum`, `SideTypeEnum`). R does **not** import these. Instead, `R/helpers/data.R` re-encodes them through closure functions (`StimulusAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`, `SearchDifficulty`) that EMC2's `design()` calls. Adding or renaming a factor level requires changes on **both** sides.
+- **Factor level orderings**: `R/helpers/data.R` is the single source of truth for the canonical level orderings, encoded through closure functions (`StimulusAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`, `SearchDifficulty`) that EMC2's `design()` calls. (The original Python `enum_types.py` definitions are preserved on the `archive/legacy-python` branch but are no longer authoritative.)
 - **Latest-version lookup**: `R/eval/helpers/io.R` `load_model()` parses the `YYMMDD_` prefix and always returns the most recent `.rds` for a given model name.
 
 ## Analysis workflow
@@ -153,6 +144,7 @@ Fitting (`R/fit/`):
 - `R/fit/fit_extend_local.R` - local batch extend (2 models in parallel if cores allow; `--sequential` flag to override)
 - `R/fit/fit_extend_cloud.R` - cloud single-model extend (called by `scripts/run_extend.sh`)
 - `R/fit/fit_recovery_cloud.R` - cloud single-sim parameter recovery (called by `scripts/run_recovery.sh`)
+- `R/fit/fit_ppc_cloud.R` - cloud posterior predictive simulation (called by `scripts/run_ppc.sh`)
 - `R/fit/model1.R` - canonical template for a model variant (thin wrapper; see `build_lba_model()` in `helpers/build_model.R`)
 - `R/fit/helpers/build_model.R` - `build_lba_model()` factory; sources `fit_config.R` and `R/helpers/data.R`
 - `R/fit/helpers/fitting.R` - `get_core_args`, `save_model`, `check_block_convergence`, `extend_model`, `model_log_path`; sources `build_model.R`. **Single entry point for fit scripts**.
@@ -161,12 +153,15 @@ Fitting (`R/fit/`):
 Evaluation (`R/eval/`):
 - `R/eval/eval_config.R` - eval params + `RECOVERY_EVAL_DIR` (currently minimal)
 - `R/eval/convergence.R` - step-2.9 convergence table + verdict (writes `convergence.{rds,csv}`)
-- `R/eval/model_comparison.R` - GoF/model comparison (DIC/BPIC; step-3 scaffolding; writes `model_comparison.{rds,csv}`)
-- `R/eval/recovery.R` - load 12 `_extended` recovery fits, produce population table + subject scatter + z-score/contraction plots
-- `R/eval/review_convergence_recovery.R` - step-2.9 synthesis (joins convergence verdict + recovery; writes `review_2_9_summary.{rds,csv}`)
+- `R/eval/goodness_of_fit.R` - GoF/model comparison (DIC/BPIC; step-3 scaffolding; writes `model_comparison.{rds,csv}`)
+- `R/eval/recovery.R` - load `_extended` recovery fits, produce population table + subject scatter + z-score/contraction plots
+- `R/eval/ppc.R` - step-4 posterior predictive checks (per-subject KS + theory contrasts)
+- `R/eval/review_convergence_and_recovery.R` - step-2.9 synthesis (joins convergence verdict + recovery; writes `review_2_9_summary.{rds,csv}`)
 - `R/eval/examine_model.R` - inspect a single fitted model
 - `R/eval/helpers/convergence.R` - Rhat/ESS extraction, `create_convergence_table()`, `add_convergence_verdict()`
 - `R/eval/helpers/recovery.R` - recovery-eval computations (prior-SD extraction, z-score/contraction, RMSE/r)
+- `R/eval/helpers/gof.R` - goodness-of-fit computations (DIC/BPIC/LOO/WAIC)
+- `R/eval/helpers/ppc.R` - PPC computations (per-subject KS, theory contrasts)
 - `R/eval/helpers/plot.R` - Plotly figure builders + `save_plotly_png()` (PNG export with HTML fallback)
 - `R/eval/helpers/io.R` - `load_model()`, `save_eval_table()`, `newer_than_inputs()` (shared eval I/O)
 
@@ -175,8 +170,7 @@ Other:
 - `scripts/vm_setup.sh` - one-time R + EMC2 install on a fresh Ubuntu VM
 - `scripts/run_extend.sh` - download initial .rds, run `fit_extend_cloud.R`, sync results
 - `scripts/run_recovery.sh` - download extended .rds, run `fit_recovery_cloud.R`, sync results
-- `load_data.py` - Python loaders and the EMC2 design-matrix builder
-- `enum_types.py` - canonical factor-level orderings
+- `scripts/run_ppc.sh` - download extended .rds, run `fit_ppc_cloud.R`, sync results
 - `__tests__/run_tests.R` - test entry point; gated by `TEST_LEVEL` env var (1/2/3)
 - `__tests__/fixtures/sample_data.csv` - committed synthetic design matrix (~240 rows)
 - `__tests__/helpers/` - L1 unit tests (logging, data, model helpers, recovery helpers; no EMC2)
@@ -191,7 +185,7 @@ Other:
 - Running an R script with the wrong cwd silently fails on the first `source("R/config.R")`. Always start from the repo root.
 - Per-model failures are caught by `tryCatch` in `fit_initial.R` so the batch keeps going. Treat `outputs/models/fit_initial/log.txt` as authoritative for run status, not stdout.
 - `CONSTANTS = c(sv = log(1))` in `config.R` is an **identifiability anchor** for the LBA. Removing or changing it will silently make the model non-identifiable.
-- Dependencies are not pinned in any manifest. Python imports observed: `pandas`, `numpy`, `hssm`, `pymc`, `pytensor`, `pylater`, `pyddm`, `matplotlib`. R: `EMC2`, `dplyr`, `readr`, `tools`.
+- Dependencies are not pinned in any manifest. R: `EMC2`, `dplyr`, `readr`, `tools`, `testthat`. (The retired Python pipeline's deps are documented on the `archive/legacy-python` branch.)
 - R environment on the local machine:
   - `R_HOME = C:\Program Files\R\R-4.5.2`
   - `R_LIBS_USER = C:\Users\nirjo\R_library\4.5`
@@ -294,10 +288,13 @@ aws ec2 run-instances `
 
 **JSON args in PowerShell**: inline JSON strings are mangled by PowerShell's quote handling. Always write to a file with `-Encoding ascii` (not `utf8` — that adds a BOM) and pass via `file://`.
 
-## Legacy / do not modify
+## Archived code
 
-Everything in `__exploratory/` is superseded code kept for reference. Do not edit, import from, or treat as patterns for current work. Subdirectories:
+Superseded code was removed from `main` and lives on the **`archive/legacy-python`** branch (pushed to `origin`). It is **not** part of the current pipeline -- do not import from it or treat it as a pattern for current work. Retrieve a file with `git checkout archive/legacy-python -- <path>`, or browse the branch on GitHub.
+
+The branch is a frozen snapshot of `main` as of the pre-cleanup commit `07a726c`. It holds four interdependent groups (one dependency chain rooted at `enum_types.py`, so the branch is internally consistent and runnable as a unit):
 
 - `__exploratory/__do_not_use/` - old raw-data loaders and ad-hoc notebooks.
+- `__exploratory/LATER/` - LATER-model exploratory notebooks (`check_assumptions.ipynb`, `pooled_results.ipynb`).
 - `__exploratory/hssm_models/` - custom-coded HSSM (PyMC) LBA models; superseded by the native LBA implementation in `R::EMC2`.
-- `__exploratory/LATER/` - exploratory notebooks (`check_assumptions.ipynb`, `pooled_results.ipynb`).
+- `enum_types.py`, `load_data.py`, `playground.py` - the legacy Python data pipeline (canonical factor-level enums, CSV loaders/design-matrix builder, and the `emc2_design_matrix.csv` generator); superseded by the R-native `load_data()` in `R/helpers/data.R`.
