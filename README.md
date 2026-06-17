@@ -12,17 +12,9 @@ Bayesian hierarchical modeling of the **Priority Accumulation Framework (PAF)** 
 install.packages(c("EMC2", "dplyr", "readr", "tools", "testthat"))
 ```
 
-**Python** (`pandas`, `numpy`) -- only needed to regenerate the design matrix from raw CSVs.
-
 **Data**: `data/` is gitignored. A fresh clone has no data. You need to supply:
 - `data/exp1/Exp1_clean.csv`
 - `data/exp2/Exp2_clean.csv`
-
-Then regenerate the R-ready design matrix:
-
-```
-python playground.py    # writes data/emc2_design_matrix.csv
-```
 
 **Working directory**: all scripts must be run from the **repo root**. Never `cd` into a subdirectory first.
 
@@ -33,9 +25,9 @@ python playground.py    # writes data/emc2_design_matrix.csv
 ```
 paf-models/
 |
-|- load_data.py                  # Python: loads + filters exp1/exp2, builds design matrix
-|- enum_types.py                 # Python: canonical factor-level orderings
-|- playground.py                 # Python: writes data/emc2_design_matrix.csv
+|- load_data.py                  # Python: legacy data loader (preserved for reference)
+|- enum_types.py                 # Python: canonical factor-level orderings (legacy)
+|- playground.py                 # Python: legacy CSV generator (preserved for reference)
 |
 |- R/
 |   |- config.R                  # Project-level: RNG, RT cutoffs, paths (OUTPUTS_DIR, MODELS_*_DIR, EVAL_DIR)

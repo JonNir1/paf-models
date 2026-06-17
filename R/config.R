@@ -34,7 +34,6 @@ MAX_RHAT_ALPHA <- 1.10;  MIN_ESS_ALPHA <- 400   # subject params feed OOD simula
 # --- Paths ---
 CODE_DIR    <- "R"
 DATA_DIR    <- "data"
-DATA_FILE   <- file.path(DATA_DIR, "emc2_design_matrix.csv")
 
 OUTPUTS_DIR <- "outputs"
 MODELS_DIR  <- file.path(OUTPUTS_DIR, "models")
