@@ -25,10 +25,6 @@ install.packages(c("EMC2", "dplyr", "readr", "tools", "testthat"))
 ```
 paf-models/
 |
-|- load_data.py                  # Python: legacy data loader (preserved for reference)
-|- enum_types.py                 # Python: canonical factor-level orderings (legacy)
-|- playground.py                 # Python: legacy CSV generator (preserved for reference)
-|
 |- R/
 |   |- config.R                  # Project-level: RNG, RT cutoffs, paths (OUTPUTS_DIR, MODELS_*_DIR, EVAL_DIR)
 |   |- utils.R                   # source_root(), parse_int_arg, parse_str_arg, check_valid_string
@@ -42,6 +38,7 @@ paf-models/
 |   |   |- fit_extend_local.R    # Phase 2 (local): extend fits in parallel until convergence
 |   |   |- fit_extend_cloud.R    # Phase 2 (cloud): single-model extend, syncs to S3/GCS
 |   |   |- fit_recovery_cloud.R  # Step 2.5: parameter recovery (one sim per invocation)
+|   |   |- fit_ppc_cloud.R        # Step 4: posterior predictive simulation on the cloud
 |   |   |- helpers/
 |   |       |- build_model.R     # build_lba_model() factory (shared boilerplate for all models)
 |   |       |- fitting.R         # get_core_args(), save_model(), check_block_convergence(), extend_model()
@@ -49,13 +46,16 @@ paf-models/
 |   |- eval/
 |       |- eval_config.R         # Eval params + RECOVERY_EVAL_DIR (minimal)
 |       |- convergence.R         # Convergence table + step-2.9 verdict (outputs convergence.{rds,csv})
-|       |- model_comparison.R    # GoF/model comparison (DIC/BPIC; step-3 scaffolding)
-|       |- recovery.R            # Load 12 _extended recovery fits; population table, scatter, z/contraction
-|       |- review_convergence_recovery.R  # Step-2.9 synthesis (convergence verdict + recovery)
+|       |- goodness_of_fit.R     # GoF/model comparison (DIC/BPIC; step-3 scaffolding)
+|       |- recovery.R            # Load _extended recovery fits; population table, scatter, z/contraction
+|       |- ppc.R                 # Step-4 posterior predictive checks (per-subject KS + contrasts)
+|       |- review_convergence_and_recovery.R  # Step-2.9 synthesis (convergence verdict + recovery)
 |       |- examine_model.R       # Interactive: inspect a single fitted model
 |       |- helpers/
 |           |- convergence.R    # Rhat/ESS extraction, create_convergence_table(), add_convergence_verdict()
 |           |- recovery.R        # Recovery-eval computations (prior-SD, z/contraction, RMSE/r)
+|           |- gof.R             # Goodness-of-fit computations (DIC/BPIC/LOO/WAIC)
+|           |- ppc.R             # PPC computations (per-subject KS, theory contrasts)
 |           |- plot.R            # Plotly figure builders + save_plotly_png()
 |           |- io.R             # load_model(), save_eval_table(), newer_than_inputs()
 |
@@ -64,6 +64,7 @@ paf-models/
 |   |- vm_setup.sh               # One-time R + EMC2 install on a fresh Ubuntu VM
 |   |- run_extend.sh             # Download initial .rds, run fit_extend_cloud.R, sync results
 |   |- run_recovery.sh           # Download extended .rds, run fit_recovery_cloud.R, sync results
+|   |- run_ppc.sh                # Download extended .rds, run fit_ppc_cloud.R, sync results
 |
 |- __tests__/
 |   |- run_tests.R               # Entry point; gated by TEST_LEVEL env var (1/2/3)
@@ -88,8 +89,19 @@ paf-models/
 |   |   |- fit_recovery/         #   output of fit_recovery_cloud.R (recovery fits + true_alpha)
 |   |- evaluation/               #   model comparison + step-2.5 recovery analysis outputs
 |- docs/                         # Meeting slides, articles, model specs (reference only)
-|- __exploratory/                # Superseded code kept for reference - do not modify
 ```
+
+### Archived code
+
+Superseded code lives on the **`archive/legacy-python`** branch (not on `main`), retrievable via
+`git checkout archive/legacy-python -- <path>`. It holds the pre-cleanup snapshot of:
+
+- `__exploratory/__do_not_use/` -- old raw-data loaders and ad-hoc notebooks
+- `__exploratory/LATER/` -- LATER-model exploratory notebooks
+- `__exploratory/hssm_models/` -- custom HSSM (PyMC) LBA models, superseded by `EMC2`
+- `enum_types.py`, `load_data.py`, `playground.py` -- the legacy Python data pipeline (replaced by the R-native `load_data()` in `R/helpers/data.R`)
+
+These form one dependency chain rooted at `enum_types.py`, so the branch is internally consistent and runnable as a unit.
 
 ---
 
@@ -104,11 +116,12 @@ Rscript R/fit/fit_extend_local.R              # parallel if cores allow
 Rscript R/fit/fit_extend_local.R --sequential # force sequential
 
 # Analysis
-source("R/eval/convergence.R")                 # convergence table + step-2.9 verdict
-source("R/eval/model_comparison.R")            # GoF/model comparison (DIC/BPIC; step-3 scaffolding)
-source("R/eval/recovery.R")                    # step-2.5 recovery analysis (after cloud runs)
-source("R/eval/review_convergence_recovery.R") # step-2.9 synthesis (convergence + recovery)
-source("R/eval/examine_model.R")               # inspect a single model
+source("R/eval/convergence.R")                     # convergence table + step-2.9 verdict
+source("R/eval/goodness_of_fit.R")                 # GoF/model comparison (DIC/BPIC; step-3 scaffolding)
+source("R/eval/recovery.R")                        # step-2.5 recovery analysis (after cloud runs)
+source("R/eval/ppc.R")                             # step-4 posterior predictive checks
+source("R/eval/review_convergence_and_recovery.R") # step-2.9 synthesis (convergence + recovery)
+source("R/eval/examine_model.R")                   # inspect a single model
 
 # Tests (tiered; higher TEST_LEVEL implies lower tiers)
 Rscript __tests__/run_tests.R                    # L1: unit tests (<5 s, no EMC2)
