@@ -198,25 +198,18 @@ Other:
 
 ## Known issues (deferred)
 
-### L2 build tests fail with EMC2 `'listgreater'` error
-All 23 tests in `__tests__/models/test_build_models.R` error with:
+### L2 `'listgreater'` error — RESOLVED; `make_emc()` slowness surfaced underneath
+
+**Original symptom (resolved).** All 23 tests in `__tests__/models/test_build_models.R` errored inside `EMC2::design()`:
 ```
 Error in `order(rep(1:dim(data)[1], nacc), datar$lR)`:
 unimplemented type 'list' in 'listgreater'
 ```
+**Root cause** was the test fixture, not EMC2 or the refactor: the old `__tests__/fixtures/sample_data.csv` (and its `generate_fixture.R`) emitted each trial **4x-duplicated** (one row per accumulator), whereas `load_data()` returns **one row per trial** and EMC2's `design()`/`add_accumulators()` does the per-`lR` expansion itself. Feeding pre-expanded rows corrupted the accumulator ordering. The fixture also did not match `load_data()`'s 15-column output (it had only 11 columns). Regenerating the fixture as a faithful **one-row-per-trial, 15-column** matrix (see `generate_fixture.R`) makes `design()` build all model matrices cleanly. Verified locally: `design()` now succeeds for model1; L1 stays green (176/176).
 
-The failure is in EMC2 internals:
-```
-build_model() -> build_lba_model() -> EMC2::design()
-  -> summary.emc.design() -> sampled_pars() -> minimal_design()
-  -> add_accumulators() -> order(..., datar$lR)
-```
+**Newly surfaced issue (under investigation).** With `design()` fixed, `build_model()` advances into `make_emc()`, which on the fixture prints `Processing data set 1 / Likelihood speedup factor: 1 (120 unique trials)` and then **does not return within ~270s** on the local Windows machine (likely a start-point / initial-likelihood search spinning, possibly `-Inf` likelihood for prior draws on the synthetic data). This was always latent but masked by the `listgreater` error, so L2 has effectively never passed (errored at `design()` from `f088ab0` onward). **Being checked on CI (Linux, clean EMC2 binary)** to determine whether the slowness is Windows-specific or a real fixture/`make_emc` interaction. `__tests__/models/test_recovery_build.R` uses the same fixture + `build_model`, so it is affected identically.
 
-**Not refactor-introduced.** Visible in CI logs from commit `f088ab0` through `85125df` with the same error. Between `ef3b87f` and `33a667f` a separate `source(...helpers/model.R)` bug masked it (tests failed earlier at source time). Fixing that source bug (step 2.5 / the R/ refactor) un-masks this older issue.
-
-**Status**: not blocking the analysis pipeline (recovery/fit/extend pipelines work end-to-end via L3 smoke tests). To diagnose: probably an EMC2 version interaction with the fixture's pre-existing `lR` column (EMC2 wants to construct its own `lR` via `add_accumulators`; the fixture having one may confuse the design-matrix expansion). Try regenerating `__tests__/fixtures/sample_data.csv` without the `lR` column, or pinning EMC2 to a version where this worked.
-
-`__tests__/models/test_recovery_build.R` may also be affected (uses the same fixture + `build_model`).
+**Status**: not blocking the analysis pipeline (recovery/fit/extend work end-to-end via L3 smoke tests). Next: read the CI L2 result; if `make_emc` also stalls on Linux, the fixture likely needs RT/response tuning so the LBA likelihood is finite for typical prior draws (or cap start-point search in the build tests).
 
 ---
 
