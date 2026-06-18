@@ -36,11 +36,12 @@ TEST_LEVEL=3 Rscript __tests__/run_tests.R       # level 3: + fit smoke tests (C
 | Tier | Dir | Scope | Cost | When |
 |---|---|---|---|---|
 | L1 | `__tests__/helpers/` | Unit tests for pure helpers (logging, data, fitting helpers, recovery helpers). No EMC2 required. | <5 s total | Every push/PR (CI auto). |
-| L2 | `__tests__/models/` | Integration tests: `make_emc()` for all 5 models, plus the recovery extract→simulate→build chain. Uses committed fixture; no MCMC sampling. | seconds-minutes | Every push/PR (CI auto). |
+| L2 | `__tests__/models/` | Integration tests: `make_emc()` for all 5 models, plus the recovery extract→simulate→build chain. Uses committed fixture; no MCMC sampling. Each model is built **once** and reused across its assertions (the build is dominated by `EMC2::design()`, ~minutes per model). | ~tens of min | Nightly + manual dispatch (CI). |
 | L3 | `__tests__/fit/` | End-to-end smoke tests with tiny MCMC (n_chains=2, iter=5). One file (`test_fit_smoke.R`) covers three pipelines: **Smoke A** = `fit_initial`, **Smoke B** = `extend_model`, **Smoke C** = recovery (extract→simulate→refit). | minutes-hours | Manual dispatch only (CI). |
 
 CI (GitHub Actions):
-- L1 + L2 run automatically on every push and on PRs to `main` (`.github/workflows/test.yml`).
+- L1 runs automatically on every push and on PRs to `main` (`.github/workflows/test.yml`).
+- L2 is **not** per-push (intrinsically slow: `EMC2::design()` is ~minutes per model). It runs nightly (03:00 UTC) and on manual dispatch: Actions tab → "Build Tests" → "Run workflow" (`.github/workflows/build.yml`).
 - L3 is manual-only: Actions tab → "Smoke Tests" → "Run workflow" (`.github/workflows/smoke.yml`).
 - `use-public-rspm: true` serves pre-compiled Linux binaries; EMC2 installs in ~2 min instead of compiling from source.
 - Package caches are keyed on `.github/r-deps-level1.txt` / `r-deps-level2.txt` and auto-invalidate when the dep list changes.
@@ -176,7 +177,8 @@ Other:
 - `__tests__/helpers/` - L1 unit tests (logging, data, model helpers, recovery helpers; no EMC2)
 - `__tests__/models/` - L2 build tests (`make_emc()` for all 5 models + recovery build chain; requires EMC2)
 - `__tests__/fit/test_fit_smoke.R` - L3 smoke tests; covers Smoke A (`fit_initial`), Smoke B (`extend_model`), Smoke C (recovery). CI manual dispatch only. Smoke C uses bounded `stop_criteria` (`max_gd=Inf`) so all EMC2 phases exit after a fixed iteration count — runtime is deterministic on all platforms (~7-10 min on Windows with `cores_for_chains=1`).
-- `.github/workflows/test.yml` - CI: L1 unit tests + L2 build tests (auto on push/PR)
+- `.github/workflows/test.yml` - CI: L1 unit tests (auto on push/PR to `main`)
+- `.github/workflows/build.yml` - CI: L2 build tests (nightly 03:00 UTC + manual dispatch)
 - `.github/workflows/smoke.yml` - CI: L3 smoke tests (manual dispatch only)
 - `.github/r-deps-level1.txt` / `r-deps-level2.txt` - package lists used by CI cache keys
 
@@ -198,18 +200,17 @@ Other:
 
 ## Known issues (deferred)
 
-### L2 `'listgreater'` error — RESOLVED; `make_emc()` slowness surfaced underneath
+### L2 build tests — `'listgreater'` and assertion bugs RESOLVED; `design()` is slow (L2 now nightly)
 
-**Original symptom (resolved).** All 23 tests in `__tests__/models/test_build_models.R` errored inside `EMC2::design()`:
-```
-Error in `order(rep(1:dim(data)[1], nacc), datar$lR)`:
-unimplemented type 'list' in 'listgreater'
-```
-**Root cause** was the test fixture, not EMC2 or the refactor: the old `__tests__/fixtures/sample_data.csv` (and its `generate_fixture.R`) emitted each trial **4x-duplicated** (one row per accumulator), whereas `load_data()` returns **one row per trial** and EMC2's `design()`/`add_accumulators()` does the per-`lR` expansion itself. Feeding pre-expanded rows corrupted the accumulator ordering. The fixture also did not match `load_data()`'s 15-column output (it had only 11 columns). Regenerating the fixture as a faithful **one-row-per-trial, 15-column** matrix (see `generate_fixture.R`) makes `design()` build all model matrices cleanly. Verified locally: `design()` now succeeds for model1; L1 stays green (176/176).
+History (all resolved): L2 (`test_build_models.R`) errored for a long time inside `EMC2::design()` with `unimplemented type 'list' in 'listgreater'`. **Root cause was the test fixture**: the old `sample_data.csv`/`generate_fixture.R` emitted each trial **4x-duplicated** (one row per accumulator) with only 11 columns, whereas `load_data()` returns **one row per trial** with 15 columns and EMC2's `design()`/`add_accumulators()` does the per-`lR` expansion itself. Feeding pre-expanded rows corrupted the accumulator ordering. Regenerating the fixture as a faithful one-row-per-trial, 15-column matrix fixed it. Once `design()` succeeded, two pre-existing bugs in `__tests__/models/shared_assertions.R` surfaced and were fixed: `expect_type()`/`expect_setequal()` were being passed an unsupported `label=` arg, and `expect_prior_mean()` read `prior$mu_mean` instead of `prior$theta_mu_mean` (the EMC2 3.4.1 field).
 
-**Newly surfaced issue (under investigation).** With `design()` fixed, `build_model()` advances into `make_emc()`, which on the fixture prints `Processing data set 1 / Likelihood speedup factor: 1 (120 unique trials)` and then **does not return within ~270s** on the local Windows machine (likely a start-point / initial-likelihood search spinning, possibly `-Inf` likelihood for prior draws on the synthetic data). This was always latent but masked by the `listgreater` error, so L2 has effectively never passed (errored at `design()` from `f088ab0` onward). **Being checked on CI (Linux, clean EMC2 binary)** to determine whether the slowness is Windows-specific or a real fixture/`make_emc` interaction. `__tests__/models/test_recovery_build.R` uses the same fixture + `build_model`, so it is affected identically.
+**Remaining characteristic (not a bug): `EMC2::design()` is intrinsically slow** with the PAF LBA spec — ~minutes per model, on both synthetic and real data (measured: ~10 min for `design()` on a 300-row real slice locally; CI build-tests were ~8 min/build). It is dominated by EMC2 evaluating the custom design `functions` (the `SearchDifficulty`/`StimulusAtLoc`/`CueAtLoc`/`PrevTargetAtLoc` closures) over its design grid; it is not row-count-driven (a 16-row fixture is just as slow). The real fits tolerate this one-time cost inside multi-hour MCMC runs. Consequences for testing:
+- L2 now builds each model **once** and reuses it across that model's assertions (`test_build_models.R`, `test_recovery_build.R`), cutting ~23 builds → ~5 (+2 for recovery). Suite is ~tens of minutes.
+- L2 was moved **off the per-push gate** to nightly + manual dispatch (`.github/workflows/build.yml`); L1 remains the fast per-push gate.
 
-**Status**: not blocking the analysis pipeline (recovery/fit/extend work end-to-end via L3 smoke tests). Next: read the CI L2 result; if `make_emc` also stalls on Linux, the fixture likely needs RT/response tuning so the LBA likelihood is finite for typical prior draws (or cap start-point search in the build tests).
+**Deferred (not now):** optimizing `design()` itself (e.g. vectorizing the `SearchDifficulty` closure). This touches the modeling code used by real fits, so it needs careful behavior-preserving validation and was deliberately not attempted as part of the test cleanup.
+
+**Status**: not blocking the analysis pipeline (recovery/fit/extend work end-to-end via L3 smoke tests). Next: confirm a green L2 on the nightly/manual `build.yml` run.
 
 ---
 
