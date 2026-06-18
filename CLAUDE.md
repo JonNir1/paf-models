@@ -173,7 +173,7 @@ Other:
 - `scripts/run_recovery.sh` - download extended .rds, run `fit_recovery_cloud.R`, sync results
 - `scripts/run_ppc.sh` - download extended .rds, run `fit_ppc_cloud.R`, sync results
 - `__tests__/run_tests.R` - test entry point; gated by `TEST_LEVEL` env var (1/2/3)
-- `__tests__/fixtures/sample_data.csv` - committed synthetic design matrix (~240 rows)
+- `__tests__/fixtures/sample_data.csv` - committed synthetic fixture matching `load_data()`'s output contract (one row per trial, 15 columns, 120 rows); regenerate with `generate_fixture.R`
 - `__tests__/helpers/` - L1 unit tests (logging, data, model helpers, recovery helpers; no EMC2)
 - `__tests__/models/` - L2 build tests (`make_emc()` for all 5 models + recovery build chain; requires EMC2)
 - `__tests__/fit/test_fit_smoke.R` - L3 smoke tests; covers Smoke A (`fit_initial`), Smoke B (`extend_model`), Smoke C (recovery). CI manual dispatch only. Smoke C uses bounded `stop_criteria` (`max_gd=Inf`) so all EMC2 phases exit after a fixed iteration count — runtime is deterministic on all platforms (~7-10 min on Windows with `cores_for_chains=1`).
