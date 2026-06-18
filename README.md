@@ -76,7 +76,8 @@ paf-models/
 |
 |- .github/
 |   |- workflows/
-|   |   |- test.yml              # CI: L1 + L2 on every push / PR to main (~10-15 min)
+|   |   |- test.yml              # CI: L1 unit tests on every push / PR to main (fast)
+|   |   |- build.yml             # CI: L2 build tests, nightly (03:00 UTC) + manual dispatch
 |   |   |- smoke.yml             # CI: L3 smoke tests, manual dispatch only
 |   |- r-deps-level1.txt         # Package list for L1 cache key
 |   |- r-deps-level2.txt         # Package list for L2 cache key
@@ -125,11 +126,11 @@ source("R/eval/examine_model.R")                   # inspect a single model
 
 # Tests (tiered; higher TEST_LEVEL implies lower tiers)
 Rscript __tests__/run_tests.R                    # L1: unit tests (<5 s, no EMC2)
-TEST_LEVEL=2 Rscript __tests__/run_tests.R       # L2: + model build tests (~10-15 min, requires EMC2)
+TEST_LEVEL=2 Rscript __tests__/run_tests.R       # L2: + model build tests (slow, ~tens of min; requires EMC2)
 TEST_LEVEL=3 Rscript __tests__/run_tests.R       # L3: + smoke tests (tiny end-to-end MCMC; CI only)
 ```
 
-**Tiered testing.** L1 is unit tests of pure helpers; L2 is integration tests that build the 5 models + the recovery chain (no MCMC); L3 is three end-to-end smoke tests in `test_fit_smoke.R` (Smoke A: `fit_initial`, Smoke B: `extend_model`, Smoke C: recovery — each at `n_chains=2, iter=5`). When adding a new pipeline, add coverage at all three tiers.
+**Tiered testing.** L1 is unit tests of pure helpers (fast per-push gate); L2 is integration tests that build the 5 models + the recovery chain (no MCMC) — each model is built once and reused, but `EMC2::design()` is intrinsically slow (~minutes/model), so L2 runs nightly + on manual dispatch rather than per-push; L3 is three end-to-end smoke tests in `test_fit_smoke.R` (Smoke A: `fit_initial`, Smoke B: `extend_model`, Smoke C: recovery — each at `n_chains=2, iter=5`). When adding a new pipeline, add coverage at all three tiers.
 
 ---
 

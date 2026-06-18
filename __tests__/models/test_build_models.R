@@ -33,53 +33,52 @@ BASE_PARAMS <- c(
   "B", "A", "t0"
 )
 
+# ---------------------------------------------------------------------------
+# Build each model ONCE and reuse across all of that model's assertions.
+# build_model() (design() + make_emc()) is the expensive step (~minutes per
+# model, dominated by EMC2::design()); rebuilding inside every test_that
+# ballooned the suite to hours. Each modelN.R redefines build_model(), so we
+# source + build sequentially before sourcing the next.
+# ---------------------------------------------------------------------------
+source(file.path(ROOT, "R", "fit", "model1.R")); M1 <- build_model(data, n_chains = N_TEST_CHAINS)
+source(file.path(ROOT, "R", "fit", "model2.R")); M2 <- build_model(data, n_chains = N_TEST_CHAINS)
+source(file.path(ROOT, "R", "fit", "model3.R")); M3 <- build_model(data, n_chains = N_TEST_CHAINS)
+source(file.path(ROOT, "R", "fit", "model4.R")); M4 <- build_model(data, n_chains = N_TEST_CHAINS)
+source(file.path(ROOT, "R", "fit", "model5.R")); M5 <- build_model(data, n_chains = N_TEST_CHAINS)
+
 
 # =============================================================================
 # Model 1: v ~ PrevTargetAtLoc + CueAtLoc + StimulusAtLoc | B ~ SearchDifficulty
 # =============================================================================
 
 test_that("model1: valid emc object with correct n_chains", {
-  source(file.path(ROOT, "R", "fit", "model1.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_valid_emc(m, N_TEST_CHAINS, "model1")
+  expect_valid_emc(M1, N_TEST_CHAINS, "model1")
 })
 
 test_that("model1: v formula RHS", {
-  source(file.path(ROOT, "R", "fit", "model1.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_formula_rhs(m, "v", "PrevTargetAtLoc + CueAtLoc + StimulusAtLoc", "model1")
+  expect_formula_rhs(M1, "v", "PrevTargetAtLoc + CueAtLoc + StimulusAtLoc", "model1")
 })
 
 test_that("model1: B formula RHS", {
-  source(file.path(ROOT, "R", "fit", "model1.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_formula_rhs(m, "B", "SearchDifficulty", "model1")
+  expect_formula_rhs(M1, "B", "SearchDifficulty", "model1")
 })
 
 test_that("model1: sv formula RHS is always StimulusAtLoc", {
-  source(file.path(ROOT, "R", "fit", "model1.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_formula_rhs(m, "sv", "StimulusAtLoc", "model1")
+  expect_formula_rhs(M1, "sv", "StimulusAtLoc", "model1")
 })
 
 test_that("model1: parameter names match expected set", {
-  source(file.path(ROOT, "R", "fit", "model1.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
   expected <- c(BASE_PARAMS,
                 "B_SearchDifficultyMIXED", "B_SearchDifficultyDIFFICULT")
-  expect_param_names(m, expected, "model1")
+  expect_param_names(M1, expected, "model1")
 })
 
 test_that("model1: prior mean for v baseline matches config", {
-  source(file.path(ROOT, "R", "fit", "model1.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_prior_mean(m, "v", V_BASELINE_MU, label = "model1")
+  expect_prior_mean(M1, "v", V_BASELINE_MU, label = "model1")
 })
 
 test_that("model1: prior mean for B_SearchDifficultyMIXED matches config", {
-  source(file.path(ROOT, "R", "fit", "model1.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_prior_mean(m, "B_SearchDifficultyMIXED", B_SEARCH_MIX_MU, label = "model1")
+  expect_prior_mean(M1, "B_SearchDifficultyMIXED", B_SEARCH_MIX_MU, label = "model1")
 })
 
 
@@ -88,36 +87,26 @@ test_that("model1: prior mean for B_SearchDifficultyMIXED matches config", {
 # =============================================================================
 
 test_that("model2: valid emc object with correct n_chains", {
-  source(file.path(ROOT, "R", "fit", "model2.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_valid_emc(m, N_TEST_CHAINS, "model2")
+  expect_valid_emc(M2, N_TEST_CHAINS, "model2")
 })
 
 test_that("model2: v formula RHS", {
-  source(file.path(ROOT, "R", "fit", "model2.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_formula_rhs(m, "v",
+  expect_formula_rhs(M2, "v",
     "PrevTargetAtLoc + CueAtLoc + StimulusAtLoc + SearchDifficulty", "model2")
 })
 
 test_that("model2: B formula RHS is 1", {
-  source(file.path(ROOT, "R", "fit", "model2.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_formula_rhs(m, "B", "1", "model2")
+  expect_formula_rhs(M2, "B", "1", "model2")
 })
 
 test_that("model2: parameter names match expected set", {
-  source(file.path(ROOT, "R", "fit", "model2.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
   expected <- c(BASE_PARAMS,
                 "v_SearchDifficultyMIXED", "v_SearchDifficultyDIFFICULT")
-  expect_param_names(m, expected, "model2")
+  expect_param_names(M2, expected, "model2")
 })
 
 test_that("model2: prior mean for v_SearchDifficultyMIXED matches config", {
-  source(file.path(ROOT, "R", "fit", "model2.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_prior_mean(m, "v_SearchDifficultyMIXED", V_SEARCH_MIX_MU, label = "model2")
+  expect_prior_mean(M2, "v_SearchDifficultyMIXED", V_SEARCH_MIX_MU, label = "model2")
 })
 
 
@@ -126,26 +115,20 @@ test_that("model2: prior mean for v_SearchDifficultyMIXED matches config", {
 # =============================================================================
 
 test_that("model3: valid emc object with correct n_chains", {
-  source(file.path(ROOT, "R", "fit", "model3.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_valid_emc(m, N_TEST_CHAINS, "model3")
+  expect_valid_emc(M3, N_TEST_CHAINS, "model3")
 })
 
 test_that("model3: parameter names include 4 Stim:Diff interaction terms", {
-  source(file.path(ROOT, "R", "fit", "model3.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
   expected <- c(BASE_PARAMS,
                 "v_StimulusAtLocD:SearchDifficultyMIXED",
                 "v_StimulusAtLocD:SearchDifficultyDIFFICULT",
                 "v_StimulusAtLocE:SearchDifficultyMIXED",
                 "v_StimulusAtLocE:SearchDifficultyDIFFICULT")
-  expect_param_names(m, expected, "model3")
+  expect_param_names(M3, expected, "model3")
 })
 
 test_that("model3: prior mean for v baseline matches config", {
-  source(file.path(ROOT, "R", "fit", "model3.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_prior_mean(m, "v", V_BASELINE_MU, label = "model3")
+  expect_prior_mean(M3, "v", V_BASELINE_MU, label = "model3")
 })
 
 
@@ -154,34 +137,26 @@ test_that("model3: prior mean for v baseline matches config", {
 # =============================================================================
 
 test_that("model4: valid emc object with correct n_chains", {
-  source(file.path(ROOT, "R", "fit", "model4.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_valid_emc(m, N_TEST_CHAINS, "model4")
+  expect_valid_emc(M4, N_TEST_CHAINS, "model4")
 })
 
 test_that("model4: v formula RHS", {
-  source(file.path(ROOT, "R", "fit", "model4.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_formula_rhs(m, "v",
+  expect_formula_rhs(M4, "v",
     "PrevTargetAtLoc + CueAtLoc + StimulusAtLoc * SearchDifficulty", "model4")
 })
 
 test_that("model4: parameter names match expected set", {
-  source(file.path(ROOT, "R", "fit", "model4.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
   expected <- c(BASE_PARAMS,
                 "v_SearchDifficultyMIXED", "v_SearchDifficultyDIFFICULT",
                 "v_StimulusAtLocD:SearchDifficultyMIXED",
                 "v_StimulusAtLocD:SearchDifficultyDIFFICULT",
                 "v_StimulusAtLocE:SearchDifficultyMIXED",
                 "v_StimulusAtLocE:SearchDifficultyDIFFICULT")
-  expect_param_names(m, expected, "model4")
+  expect_param_names(M4, expected, "model4")
 })
 
 test_that("model4: prior mean for v_StimulusAtLocD:SearchDifficultyMIXED matches config", {
-  source(file.path(ROOT, "R", "fit", "model4.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_prior_mean(m, "v_StimulusAtLocD:SearchDifficultyMIXED",
+  expect_prior_mean(M4, "v_StimulusAtLocD:SearchDifficultyMIXED",
                     V_STIM_D_SEARCH_MIX_MU, label = "model4")
 })
 
@@ -191,20 +166,14 @@ test_that("model4: prior mean for v_StimulusAtLocD:SearchDifficultyMIXED matches
 # =============================================================================
 
 test_that("model5: valid emc object with correct n_chains", {
-  source(file.path(ROOT, "R", "fit", "model5.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_valid_emc(m, N_TEST_CHAINS, "model5")
+  expect_valid_emc(M5, N_TEST_CHAINS, "model5")
 })
 
 test_that("model5: B formula RHS is SearchDifficulty", {
-  source(file.path(ROOT, "R", "fit", "model5.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_formula_rhs(m, "B", "SearchDifficulty", "model5")
+  expect_formula_rhs(M5, "B", "SearchDifficulty", "model5")
 })
 
 test_that("model5: parameter names match expected set (model4 + B_SearchDiff params)", {
-  source(file.path(ROOT, "R", "fit", "model5.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
   expected <- c(BASE_PARAMS,
                 "v_SearchDifficultyMIXED", "v_SearchDifficultyDIFFICULT",
                 "v_StimulusAtLocD:SearchDifficultyMIXED",
@@ -212,11 +181,9 @@ test_that("model5: parameter names match expected set (model4 + B_SearchDiff par
                 "v_StimulusAtLocE:SearchDifficultyMIXED",
                 "v_StimulusAtLocE:SearchDifficultyDIFFICULT",
                 "B_SearchDifficultyMIXED", "B_SearchDifficultyDIFFICULT")
-  expect_param_names(m, expected, "model5")
+  expect_param_names(M5, expected, "model5")
 })
 
 test_that("model5: prior mean for B_SearchDifficultyDIFFICULT matches config", {
-  source(file.path(ROOT, "R", "fit", "model5.R"))
-  m <- build_model(data, n_chains = N_TEST_CHAINS)
-  expect_prior_mean(m, "B_SearchDifficultyDIFFICULT", B_SEARCH_DIF_MU, label = "model5")
+  expect_prior_mean(M5, "B_SearchDifficultyDIFFICULT", B_SEARCH_DIF_MU, label = "model5")
 })

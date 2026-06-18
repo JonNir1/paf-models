@@ -8,14 +8,12 @@
 
 #' Assert that `model` is a structurally valid emc object with `n_chains` chains.
 expect_valid_emc <- function(model, n_chains, label = "") {
-  label <- if (nzchar(label)) paste0(" [", label, "]") else ""
-  expect_type(model, "list",
-    label = paste0("model is a list", label))
-  expect_length(model, n_chains,
-    label = paste0("model has ", n_chains, " chains", label))
+  # NB: expect_type() / expect_length() take no `label`/`info` argument; the
+  # enclosing test_that() description already identifies the model.
+  expect_type(model, "list")
+  expect_length(model, n_chains)
   for (i in seq_len(n_chains)) {
-    expect_type(model[[i]], "list",
-      label = paste0("chain ", i, " is a list", label))
+    expect_type(model[[i]], "list")
   }
 }
 
@@ -49,12 +47,12 @@ expect_formula_rhs <- function(model, param, expected_rhs, label = "") {
 #' Assert that the sorted parameter names of `model` equal `expected_names`.
 #' Uses mapped_pars() to extract parameter names from the design object.
 expect_param_names <- function(model, expected_names, label = "") {
-  label  <- if (nzchar(label)) paste0(" [", label, "]") else ""
+  # NB: expect_setequal() takes no `label`/`info` argument; the enclosing
+  # test_that() description already identifies the model.
   design <- .get_design(model)
   # mapped_pars() prints a table; capture names from the design's p_map
   actual <- sort(rownames(mapped_pars(design)))
-  expect_setequal(actual, sort(expected_names),
-    label = paste0("parameter names", label))
+  expect_setequal(actual, sort(expected_names))
 }
 
 
@@ -62,8 +60,9 @@ expect_param_names <- function(model, expected_names, label = "") {
 expect_prior_mean <- function(model, param_name, expected_value,
                                tol = 1e-9, label = "") {
   label    <- if (nzchar(label)) paste0(" [", label, "]") else ""
-  design   <- .get_design(model)
-  prior_mu <- environment(model[[1]][["model"]])$prior$mu_mean
+  # EMC2 (>= 3.4.1) stores population-mean priors in `prior$theta_mu_mean`
+  # (a named numeric vector), not `prior$mu_mean`.
+  prior_mu <- environment(model[[1]][["model"]])$prior$theta_mu_mean
   expect_true(param_name %in% names(prior_mu),
     label = paste0("prior_mu contains '", param_name, "'", label))
   expect_equal(unname(prior_mu[[param_name]]), expected_value,
