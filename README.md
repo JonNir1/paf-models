@@ -69,7 +69,7 @@ paf-models/
 |- __tests__/
 |   |- run_tests.R               # Entry point; gated by TEST_LEVEL env var (1/2/3)
 |   |- fixtures/
-|   |   |- sample_data.csv       # Synthetic design matrix for tests (~240 rows)
+|   |   |- sample_data.csv       # Synthetic fixture matching load_data() output (one row/trial, 15 cols, 120 rows)
 |   |- helpers/                  # Level-1 unit tests (logging, data, model helpers; no EMC2)
 |   |- models/                   # Level-2 build tests (make_emc() for all 5 models; requires EMC2)
 |   |- fit/                      # Level-3 smoke tests (tiny MCMC; slow, manual CI only)
