@@ -2,9 +2,9 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, analysis1]
   pull_request:
-    branches: [main]
+    branches: [main, analysis1]
 
 # Only Level-1 unit tests run on push/PR (fast, no EMC2). Level-2 model-build
 # tests are intrinsically slow (EMC2::design() is ~minutes per model) and run

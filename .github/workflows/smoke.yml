@@ -1,5 +1,7 @@
 name: Smoke Tests
 
+# NOTE (analysis1 branch): dispatch and select the `analysis1` branch to run the
+# frozen model1-5 smoke tests as a guard for this branch.
 on:
   workflow_dispatch:   # manual trigger only — run before releases or after major model changes
 

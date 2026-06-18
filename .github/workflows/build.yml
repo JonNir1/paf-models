@@ -6,6 +6,10 @@ name: Build Tests
 #   - nightly schedule (03:00 UTC), and
 #   - manual dispatch (Actions tab -> "Build Tests" -> "Run workflow").
 # Level-1 unit tests remain the fast per-push gate (.github/workflows/test.yml).
+# NOTE (analysis1 branch): GitHub runs scheduled workflows only from the default
+# branch (main), so the nightly cron does NOT auto-fire here. To guard this frozen
+# branch, use manual dispatch and select the `analysis1` branch in the Run-workflow
+# dialog; the job then runs this branch's model1-5 build tests.
 on:
   schedule:
     - cron: "0 3 * * *"
