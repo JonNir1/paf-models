@@ -211,7 +211,7 @@ check_convergence <- function(model, convergence_criteria) {
 .validate_convergence_criteria <- function(cc) {
   if (!is.list(cc)) stop("convergence_criteria must be a list.")
   ns <- cc$num_samples
-  if (is.null(ns) || !is.numeric(ns) || length(ns) != 1 || ns < 1 || ns != round(ns))
+  if (is.null(ns) || !is.numeric(ns) || length(ns) != 1 || is.na(ns) || ns < 1 || ns != round(ns))
     stop("convergence_criteria$num_samples must be a positive integer.")
   group_keys <- setdiff(names(cc), "num_samples")
   if (length(group_keys) == 0L)
@@ -236,15 +236,18 @@ check_convergence <- function(model, convergence_criteria) {
 #' @param n_samp_start Sample-stage iters already present in the model (>=0).
 .validate_fit_args <- function(n_samp_start, num_samples, max_tries, batch_size,
                                save_every, save_path, post_save_hook) {
-  if (!is.numeric(max_tries) || length(max_tries) != 1 ||
+  if (!is.numeric(n_samp_start) || length(n_samp_start) != 1 || is.na(n_samp_start) ||
+      n_samp_start < 0)
+    stop("n_samp_start must be a non-negative number.")
+  if (!is.numeric(max_tries) || length(max_tries) != 1 || is.na(max_tries) ||
       max_tries < 1 || max_tries != round(max_tries))
     stop("max_tries must be a positive integer.")
-  if (!is.numeric(batch_size) || length(batch_size) != 1 ||
+  if (!is.numeric(batch_size) || length(batch_size) != 1 || is.na(batch_size) ||
       batch_size < 1 || batch_size != round(batch_size))
     stop("batch_size must be a positive integer.")
 
   if (!is.null(save_every)) {
-    if (!is.numeric(save_every) || length(save_every) != 1 ||
+    if (!is.numeric(save_every) || length(save_every) != 1 || is.na(save_every) ||
         save_every < 1 || save_every != round(save_every))
       stop("save_every must be a positive integer or NULL.")
     if (save_every > max_tries)
@@ -258,7 +261,14 @@ check_convergence <- function(model, convergence_criteria) {
     stop("post_save_hook must be a function or NULL.")
 
   # The model can never reach the floor if the maximum addable sampling
-  # (existing + batch_size * max_tries) falls short. Reject up front.
+  # (existing + batch_size * max_tries) falls short. Reject up front. This
+  # bound is intentionally CONSERVATIVE for a fresh fit: fit_to_convergence()'s
+  # warm-up EMC2::fit() call adds one extra batch_size of sample iters before
+  # the try-loop even starts, so the true achievable ceiling for a fresh model
+  # is batch_size*(max_tries+1), not batch_size*max_tries. A config that is
+  # rejected here may therefore just barely reach the floor in practice for a
+  # fresh model; this check does not know whether n_samp_start==0 means
+  # "fresh" or "pre-fitted with zero stored sample iters".
   if (n_samp_start + batch_size * max_tries < num_samples)
     stop(sprintf(
       paste0("Convergence is unreachable: existing sample iters (%d) + ",
@@ -349,8 +359,9 @@ fit_to_convergence <- function(emc,
     num_samples, paste(setdiff(names(convergence_criteria), "num_samples"), collapse = ", "),
     batch_size, max_tries), log_file, console_print = TRUE)
 
-  # Pin the date so all checkpoints + final save land in one place even if the
-  # run crosses midnight (only relevant when save_path is auto-dated by caller).
+  # Every checkpoint and the final save overwrite the same caller-supplied
+  # save_path, so they always land in one place regardless of how long the
+  # run takes or how many tries it spans. NULL save_path => no disk writes.
   do_save <- function(model, tag) {
     if (is.null(save_path)) return(invisible(NULL))
     dir_path <- dirname(save_path)
