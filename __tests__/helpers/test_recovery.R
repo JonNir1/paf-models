@@ -149,23 +149,11 @@ test_that("extract_design: different design objects are returned correctly", {
 # simulate_recovery_data() -- structural tests (no EMC2 call)
 # =============================================================================
 
-test_that("simulate_recovery_data: output list has correct keys", {
-  skip_if_not_installed("EMC2")
-
-  # We can only test the return structure if EMC2 is installed and make_random_effects
-  # / make_data are available. The deeper integration test lives at level 2.
-  # Here we just confirm the function exists and has the expected formals.
+test_that("simulate_recovery_data: has the expected signature (model, group_params, template_data, seed)", {
+  # Real EMC2 call + seed-sensitivity are exercised end-to-end at L2
+  # (__tests__/models/test_recovery_build.R), which calls the function against a
+  # real built model rather than re-deriving the claim from bare set.seed()/rnorm().
   expect_true(is.function(simulate_recovery_data))
   expect_setequal(names(formals(simulate_recovery_data)),
                   c("model", "group_params", "template_data", "seed"))
-})
-
-test_that("simulate_recovery_data: different seeds produce different subject params", {
-  skip_if_not_installed("EMC2")
-
-  # Lightweight test: set.seed + rnorm with different seeds gives different results.
-  # This validates the seed propagation pattern without running the full pipeline.
-  f <- function(seed) { set.seed(seed); rnorm(5) }
-  expect_false(identical(f(101L), f(102L)))
-  expect_identical(f(101L), f(101L))
 })
