@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "r-package-development": {
+      "source": "posit-dev/skills",
+      "sourceType": "github",
+      "skillPath": "r-lib/r-package-development/SKILL.md",
+      "computedHash": "34d8e5170b937719c46e1c44d7ede62aa3f8833077bd6ca6c51baa205cd30aab"
+    },
+    "testing-r-packages": {
+      "source": "posit-dev/skills",
+      "sourceType": "github",
+      "skillPath": "r-lib/testing-r-packages/SKILL.md",
+      "computedHash": "889aca4e9fd940196766424de1e3094da9c10a1936368b8a78969276d44c222d"
+    }
+  }
+}

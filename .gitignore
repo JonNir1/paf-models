@@ -43,3 +43,11 @@ paf-models.Rproj
 !.claude/skills/
 .claude/skills/*
 !.claude/skills/code-test-review-loop/
+
+# Skills CLI store (`npx skills`): the real content that .claude/skills/ symlinks
+# into. Machine-local; reconstructable from skills-lock.json (which IS tracked).
+.agents/
+
+##### Misc local artifacts #####
+__pycache__/
+R/EMC2_ARTICLE__replication_code.R
