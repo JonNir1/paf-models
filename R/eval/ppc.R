@@ -31,7 +31,8 @@ source_root("R/helpers/data.R")          # load_data
 
 if (!dir.exists(PPC_EVAL_DIR)) dir.create(PPC_EVAL_DIR, recursive = TRUE)
 
-MODEL_NAMES <- c("model1", "model2", "model4", "model5")
+# Active set = every fitted model; the loop below skips any without a PPC .rds.
+MODEL_NAMES <- discover_model_names()
 
 
 # =============================================================================

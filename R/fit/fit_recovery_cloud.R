@@ -51,36 +51,31 @@ source_root("R/fit/helpers/recovery.R")
 #' @param template_data        Filtered design-matrix data frame (trial structure
 #'                              for make_data). May be a subset for fast smoke tests.
 #' @param model_script_path    Absolute path to the model definition script
-#'                              (e.g. .../R/fit/model1.R). Must define build_model().
+#'                              (e.g. .../R/fit/mymodel.R). Must define build_model().
 #' @param recovery_name        Base name for output .rds files (without date prefix).
 #' @param log_file             Path to write timestamped progress lines.
 #' @param out_dir              Directory for recovered model + true_alpha .rds files.
 #' @param sim_seed             RNG seed for simulate_recovery_data.
-#' @param fit_samples          Iterations for the initial fit.
-#' @param max_tries            Max post-fit extension attempts.
-#' @param step_size            Iterations per extension attempt.
+#' @param convergence_criteria Recovery convergence target (relaxed). Default:
+#'                              default_convergence_criteria("recovery").
+#' @param max_tries            Max sampling batches to add.
+#' @param batch_size           Sample iters added per try.
 #' @param save_every           Checkpoint frequency (in tries).
-#' @param max_rhat_mu, min_ess_mu, max_rhat_alpha, min_ess_alpha   Convergence
-#'                              thresholds for extend_model().
-#' @param name_suffix          Suffix appended to extended .rds filename.
 #' @param post_save_hook       Optional function(rds_path, log_path) called
 #'                              after each checkpoint (e.g. .cloud_hook for S3).
+#' @param init_stop_criteria   Optional stop_criteria for the warm-up fit (e.g.
+#'                              list(max_gd = Inf) for smoke tests). NULL in prod.
 #' @return character "COMPLETE" on success; on failure, the error is re-thrown
-#'   so the CLI's tryCatch can log it. Side effects: writes true_alpha,
-#'   recovered model checkpoint, extended .rds files to out_dir.
+#'   so the CLI's tryCatch can log it. Side effects: writes true_alpha and the
+#'   recovered model .rds to out_dir.
 run_recovery_fit <- function(extended_model, template_data, model_script_path,
                              recovery_name, log_file, out_dir, sim_seed,
-                             fit_samples       = RECOVERY_FIT_SAMPLES,
-                             max_tries         = MAX_TRIES_RECOVERY,
-                             step_size         = STEP_SIZE_RECOVERY,
-                             save_every        = SAVE_EVERY,
-                             max_rhat_mu       = MAX_RHAT_MU_RECOVERY,
-                             min_ess_mu        = MIN_ESS_MU_RECOVERY,
-                             max_rhat_alpha    = MAX_RHAT_ALPHA_RECOVERY,
-                             min_ess_alpha     = MIN_ESS_ALPHA_RECOVERY,
-                             name_suffix       = "",
-                             post_save_hook    = NULL,
-                             fit_stop_criteria = NULL) {
+                             convergence_criteria = default_convergence_criteria("recovery"),
+                             max_tries          = MAX_TRIES_RECOVERY,
+                             batch_size         = STEP_SIZE_RECOVERY,
+                             save_every         = SAVE_EVERY,
+                             post_save_hook     = NULL,
+                             init_stop_criteria = NULL) {
 
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   run_date <- format(Sys.Date(), "%y%m%d")
@@ -129,49 +124,23 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
   log_msg("Building fresh model on simulated data...", log_file, console_print = TRUE)
   fresh_model <- build_model(sim_data, n_chains = N_CHAINS)
 
-  # --- 6. Initial fit (all EMC2 phases: preburn -> burn -> adapt -> sample) ---
-  # fit_stop_criteria is NULL in production (EMC2 defaults apply).
-  # For smoke tests, pass loose criteria (e.g. max_gd=Inf, low iter) to
-  # short-circuit all phases quickly; otherwise EMC2 spins trying to converge
-  # tiny chains that will never meet default thresholds.
-  core_args <- get_core_args(N_CHAINS)
-  log_msg(
-    sprintf("Initial fit: iter=%d, cores_for_chains=%d, cores_per_chain=%d",
-            fit_samples, core_args$cores_for_chains, core_args$cores_per_chain),
-    log_file, console_print = TRUE
-  )
-  fitted_model <- fit(
+  # --- 6. Fit to (relaxed) convergence via the unified core ---
+  # fit_to_convergence() warms up the fresh model (preburn -> burn -> adapt ->
+  # an initial sample batch) then samples to the recovery convergence_criteria.
+  # init_stop_criteria is NULL in production; smoke tests pass loose criteria
+  # (e.g. list(max_gd = Inf)) so the warm-up phases exit quickly on tiny chains.
+  save_path <- file.path(out_dir, sprintf("%s_%s.rds", run_date, recovery_name))
+  log_msg("Fitting recovered model to relaxed convergence...", log_file, console_print = TRUE)
+  fit_to_convergence(
     fresh_model,
-    cores_for_chains = core_args$cores_for_chains,
-    cores_per_chain  = core_args$cores_per_chain,
-    iter             = fit_samples,
-    stop_criteria    = fit_stop_criteria
-  )
-
-  # --- 7. Checkpoint after initial fit ---
-  saved_path <- save_model(fitted_model, recovery_name, out_dir,
-                           date_prefix = run_date)
-  log_msg(sprintf("Post-fit checkpoint: %s", saved_path),
-          log_file, console_print = TRUE)
-  post_save_hook(saved_path, log_file)
-
-  # --- 8. Extend with relaxed convergence criteria ---
-  log_msg("Extending with relaxed convergence criteria...", log_file, console_print = TRUE)
-  extend_model(
-    rds_filename         = basename(saved_path),
-    log_file             = log_file,
-    source_dir           = out_dir,
-    models_dir           = out_dir,
-    extended_fit_samples = fit_samples,
+    convergence_criteria = convergence_criteria,
     max_tries            = max_tries,
-    step_size            = step_size,
-    max_rhat_mu          = max_rhat_mu,
-    min_ess_mu           = min_ess_mu,
-    max_rhat_alpha       = max_rhat_alpha,
-    min_ess_alpha        = min_ess_alpha,
+    batch_size           = batch_size,
     save_every           = save_every,
-    name_suffix          = name_suffix,
+    save_path            = save_path,
     post_save_hook       = post_save_hook,
+    log_file             = log_file,
+    init_stop_criteria   = init_stop_criteria,
     append_log           = TRUE
   )
 
@@ -249,8 +218,8 @@ if (length(args) == 0L) {
   }
 
   result <- tryCatch({
-    ext_path <- file.path(MODELS_EXTEND_DIR, extended_rds)
-    log_msg(sprintf("Loading extended model from: %s", ext_path),
+    ext_path <- file.path(MODELS_FIT_DIR, extended_rds)
+    log_msg(sprintf("Loading source (converged) model from: %s", ext_path),
             log_file, console_print = TRUE)
     extended_model <- readRDS(ext_path)
 
@@ -263,6 +232,11 @@ if (length(args) == 0L) {
     model_script <- file.path(Sys.getenv("PAF_REPO_ROOT", getwd()),
                               "R", "fit", paste0(orig_name, ".R"))
 
+    # Recovery convergence target (relaxed); --fit-samples overrides the floor.
+    recovery_criteria <- default_convergence_criteria("recovery")
+    if (!is.null(fit_samples_override))
+      recovery_criteria$num_samples <- fit_samples_override
+
     run_recovery_fit(
       extended_model    = extended_model,
       template_data     = template_data,
@@ -271,11 +245,10 @@ if (length(args) == 0L) {
       log_file          = log_file,
       out_dir           = MODELS_RECOVERY_DIR,
       sim_seed          = RECOVERY_BASE_SEED + sim_index,
-      fit_samples       = if (!is.null(fit_samples_override)) fit_samples_override else RECOVERY_FIT_SAMPLES,
+      convergence_criteria = recovery_criteria,
       max_tries         = if (!is.null(max_tries_override))   max_tries_override   else MAX_TRIES_RECOVERY,
-      step_size         = if (!is.null(step_size_override))   step_size_override   else STEP_SIZE_RECOVERY,
+      batch_size        = if (!is.null(step_size_override))   step_size_override   else STEP_SIZE_RECOVERY,
       save_every        = if (!is.null(save_every_override))  save_every_override  else SAVE_EVERY,
-      name_suffix       = suffix,
       post_save_hook    = .cloud_hook
     )
     "COMPLETE"

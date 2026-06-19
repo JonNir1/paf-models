@@ -52,7 +52,7 @@ T0_MU <- log(0.5 * MIN_SACCADE_CUTOFF);  T0_SD <- 1   # use saccade cutoff as in
 
 # ============================================================================
 # Model Fitting
-# Parameters for fit_initial and fit_extend
+# Defaults for the unified fit_to_convergence() loop (helpers/fitting.R).
 # ============================================================================
 
 # --- MCMC chains ---
@@ -61,17 +61,40 @@ T0_MU <- log(0.5 * MIN_SACCADE_CUTOFF);  T0_SD <- 1   # use saccade cutoff as in
 # is auto-detected at runtime by get_core_args() in helpers/fitting.R.
 N_CHAINS <- 3
 
-# --- Fitting / extending ---
-INITIAL_FIT_SAMPLES  <- 1000    # iterations run by fit_initial.R
-EXTENDED_FIT_SAMPLES <- 3000L   # extend keeps running until total iters >= this (even if Rhat/ESS met)
-MAX_TRIES  <- 20    # number of times to check whether stop criteria are met
-STEP_SIZE  <- 200   # iterations between stop-criteria checks
-SAVE_EVERY <- 2L    # checkpoint every N tries (2 x 200 iters = 400-iter checkpoints)
+# --- Fit loop defaults ---
+# fit_to_convergence() warms up a fresh model then adds `STEP_SIZE` sampling
+# iterations per try, up to `MAX_TRIES` tries, until the convergence_criteria are
+# met. `STEP_SIZE` is the `batch_size` argument; `SAVE_EVERY` the checkpoint cadence.
+MAX_TRIES  <- 20    # max number of sampling batches to add
+STEP_SIZE  <- 200   # sample iters added per try (batch_size)
+SAVE_EVERY <- 2L    # default checkpoint cadence (every N tries); NULL disables
+
+# Sample-stage floor for production fits: keep sampling until total sample-stage
+# iterations per chain reach this, even after Rhat/ESS criteria are met.
+EXTENDED_FIT_SAMPLES <- 3000L
 
 
 # --- Convergence thresholds (asymmetric; mu tighter than alpha) ---
-# RELOCATED to R/config.R (sourced above) so the evaluation layer can reuse them
+# Defined in R/config.R (sourced above) so the evaluation layer can reuse them
 # as a single source of truth: MAX_RHAT_MU, MIN_ESS_MU, MAX_RHAT_ALPHA, MIN_ESS_ALPHA.
+#
+#' Build a convergence_criteria list for fit_to_convergence().
+#' Gates $mu and $alpha on the asymmetric thresholds; $sigma2 and $correlation
+#' are omitted (descriptive-only, per the within-subject design).
+#' @param profile "standard" (production) or "recovery" (relaxed, diagnostic).
+#' @return A convergence_criteria list: num_samples + per-group max_rhat/min_ess.
+default_convergence_criteria <- function(profile = c("standard", "recovery")) {
+  profile <- match.arg(profile)
+  if (profile == "recovery") {
+    list(num_samples = RECOVERY_FIT_SAMPLES,
+         mu    = list(max_rhat = MAX_RHAT_MU_RECOVERY,    min_ess = MIN_ESS_MU_RECOVERY),
+         alpha = list(max_rhat = MAX_RHAT_ALPHA_RECOVERY, min_ess = MIN_ESS_ALPHA_RECOVERY))
+  } else {
+    list(num_samples = EXTENDED_FIT_SAMPLES,
+         mu    = list(max_rhat = MAX_RHAT_MU,    min_ess = MIN_ESS_MU),
+         alpha = list(max_rhat = MAX_RHAT_ALPHA, min_ess = MIN_ESS_ALPHA))
+  }
+}
 
 # ============================================================================
 # Parameter Recovery

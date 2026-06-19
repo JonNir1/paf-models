@@ -1,8 +1,8 @@
 #' =============================================================================
 #' Parameter Recovery Analysis (step 2.5 / 2.9) -- driver
 #'
-#' Loads the converged recovery fits (the `_extended` .rds, 4 models x 3 sims)
-#' and their true subject parameters, then produces three review artifacts:
+#' Loads the converged recovery fits (one .rds per model x sim) and their true
+#' subject parameters, then produces three review artifacts:
 #'
 #'   A. Population table  -- true vs estimated mu per parameter (Strickland 2026).
 #'   B. Subject scatter   -- estimated vs true alpha; RMSE + Pearson r per model.
@@ -26,12 +26,12 @@ source_root("R/eval/helpers/plot.R")             # Plotly figures + save_plotly_
 RECOVERY_OUT_DIR <- RECOVERY_EVAL_DIR
 if (!dir.exists(RECOVERY_OUT_DIR)) dir.create(RECOVERY_OUT_DIR, recursive = TRUE)
 
-MODEL_NAMES <- c("model1", "model2", "model4", "model5")
+MODEL_NAMES <- discover_model_names()
 N_SIMS      <- 3L
 
 
 # =============================================================================
-#  Load the latest converged (_extended) recovery fit + true_alpha for a sim.
+#  Load the latest converged recovery fit + true_alpha for a sim.
 # =============================================================================
 
 .latest <- function(dir, pattern) {
@@ -41,12 +41,12 @@ N_SIMS      <- 3L
 }
 
 load_recovery_pair <- function(model_name, sim_index, dir = MODELS_RECOVERY_DIR) {
-  rds <- .latest(dir, sprintf("^[0-9]{6}_%s_recovery_sim%d_extended\\.rds$",
+  rds <- .latest(dir, sprintf("^[0-9]{6}_%s_recovery_sim%d\\.rds$",
                               model_name, sim_index))
   ta  <- .latest(dir, sprintf("^[0-9]{6}_%s_recovery_sim%d_true_alpha\\.rds$",
                               model_name, sim_index))
   if (is.na(rds) || is.na(ta)) {
-    stop(sprintf("Missing _extended fit or true_alpha for %s sim%d in %s",
+    stop(sprintf("Missing recovery fit or true_alpha for %s sim%d in %s",
                  model_name, sim_index, dir))
   }
   list(model = readRDS(rds), true_alpha = readRDS(ta),
@@ -58,7 +58,7 @@ load_recovery_pair <- function(model_name, sim_index, dir = MODELS_RECOVERY_DIR)
 #  Load all available pairs; cache data-generating mu + prior SDs per model.
 # =============================================================================
 
-message("Loading recovery fits (_extended)...")
+message("Loading recovery fits...")
 pairs <- list()
 for (mn in MODEL_NAMES) for (si in seq_len(N_SIMS)) {
   key <- sprintf("%s_sim%d", mn, si)
@@ -72,8 +72,8 @@ message(sprintf("Loaded %d / %d pairs.", length(pairs), length(MODEL_NAMES) * N_
 mu_true_by_model   <- list()
 prior_sds_by_model <- list()
 for (mn in MODEL_NAMES) {
-  ext <- .latest(MODELS_EXTEND_DIR, sprintf("^[0-9]{6}_%s_extended\\.rds$", mn))
-  if (is.na(ext)) { message(sprintf("  no extended fit for %s; skipping", mn)); next }
+  ext <- .latest(MODELS_FIT_DIR, sprintf("^[0-9]{6}_%s\\.rds$", mn))
+  if (is.na(ext)) { message(sprintf("  no fit for %s; skipping", mn)); next }
   em <- readRDS(ext)
   mu_true_by_model[[mn]]   <- extract_group_params(em)$mu
   prior_sds_by_model[[mn]] <- get_prior_sds(em)

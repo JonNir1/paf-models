@@ -12,12 +12,16 @@ library(EMC2)
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/eval/eval_config.R")    # transitively: utils.R -> config.R
+source_root("R/eval/helpers/io.R")     # load_model, discover_model_names (via eval_config)
 
 
 # ---------------------
-# Load the model
-MODEL_NAME = "260412_model5"
-MODEL <- readRDS(file.path(MODELS_DIR, MODEL_NAME))
+# Load a model (latest-dated fit). Set MODEL_NAME to inspect a specific one;
+# defaults to the first model discovered in MODELS_FIT_DIR.
+MODEL_NAME <- discover_model_names()[1]
+if (is.na(MODEL_NAME))
+  stop(sprintf("No fitted models found in %s.", MODELS_FIT_DIR))
+MODEL <- load_model(MODEL_NAME, MODELS_FIT_DIR)
 
 
 # ---------------------

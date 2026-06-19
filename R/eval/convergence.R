@@ -20,14 +20,17 @@ source_root("R/eval/helpers/convergence.R")      # create_convergence_table, add
 
 
 # ------------------------------
-# Load the active model set
+# Load the active model set (every fitted model in MODELS_FIT_DIR)
 
-MODEL_NAMES <- c("model1", "model2", "model4", "model5")
+MODEL_NAMES <- discover_model_names()
+if (length(MODEL_NAMES) == 0)
+  stop(sprintf("No fitted models found in %s; fit models before running convergence.", MODELS_FIT_DIR))
+
 MODEL_PATHS <- vapply(MODEL_NAMES, function(mn) {
   pattern <- paste0(".*_", mn, "(_extended)?\\.rds$")
-  files   <- list.files(MODELS_EXTEND_DIR, full.names = TRUE)
+  files   <- list.files(MODELS_FIT_DIR, full.names = TRUE)
   matches <- files[grepl(pattern, basename(files))]
-  if (length(matches) == 0) stop(sprintf("No fit for %s in %s", mn, MODELS_EXTEND_DIR))
+  if (length(matches) == 0) stop(sprintf("No fit for %s in %s", mn, MODELS_FIT_DIR))
   dates <- as.Date(sub("_.*", "", basename(matches)), format = "%y%m%d")
   matches[which.max(dates)]
 }, character(1))
@@ -44,7 +47,7 @@ if (newer_than_inputs(conv_rds, MODEL_PATHS)) {
   CONV_TABLE <- readRDS(conv_rds)
 } else {
   message("Recomputing convergence table (cache missing or a model fit is newer)...")
-  MODEL_LIST <- lapply(MODEL_NAMES, load_model, dir_path = MODELS_EXTEND_DIR)
+  MODEL_LIST <- lapply(MODEL_NAMES, load_model, dir_path = MODELS_FIT_DIR)
   names(MODEL_LIST) <- MODEL_NAMES
   CONV_TABLE <- add_convergence_verdict(create_convergence_table(MODEL_LIST))
   save_eval_table(CONV_TABLE, conv_stem)
