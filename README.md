@@ -1,6 +1,8 @@
 # paf-models
 
-Bayesian hierarchical modeling of the **Priority Accumulation Framework (PAF)** theory of visual attention. Saccade-latency data from two visual-search experiments (exp1, exp2) are fit with a family of hierarchical Linear Ballistic Accumulator (LBA) models using R + `EMC2`. A third experiment (exp3) is held out for out-of-distribution testing.
+Bayesian hierarchical modeling of the **Priority Accumulation Framework (PAF)** theory of visual attention. Saccade-latency data from two visual-search experiments (exp1, exp2) are fit with hierarchical Linear Ballistic Accumulator (LBA) models using R + `EMC2`. A third experiment (exp3) is held out for out-of-distribution testing.
+
+A previous analysis (the `model1`–`model5` LBA family, evaluated through step 4.9) is archived; this `main` is set up for a new analysis with a fresh model family. See [Archived analysis](#archived-analysis).
 
 ---
 
@@ -26,52 +28,44 @@ install.packages(c("EMC2", "dplyr", "readr", "tools", "testthat"))
 paf-models/
 |
 |- R/
-|   |- config.R                  # Project-level: RNG, RT cutoffs, paths (OUTPUTS_DIR, MODELS_*_DIR, EVAL_DIR)
+|   |- config.R                  # Project-level: RNG, RT cutoffs, paths (OUTPUTS_DIR, MODELS_FIT_DIR, EVAL_DIR)
 |   |- utils.R                   # source_root(), parse_int_arg, parse_str_arg, check_valid_string
 |   |- helpers/                  # Cross-cutting helpers (used by fit AND eval)
 |   |   |- logging.R             # Timestamped logging, error reporting
 |   |   |- data.R                # CSV loading, RT filtering, EMC2 factor closures
 |   |- fit/
-|   |   |- fit_config.R          # Priors, N_CHAINS, fit/convergence/recovery params, CONSTANTS
-|   |   |- model1.R .. model5.R  # LBA model variants (differ in v/B/sv formulas)
-|   |   |- fit_initial.R         # Phase 1: fit all models for 1000 iterations
-|   |   |- fit_extend_local.R    # Phase 2 (local): extend fits in parallel until convergence
-|   |   |- fit_extend_cloud.R    # Phase 2 (cloud): single-model extend, syncs to S3/GCS
-|   |   |- fit_recovery_cloud.R  # Step 2.5: parameter recovery (one sim per invocation)
-|   |   |- fit_ppc_cloud.R        # Step 4: posterior predictive simulation on the cloud
+|   |   |- fit_config.R          # Priors, N_CHAINS, fit-loop defaults, default_convergence_criteria(), CONSTANTS
+|   |   |- fit_cloud.R           # Unified single-model runner (build-fresh OR resume); syncs to S3/GCS
+|   |   |- fit_recovery_cloud.R  # Parameter recovery (one sim per invocation) via the unified core
+|   |   |- fit_ppc_cloud.R        # Posterior predictive simulation on the cloud
 |   |   |- helpers/
-|   |       |- build_model.R     # build_lba_model() factory (shared boilerplate for all models)
-|   |       |- fitting.R         # get_core_args(), save_model(), check_block_convergence(), extend_model()
+|   |       |- build_model.R     # build_lba_model() factory (shared boilerplate for LBA variants)
+|   |       |- fitting.R         # get_core_args(), save_model(), check_convergence(), fit_to_convergence()
 |   |       |- recovery.R        # extract_group_params(), extract_design(), simulate_recovery_data()
 |   |- eval/
-|       |- eval_config.R         # Eval params + RECOVERY_EVAL_DIR (minimal)
-|       |- convergence.R         # Convergence table + step-2.9 verdict (outputs convergence.{rds,csv})
-|       |- goodness_of_fit.R     # GoF/model comparison (DIC/BPIC; step-3 scaffolding)
-|       |- recovery.R            # Load _extended recovery fits; population table, scatter, z/contraction
-|       |- ppc.R                 # Step-4 posterior predictive checks (per-subject KS + contrasts)
-|       |- review_convergence_and_recovery.R  # Step-2.9 synthesis (convergence verdict + recovery)
+|       |- eval_config.R         # Eval params, discover_model_names(), model_colors(), thresholds
+|       |- convergence.R         # Convergence table + verdict (outputs convergence.{rds,csv})
+|       |- goodness_of_fit.R     # GoF/model comparison (DIC/BPIC/LOO/WAIC)
+|       |- recovery.R            # Load recovery fits; population table, scatter, z/contraction
+|       |- ppc.R                 # Posterior predictive checks (per-subject KS + contrasts)
+|       |- review_convergence_and_recovery.R  # Convergence + recovery synthesis
 |       |- examine_model.R       # Interactive: inspect a single fitted model
-|       |- helpers/
-|           |- convergence.R    # Rhat/ESS extraction, create_convergence_table(), add_convergence_verdict()
-|           |- recovery.R        # Recovery-eval computations (prior-SD, z/contraction, RMSE/r)
-|           |- gof.R             # Goodness-of-fit computations (DIC/BPIC/LOO/WAIC)
-|           |- ppc.R             # PPC computations (per-subject KS, theory contrasts)
-|           |- plot.R            # Plotly figure builders + save_plotly_png()
-|           |- io.R             # load_model(), save_eval_table(), newer_than_inputs()
+|       |- helpers/              # convergence/recovery/gof/ppc computations, plot.R, io.R
 |
 |- scripts/
 |   |- helpers.sh                # Shared config defaults + cloud copy helpers (sourced by scripts below)
 |   |- vm_setup.sh               # One-time R + EMC2 install on a fresh Ubuntu VM
-|   |- run_extend.sh             # Download initial .rds, run fit_extend_cloud.R, sync results
-|   |- run_recovery.sh           # Download extended .rds, run fit_recovery_cloud.R, sync results
-|   |- run_ppc.sh                # Download extended .rds, run fit_ppc_cloud.R, sync results
+|   |- run_fit.sh                # Build-fresh OR resume a fit on a VM via fit_cloud.R, sync results
+|   |- run_recovery.sh           # Download a fit, run fit_recovery_cloud.R, sync results
+|   |- run_ppc.sh                # Download a fit, run fit_ppc_cloud.R, sync results
 |
 |- __tests__/
 |   |- run_tests.R               # Entry point; gated by TEST_LEVEL env var (1/2/3)
 |   |- fixtures/
 |   |   |- sample_data.csv       # Synthetic fixture matching load_data() output (one row/trial, 15 cols, 120 rows)
-|   |- helpers/                  # Level-1 unit tests (logging, data, model helpers; no EMC2)
-|   |- models/                   # Level-2 build tests (make_emc() for all 5 models; requires EMC2)
+|   |   |- test_model.R          # Minimal synthetic LBA model used by L2/L3
+|   |- helpers/                  # Level-1 unit tests (logging, data, fit/recovery helpers; no EMC2)
+|   |- models/                   # Level-2 build + recovery-chain tests on the synthetic model (requires EMC2)
 |   |- fit/                      # Level-3 smoke tests (tiny MCMC; slow, manual CI only)
 |
 |- .github/
@@ -85,79 +79,131 @@ paf-models/
 |- data/                         # gitignored - must be supplied locally
 |- outputs/                      # gitignored - everything generated by the pipeline
 |   |- models/
-|   |   |- fit_initial/          #   output of fit_initial.R (1000-sample fits + log.txt)
-|   |   |- fit_extend/           #   output of fit_extend_*.R (extended fits + per-model logs)
+|   |   |- fit/                  #   output of the unified fit pipeline (YYMMDD_<name>.rds + logs)
 |   |   |- fit_recovery/         #   output of fit_recovery_cloud.R (recovery fits + true_alpha)
-|   |- evaluation/               #   model comparison + step-2.5 recovery analysis outputs
-|- docs/                         # Meeting slides, articles, model specs (reference only)
+|   |   |- fit_ppc/              #   output of fit_ppc_cloud.R (posterior-predictive draws)
+|   |- evaluation/               #   convergence / GoF / recovery / PPC outputs
+|- docs/                         # Meeting slides, articles, model specs (reference only, gitignored)
 ```
 
 ### Archived code
 
 Superseded code lives on the **`archive/legacy-python`** branch (not on `main`), retrievable via
-`git checkout archive/legacy-python -- <path>`. It holds the pre-cleanup snapshot of:
+`git checkout archive/legacy-python -- <path>`. It holds the pre-cleanup snapshot of the legacy
+Python data pipeline and exploratory notebooks (one dependency chain rooted at `enum_types.py`).
 
-- `__exploratory/__do_not_use/` -- old raw-data loaders and ad-hoc notebooks
-- `__exploratory/LATER/` -- LATER-model exploratory notebooks
-- `__exploratory/hssm_models/` -- custom HSSM (PyMC) LBA models, superseded by `EMC2`
-- `enum_types.py`, `load_data.py`, `playground.py` -- the legacy Python data pipeline (replaced by the R-native `load_data()` in `R/helpers/data.R`)
+---
 
-These form one dependency chain rooted at `enum_types.py`, so the branch is internally consistent and runnable as a unit.
+## The model
+
+Define a model as a thin script that returns an EMC2 object from `build_lba_model()` (the shared
+factory in `R/fit/helpers/build_model.R`). It only needs to supply what differs between variants -
+the `v` and `B` formulas plus any model-specific prior entries - and define `MODEL_NAME` and a
+`build_model(data, n_chains)` function. `__tests__/fixtures/test_model.R` is a minimal working
+template; the retired `model1`–`model5` definitions on the `analysis1` branch are fuller examples.
 
 ---
 
 ## Running the pipeline
 
+### Fitting
+
+A single function, `fit_to_convergence()` (`R/fit/helpers/fitting.R`), fits any EMC2 object to
+convergence. It handles both a freshly-built (unfitted) model (warm-up + sampling) and a
+previously-fit one (resume sampling), driven by a `convergence_criteria` list.
+
+```r
+# Local, interactive: build a model and fit it to convergence.
+source("R/fit/helpers/fitting.R")     # transitively loads build_model + config
+source("R/fit/mymodel.R")             # your model: defines build_model() + MODEL_NAME
+data <- load_data(min_rt = MIN_SACCADE_CUTOFF, max_rt = MAX_SACCADE_CUTOFF,
+                  allow_target_repeats = ALLOW_TARGET_REPEAT)
+res <- fit_to_convergence(
+  build_model(data, n_chains = N_CHAINS),
+  convergence_criteria = default_convergence_criteria(),   # num_samples + per-group Rhat/ESS
+  max_tries  = MAX_TRIES,
+  batch_size = STEP_SIZE,
+  save_path  = file.path(MODELS_FIT_DIR, "260618_mymodel.rds"),
+  save_every = 2                                           # checkpoint cadence (NULL = end only)
+)
 ```
-# Phase 1: initial fit (1000 iterations per model)
-Rscript R/fit/fit_initial.R
 
-# Phase 2: extend until convergence (edit model_files list in script first)
-Rscript R/fit/fit_extend_local.R              # parallel if cores allow
-Rscript R/fit/fit_extend_local.R --sequential # force sequential
+`convergence_criteria` is a list: a `num_samples` floor (sample-stage iters per chain) plus a
+per-group `list(max_rhat=, min_ess=)` for any of `mu` / `Sigma2` / `alpha` / `correlation`. Groups
+you omit are descriptive-only (not gated) - `default_convergence_criteria()` gates `mu` and `alpha`.
 
-# Analysis
-source("R/eval/convergence.R")                     # convergence table + step-2.9 verdict
-source("R/eval/goodness_of_fit.R")                 # GoF/model comparison (DIC/BPIC; step-3 scaffolding)
-source("R/eval/recovery.R")                        # step-2.5 recovery analysis (after cloud runs)
-source("R/eval/ppc.R")                             # step-4 posterior predictive checks
-source("R/eval/review_convergence_and_recovery.R") # step-2.9 synthesis (convergence + recovery)
+```bash
+# Cloud (one model per VM; syncs each checkpoint to S3/GCS via run_fit.sh):
+./scripts/run_fit.sh --model-script R/fit/mymodel.R     # build fresh + fit to convergence
+./scripts/run_fit.sh --resume 260618_mymodel.rds        # resume a saved fit
+```
+
+### Analysis
+
+```r
+source("R/eval/convergence.R")                     # convergence table + verdict
+source("R/eval/goodness_of_fit.R")                 # GoF/model comparison (DIC/BPIC/LOO/WAIC)
+source("R/eval/recovery.R")                        # parameter-recovery analysis (after cloud runs)
+source("R/eval/ppc.R")                             # posterior predictive checks
+source("R/eval/review_convergence_and_recovery.R") # convergence + recovery synthesis
 source("R/eval/examine_model.R")                   # inspect a single model
+```
 
-# Tests (tiered; higher TEST_LEVEL implies lower tiers)
+Eval drivers discover the active model set from `MODELS_FIT_DIR` (`discover_model_names()`) - no
+hardcoded model list.
+
+### Tests
+
+```bash
 Rscript __tests__/run_tests.R                    # L1: unit tests (<5 s, no EMC2)
-TEST_LEVEL=2 Rscript __tests__/run_tests.R       # L2: + model build tests (slow, ~tens of min; requires EMC2)
+TEST_LEVEL=2 Rscript __tests__/run_tests.R       # L2: + build/recovery-chain tests (slow; requires EMC2)
 TEST_LEVEL=3 Rscript __tests__/run_tests.R       # L3: + smoke tests (tiny end-to-end MCMC; CI only)
 ```
 
-**Tiered testing.** L1 is unit tests of pure helpers (fast per-push gate); L2 is integration tests that build the 5 models + the recovery chain (no MCMC) — each model is built once and reused, but `EMC2::design()` is intrinsically slow (~minutes/model), so L2 runs nightly + on manual dispatch rather than per-push; L3 is three end-to-end smoke tests in `test_fit_smoke.R` (Smoke A: `fit_initial`, Smoke B: `extend_model`, Smoke C: recovery — each at `n_chains=2, iter=5`). When adding a new pipeline, add coverage at all three tiers.
+**Tiered testing.** L1 are unit tests of pure helpers (fast per-push gate), including
+`fit_to_convergence()` input validation. L2 builds the synthetic `test_model` once and guards
+`build_lba_model()`/`make_emc()` plus the extract→simulate→build recovery chain (no MCMC); because
+`EMC2::design()` is intrinsically slow (~minutes), L2 runs nightly + on manual dispatch rather than
+per-push. L3 (`test_fit_smoke.R`) drives the synthetic model end-to-end with tiny MCMC: Smoke A/B
+(`fit_to_convergence` fresh + resume), Smoke C (recovery), Smoke D (PPC). When adding a new
+pipeline, add coverage at all three tiers.
 
 ---
 
 ## Analysis plan
 
-Steps marked **STOP & REVIEW** are checkpoints requiring human judgment before proceeding. Steps marked *(PI)* require PI sign-off.
+> **Skeleton for the new analysis.** The model family and step-by-step plan are TBD pending the new
+> model specifications. Steps marked **STOP & REVIEW** are checkpoints requiring human judgment;
+> *(PI)* marks PI sign-off. Fill in as the analysis is designed.
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 0a | Pre-register PAF predictions | DONE |
-| 0b | Pre-hoc exclusion: RT cutoffs (0.23-1.0 s) only; no subject filtering | DONE |
-| 1 | **Initial fit** -- `fit_initial.R`: 1000 MCMC samples per model | DONE |
-| 2 | **Extend fits** -- `fit_extend_local.R`: run until asymmetric convergence criteria are met (`$mu`: Rhat < 1.05, ESS > 500; `$alpha`: Rhat < 1.1, ESS > 400; `$sigma2`/`$correlation` descriptive only) | NEXT |
-| 2.4 | *Sanity check*: flag models with severe non-convergence (mu Rhat > 1.1 or ESS < 200) before proceeding | |
-| 2.5 | **Parameter recovery** -- Replicating Strickland et al. (2026): extract (μ̂, Σ̂) from each extended fit; draw 3 independent sets of subject parameters via `make_random_effects`; simulate data on the real trial structure; refit from scratch. Evaluate with `recovery()` (RMSE + correlation) and z-scores + contraction | |
+| 0 | Pre-register predictions; define pre-hoc exclusions (RT cutoffs 0.23-1.0 s) | |
+| 1 | **Fit** each model to convergence via `fit_to_convergence()` (`$mu`: Rhat < 1.05, ESS > 500; `$alpha`: Rhat < 1.1, ESS > 400; `$sigma2`/`$correlation` descriptive) | |
+| 1.9 | *Sanity check*: flag severe non-convergence before proceeding | |
+| 2 | **Parameter recovery** -- extract (μ̂, Σ̂); simulate on the real trial structure; refit; evaluate (RMSE + correlation, z-scores + contraction) | |
 | 2.9 | **STOP & REVIEW *(PI)***: convergence + recovery review; decide which models survive | |
-| 3 | **Goodness of fit** -- BPIC (screening), DIC (reporting only), PSIS-LOO-CV (primary), WAIC (confirmatory); no Bayes factors | |
-| 3.9 | **STOP & REVIEW *(PI)***: Pareto-k diagnostics, LOO/WAIC agreement, identify candidate winner(s) | |
-| 4 | **Posterior predictive checks** -- per-subject KS test + theory-relevant contrasts on exp1+2 | |
+| 3 | **Goodness of fit** -- BPIC (screening), DIC (reporting only), PSIS-LOO-CV (primary), WAIC (confirmatory) | |
+| 3.9 | **STOP & REVIEW *(PI)***: Pareto-k diagnostics, LOO/WAIC agreement, candidate winner(s) | |
+| 4 | **Posterior predictive checks** -- per-subject KS + theory-relevant contrasts on exp1+2 | |
 | 4.9 | **STOP & REVIEW**: PPC quality + exp1+2 vs exp3 population-shift check | |
-| 5 | **Out-of-distribution test** -- use trained subject-level parameters (`$alpha`) to predict exp3, including the novel all-cue condition | |
-| 5.9 | **STOP & REVIEW *(PI)***: define pass/fail rule (deferred to this point), interpret OOD results | |
-| 6 | PPC + OOD for all other accepted models (diagnostic comparison) | |
-| 7 | **Identifiability check** -- max pairwise posterior correlation per accepted model | |
-| 7.9 | **STOP & REVIEW**: final synthesis; joint GoF + OOD ranking; write-up plan | |
-| 8 | Conclude / write up | |
+| 5 | **Out-of-distribution test** -- predict exp3 from trained `$alpha` | |
+| 5.9 | **STOP & REVIEW *(PI)***: define pass/fail rule, interpret OOD results | |
+| ... | final synthesis; write-up | |
 
-**All-cue condition (step 5)**: exp3 introduces a novel condition where the spatial cue appears at all 4 locations simultaneously. The trained LBA handles this without retraining -- set `CueAtLoc=X` on all 4 accumulators. The model then predicts uniformly faster RTs, no location bias, and linear speedup vs. single-cue. Failures are informative falsification.
+**No forced single winner**: GoF and OOD rankings are reported jointly. The analysis may end with
+co-winners or different best models per criterion.
 
-**No forced single winner**: GoF and OOD rankings are reported jointly. The analysis may end with co-winners or different best models per criterion.
+---
+
+## Archived analysis
+
+The completed `model1`–`model5` LBA analysis (through step 4.9: convergence, parameter recovery,
+goodness-of-fit, and posterior predictive checks) is preserved:
+
+- **Branch `analysis1`** - a complete, runnable snapshot (its own CI guards the old models). Revert with `git checkout analysis1`.
+- **Tag `analysis1-v1.0`** - an immutable marker of that state.
+
+It includes the old two-phase fitting pipeline (`fit_initial.R` + `fit_extend_{local,cloud}.R`,
+superseded here by `fit_to_convergence()`), the five model definitions, and their model-specific
+build/smoke tests.

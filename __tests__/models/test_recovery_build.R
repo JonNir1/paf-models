@@ -1,9 +1,11 @@
 #' =============================================================================
-#' Level-2 test: full recovery pipeline on fixture data (requires EMC2)
+#' Level-2 test: model build + full recovery pipeline on fixture data (EMC2)
 #'
-#' Tests the extract -> simulate -> build_model chain using the committed
-#' sample_data.csv fixture. Does NOT run MCMC (only verifies that the emc
-#' object is built correctly from simulated data).
+#' Builds the synthetic test model ONCE (design() + make_emc() is the expensive
+#' step) and reuses it to guard BOTH:
+#'   (a) build_lba_model() / make_emc() structure + formulas + base priors, and
+#'   (b) the extract -> simulate -> build_model recovery chain.
+#' Uses the committed sample_data.csv fixture; does NOT run MCMC.
 #' =============================================================================
 
 .libPaths(c(file.path(Sys.getenv("USERPROFILE"), "R", "library"), .libPaths()))
@@ -12,11 +14,12 @@ library(EMC2)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
 source(file.path(ROOT, "R", "fit", "helpers", "recovery.R"))
-source(file.path(ROOT, "R", "fit", "model1.R"))   # defines build_model()
+source(file.path(ROOT, "__tests__", "models", "shared_assertions.R"))  # expect_valid_emc, etc.
+source(file.path(ROOT, "__tests__", "fixtures", "test_model.R"))   # defines build_model()
 
 N_TEST_CHAINS <- 2L
 
-# Load fixture data (same as used by test_build_models.R)
+# Load the committed fixture (one row per trial, 15 columns)
 raw_fixture <- readr::read_csv(
   file.path(ROOT, "__tests__", "fixtures", "sample_data.csv"), show_col_types = FALSE
 ) %>%
@@ -42,6 +45,26 @@ fixture_data <- filter_data(raw_fixture,
 emc_obj    <- build_model(fixture_data, n_chains = N_TEST_CHAINS)
 design_obj <- extract_design(emc_obj)
 sp         <- sampled_pars(design_obj)
+
+
+# =============================================================================
+# (a) Build structure: valid emc object, expected formulas, base prior means
+# =============================================================================
+
+test_that("build_model: returns a valid emc object with N_TEST_CHAINS chains", {
+  expect_valid_emc(emc_obj, N_TEST_CHAINS)
+})
+
+test_that("build_model: v / B / sv formulas match the synthetic spec", {
+  expect_formula_rhs(emc_obj, "v",  "PrevTargetAtLoc + CueAtLoc + StimulusAtLoc")
+  expect_formula_rhs(emc_obj, "B",  "1")
+  expect_formula_rhs(emc_obj, "sv", "StimulusAtLoc")
+})
+
+test_that("build_model: base prior means come from fit_config.R", {
+  expect_prior_mean(emc_obj, "v",  V_BASELINE_MU)
+  expect_prior_mean(emc_obj, "t0", T0_MU)
+})
 
 # Hand-craft group_params using config priors as point estimates
 # (same values as base_mu in build_model.R). Keep only params in this design.

@@ -21,8 +21,6 @@ source_root("R/eval/eval_config.R")
 source_root("R/eval/helpers/io.R")
 source_root("R/eval/helpers/plot.R")
 
-MODEL_NAMES <- c("model1", "model2", "model4", "model5")
-
 
 # ------------------------------
 # Load inputs (fail loudly with guidance if a prerequisite is missing)
@@ -39,6 +37,9 @@ model_stats <- read.csv(.need(file.path(rec_dir, "recovery_model_stats.csv"),
                               'source("R/eval/recovery.R")'), stringsAsFactors = FALSE)
 z_table     <- read.csv(.need(file.path(rec_dir, "recovery_zscores_contraction.csv"),
                               'source("R/eval/recovery.R")'), stringsAsFactors = FALSE)
+
+# Active set = whatever models appear in the convergence table.
+MODEL_NAMES <- sort(unique(conv_table$model))
 
 
 # ------------------------------

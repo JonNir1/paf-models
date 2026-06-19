@@ -60,9 +60,10 @@ expect_param_names <- function(model, expected_names, label = "") {
 expect_prior_mean <- function(model, param_name, expected_value,
                                tol = 1e-9, label = "") {
   label    <- if (nzchar(label)) paste0(" [", label, "]") else ""
-  # EMC2 (>= 3.4.1) stores population-mean priors in `prior$theta_mu_mean`
-  # (a named numeric vector), not `prior$mu_mean`.
-  prior_mu <- environment(model[[1]][["model"]])$prior$theta_mu_mean
+  # EMC2 (>= 3.4.1) stores the population-mean prior at `model[[1]]$prior$theta_mu_mean`
+  # (top level of the chain), NOT inside the model closure's environment. This is
+  # the same layout get_prior_sds() relies on (model[[1]]$prior$theta_mu_var).
+  prior_mu <- model[[1]]$prior$theta_mu_mean
   expect_true(param_name %in% names(prior_mu),
     label = paste0("prior_mu contains '", param_name, "'", label))
   expect_equal(unname(prior_mu[[param_name]]), expected_value,

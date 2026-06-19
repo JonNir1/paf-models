@@ -6,23 +6,23 @@
 #'
 #'   Level 1 -- __tests__/helpers/ : unit tests for pure helpers.
 #'              Fast (<5 s total), no EMC2 dependency. Run on every push/PR.
-#'              Files: test_logging.R, test_data.R, test_model_helpers.R,
-#'              test_recovery.R.
+#'              Files include test_logging.R, test_data.R, test_model_helpers.R,
+#'              test_recovery.R, test_fit_to_convergence.R (input validation).
 #'
 #'   Level 2 -- __tests__/models/  : model-build integration tests.
 #'              Seconds--minutes, requires EMC2 + the committed sample_data.csv
-#'              fixture. Exercises make_emc() for all 5 models and the
-#'              extract -> simulate -> build_model chain. No MCMC sampling.
-#'              Run on every push/PR.
-#'              Files: test_build_models.R, test_recovery_build.R.
+#'              fixture. Builds the synthetic test model (__tests__/fixtures/
+#'              test_model.R) once and guards build_lba_model()/make_emc() plus
+#'              the extract -> simulate -> build_model recovery chain. No MCMC.
+#'              File: test_recovery_build.R (+ shared_assertions.R).
 #'
 #'   Level 3 -- __tests__/fit/     : end-to-end smoke tests (tiny MCMC).
-#'              Minutes--hours; CI-only (manual dispatch). Covers three
-#'              pipelines in one file (test_fit_smoke.R):
-#'                Smoke A: fit_initial   (build + fit + save)
-#'                Smoke B: extend_model  (resume + extend)
-#'                Smoke C: recovery      (extract -> simulate -> refit)
-#'              Each smoke runs n_chains=2, iter=5.
+#'              Minutes--hours; CI-only (manual dispatch). One file
+#'              (test_fit_smoke.R), all driven by the synthetic test model:
+#'                Smoke A/B: fit_to_convergence (fresh fit + resume)
+#'                Smoke C:   recovery (extract -> simulate -> refit)
+#'                Smoke D:   PPC simulation
+#'              Smokes run n_chains=2 with bounded stop_criteria.
 #'
 #' Run from repo root:
 #'   Rscript __tests__/run_tests.R                      # level 1

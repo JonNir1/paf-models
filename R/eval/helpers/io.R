@@ -18,7 +18,7 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 #' File names are expected as `YYMMDD_<model_name>[_extended].rds`. The most
 #' recent date prefix wins.
 #'
-#' @param model_name Bare model name, e.g. "model1".
+#' @param model_name Bare model name, e.g. "mymodel".
 #' @param dir_path   Directory to search.
 #' @return The deserialised EMC2 model object.
 load_model <- function(model_name, dir_path) {

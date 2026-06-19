@@ -31,7 +31,7 @@ library(EMC2)
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/fit/helpers/recovery.R")   # sample_posterior_alphas, extract_design
-source_root("R/eval/eval_config.R")       # PPC_N_DRAWS, PPC_MODELS_DIR via MODELS_EXTEND_DIR
+source_root("R/eval/eval_config.R")       # PPC_N_DRAWS, PPC_MODELS_DIR
 
 
 # =============================================================================
@@ -203,8 +203,8 @@ if (length(args) == 0L) {
     log_msg(sprintf("Override: --suffix %s", suffix), log_file, console_print = TRUE)
 
   result <- tryCatch({
-    ext_path <- file.path(MODELS_EXTEND_DIR, extended_rds)
-    log_msg(sprintf("Loading extended model from: %s", ext_path),
+    ext_path <- file.path(MODELS_FIT_DIR, extended_rds)
+    log_msg(sprintf("Loading fitted model from: %s", ext_path),
             log_file, console_print = TRUE)
     extended_model <- readRDS(ext_path)
 

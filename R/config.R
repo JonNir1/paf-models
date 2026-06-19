@@ -39,8 +39,7 @@ OUTPUTS_DIR <- "outputs"
 MODELS_DIR  <- file.path(OUTPUTS_DIR, "models")
 EVAL_DIR    <- file.path(OUTPUTS_DIR, "evaluation")
 
-MODELS_INITIAL_DIR  <- file.path(MODELS_DIR, "fit_initial")    # output of fit_initial.R
-MODELS_EXTEND_DIR   <- file.path(MODELS_DIR, "fit_extend")     # output of fit_extend_*.R
+MODELS_FIT_DIR      <- file.path(MODELS_DIR, "fit")            # output of the unified fit pipeline (fit_cloud.R / fit_to_convergence)
 MODELS_RECOVERY_DIR <- file.path(MODELS_DIR, "fit_recovery")   # output of fit_recovery_cloud.R
 
 # Path to the fitting-config file, used by log_config_variables() to snapshot

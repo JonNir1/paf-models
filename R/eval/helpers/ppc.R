@@ -38,9 +38,10 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
   substr(clean_S, loc_idx, loc_idx)
 }
 
-# Shared model colour palette used by all multi-model plots.
-.model_colors <- c(model1 = "#2c7fb8", model2 = "#31a354",
-                   model4 = "#d95f02", model5 = "#7570b3")
+# Shared model colour map for multi-model plots: assigns palette colours to
+# whatever models are present in a plot's data (generic, not a fixed family).
+# model_colors() is defined in R/eval/eval_config.R (sourced by the driver).
+.model_colors <- function(df) model_colors(sort(unique(as.character(df$model))))
 
 
 # =============================================================================
@@ -356,8 +357,8 @@ plot_ppc_qpf_by_response <- function(qpf_resp_df, x_var = "cue_size") {
     # Observed: open white circles with coloured border (per Strickland et al.)
     geom_point(aes(y = obs), shape = 21, fill = "white", stroke = 1.2, size = 2) +
     facet_grid(q_label ~ resp_label) +
-    scale_colour_manual(values = .model_colors) +
-    scale_fill_manual(values = .model_colors) +
+    scale_colour_manual(values = .model_colors(qpf_resp_df)) +
+    scale_fill_manual(values = .model_colors(qpf_resp_df)) +
     labs(x = x_var, y = "RT (s)",
          title = sprintf("QPF by response type: predicted vs observed by %s (step 4)", x_var),
          subtitle = paste0("Coloured line + ribbon = posterior predictive median + 90% CI; ",
@@ -439,8 +440,8 @@ plot_ppc_cdf <- function(qpf_resp_df, choice_df, x_facet = "cue_size") {
                aes(x = obs, y = y_obs),
                colour = "black", size = 2) +
     facet_grid(resp_label ~ facet_x) +
-    scale_colour_manual(values = .model_colors) +
-    scale_fill_manual(values = .model_colors) +
+    scale_colour_manual(values = .model_colors(cdf_df)) +
+    scale_fill_manual(values = .model_colors(cdf_df)) +
     labs(x = "RT (s)",
          y = "p(RT ≤ t,  R = r)",
          title = sprintf("Defective CDF by %s (step 4)", x_facet),

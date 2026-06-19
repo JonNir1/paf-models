@@ -6,11 +6,11 @@
 # Assumes: vm_setup.sh has already been run on this machine.
 #
 # Usage:
-#   ./scripts/run_ppc.sh <extended_rds> [extra args forwarded to fit_ppc_cloud.R]
+#   ./scripts/run_ppc.sh <fitted_rds> [extra args forwarded to fit_ppc_cloud.R]
 # Example:
-#   ./scripts/run_ppc.sh 260525_model1_extended.rds
-#   ./scripts/run_ppc.sh 260525_model1_extended.rds --n-draws 20
-#   ./scripts/run_ppc.sh 260525_model1_extended.rds --save-every 50
+#   ./scripts/run_ppc.sh 260618_mymodel.rds
+#   ./scripts/run_ppc.sh 260618_mymodel.rds --n-draws 20
+#   ./scripts/run_ppc.sh 260618_mymodel.rds --save-every 50
 #
 # Configure these env vars before running, or edit the defaults in helpers.sh:
 #   BUCKET   - "paf-models"
@@ -22,7 +22,7 @@ set -euo pipefail
 
 source "$(dirname "$0")/helpers.sh"
 
-rds_name="${1:?usage: run_ppc.sh <extended_rds>}"
+rds_name="${1:?usage: run_ppc.sh <fitted_rds>}"
 shift   # remaining args (if any) forwarded to fit_ppc_cloud.R
 
 cd "$REPO_DIR"
@@ -36,8 +36,8 @@ else
 fi
 
 echo ">>> Downloading inputs from $BUCKET ..."
-mkdir -p outputs/models/fit_extend outputs/models/fit_ppc data/exp1 data/exp2
-cloud_cp_from "inputs/fit_extend/$rds_name" "outputs/models/fit_extend/$rds_name"
+mkdir -p outputs/models/fit outputs/models/fit_ppc data/exp1 data/exp2
+cloud_cp_from "inputs/fit/$rds_name" "outputs/models/fit/$rds_name"
 cloud_cp_from "inputs/data/exp1/Exp1_clean.csv" "data/exp1/Exp1_clean.csv"
 cloud_cp_from "inputs/data/exp2/Exp2_clean.csv" "data/exp2/Exp2_clean.csv"
 

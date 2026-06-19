@@ -6,9 +6,9 @@
 # Assumes: vm_setup.sh has already been run on this machine.
 #
 # Usage:
-#   ./scripts/run_recovery.sh <extended_rds> <sim_index> [extra args forwarded to fit_recovery_cloud.R]
+#   ./scripts/run_recovery.sh <fitted_rds> <sim_index> [extra args forwarded to fit_recovery_cloud.R]
 # Example:
-#   ./scripts/run_recovery.sh 260525_model1_extended.rds 1
+#   ./scripts/run_recovery.sh 260618_mymodel.rds 1
 #
 # Configure these env vars before running, or edit the defaults in helpers.sh:
 #   BUCKET   - "my-paf-bucket"
@@ -20,8 +20,8 @@ set -euo pipefail
 
 source "$(dirname "$0")/helpers.sh"
 
-rds_name="${1:?usage: run_recovery.sh <extended_rds> <sim_index>}"
-sim_index="${2:?usage: run_recovery.sh <extended_rds> <sim_index>}"
+rds_name="${1:?usage: run_recovery.sh <fitted_rds> <sim_index>}"
+sim_index="${2:?usage: run_recovery.sh <fitted_rds> <sim_index>}"
 shift 2   # remaining args (if any) forwarded to fit_recovery_cloud.R
 
 cd "$REPO_DIR"
@@ -35,8 +35,8 @@ else
 fi
 
 echo ">>> Downloading inputs from $BUCKET ..."
-mkdir -p outputs/models/fit_extend outputs/models/fit_recovery data/exp1 data/exp2
-cloud_cp_from "inputs/fit_extend/$rds_name" "outputs/models/fit_extend/$rds_name"
+mkdir -p outputs/models/fit outputs/models/fit_recovery data/exp1 data/exp2
+cloud_cp_from "inputs/fit/$rds_name" "outputs/models/fit/$rds_name"
 cloud_cp_from "inputs/data/exp1/Exp1_clean.csv" "data/exp1/Exp1_clean.csv"
 cloud_cp_from "inputs/data/exp2/Exp2_clean.csv" "data/exp2/Exp2_clean.csv"
 
