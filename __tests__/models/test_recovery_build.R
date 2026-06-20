@@ -84,9 +84,18 @@ group_means <- c(
   A                     = A_MU,
   t0                    = T0_MU
 )
-group_means <- group_means[names(group_means) %in% sp]
+# sampled_pars() returns a NAMED numeric vector, so filter on its NAMES, not its
+# values. Matching `%in% sp` (the values) silently kept zero parameters, making
+# Sigma a 0x0 matrix and crashing make_random_effects() with the cryptic
+# "as many means as parameters in your design".
+sp_names    <- if (!is.null(names(sp))) names(sp) else as.character(sp)
+group_means <- group_means[names(group_means) %in% sp_names]
 
-# Identity-scaled covariance (0.1 * I) as a simple valid Sigma
+# Every sampled parameter must have a hand-crafted mean; fail fast + clearly here
+# rather than deep inside make_random_effects() if the design ever changes.
+stopifnot(setequal(names(group_means), sp_names))
+
+# Identity-scaled covariance (0.1 * I) as a simple valid (positive-definite) Sigma
 Sigma <- diag(0.1, length(group_means))
 rownames(Sigma) <- colnames(Sigma) <- names(group_means)
 
