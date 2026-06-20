@@ -57,8 +57,16 @@ data <- filter_data(raw,
 
 # =============================================================================
 # Smoke A/B: the unified fit_to_convergence() entry point
-# One test covers BOTH paths: fitting a fresh (unfitted) model from scratch
-# (warm-up + extension loop) and resuming the returned, already-sampling model.
+# Two paths in one test:
+#   res1 (fresh): warm up an unfitted model, then converge. EMC2's warm-up sample
+#         stage already exceeds the trivial floor, so the pre-loop check passes
+#         and the extension loop legitimately does NOT run (n_tries == 0). We do
+#         NOT assert n_tries here -- whether the loop runs depends on EMC2's
+#         warm-up iteration count, which is not ours to pin.
+#   res2 (resume): feed the returned (already-sampling) model back in with a
+#         floor ABOVE its current sample count, which deterministically forces
+#         the extension loop to run -- this is what exercises the resume +
+#         add-a-batch path.
 # =============================================================================
 
 smoke_fitted <- NULL  # set here, reused by smoke C/D
@@ -67,7 +75,7 @@ test_that("smoke A/B: fit_to_convergence fits a fresh model then resumes it", {
   m         <- build_model(data, n_chains = 2L)
   save_path <- file.path(SMOKE_DIR, "test_model_smoke.rds")
 
-  # --- Fresh: warm up + run the extension loop to the sample floor ---
+  # --- Fresh: warm up, then converge (loop may or may not run) ---
   res1 <- fit_to_convergence(
     m,
     convergence_criteria = TRIVIAL_CC,
@@ -88,20 +96,20 @@ test_that("smoke A/B: fit_to_convergence fits a fresh model then resumes it", {
   expect_true(res1$converged)
   expect_gte(res1$n_samples, TRIVIAL_CC$num_samples)
   expect_true(file.exists(res1$saved_path))
-  expect_gte(res1$n_tries, 1L)   # fresh fit must run the loop at least once
 
-  # --- Resume: feed the returned (already-sampling) model back in ---
+  # --- Resume: floor set above current sample count => the loop MUST run ---
+  resume_floor <- res1$n_samples + 20L
   res2 <- fit_to_convergence(
     res1$model,
-    convergence_criteria = TRIVIAL_CC,
-    max_tries            = 2L,
+    convergence_criteria = modifyList(TRIVIAL_CC, list(num_samples = resume_floor)),
+    max_tries            = 3L,
     batch_size           = 20L,
     save_path            = file.path(SMOKE_DIR, "test_model_smoke_resume.rds"),
     log_file             = file.path(SMOKE_DIR, "smoke_fit_resume.log")
   )
   expect_true(res2$converged)
-  expect_equal(res2$n_tries, 0L)             # already at the floor => no new batches
-  expect_gte(res2$n_samples, res1$n_samples)
+  expect_gte(res2$n_tries, 1L)                 # resume + extension loop ran
+  expect_gt(res2$n_samples, res1$n_samples)    # the loop added sampling iters
 
   smoke_fitted <<- res1$model
 })
