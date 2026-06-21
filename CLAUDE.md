@@ -202,7 +202,7 @@ Other:
 - IAM user: `paf-cli` (EC2FullAccess, S3FullAccess, IAMFullAccess)
 
 ### AWS resources
-- S3 bucket: `paf-models`
+- S3 bucket: `jon-nir` — PAF files live under the `paf-models/` prefix (i.e. `s3://jon-nir/paf-models/`). The cloud scripts use `$BUCKET` as the path root in `s3://$BUCKET/...`, so set **`BUCKET=jon-nir/paf-models`** (no script change needed; helpers.sh's default is still a placeholder).
 - Security group: `paf-sg` (inbound SSH port 22 open); resolve ID at runtime (see boilerplate below)
 - IAM instance profile: `paf-ec2-profile` (role: `paf-ec2-role`, S3FullAccess) — attach to every EC2 launch
 - AMI: `ami-00403f401ee6a4b98` (Ubuntu 22.04 LTS, us-east-1)
@@ -216,7 +216,7 @@ Other:
 - On-demand standard: 16 vCPUs (default)
 - **Always ask the user whether to use On-Demand or Spot before launching any instance.**
 
-### S3 bucket layout (`s3://paf-models/`)
+### S3 bucket layout (`s3://jon-nir/paf-models/`)
 ```
 inputs/
   data/
