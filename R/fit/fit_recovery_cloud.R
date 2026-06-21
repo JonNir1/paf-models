@@ -70,6 +70,7 @@ source_root("R/fit/helpers/recovery.R")
 #'   recovered model .rds to out_dir.
 run_recovery_fit <- function(extended_model, template_data, model_script_path,
                              recovery_name, log_file, out_dir, sim_seed,
+                             group_params       = NULL,
                              convergence_criteria = default_convergence_criteria("recovery"),
                              max_tries          = MAX_TRIES_RECOVERY,
                              batch_size         = STEP_SIZE_RECOVERY,
@@ -85,9 +86,16 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
                   nrow(template_data), dplyr::n_distinct(template_data$subjects)),
           log_file, console_print = TRUE)
 
-  # --- 1. Extract group-level parameters ---
-  log_msg("Extracting group parameters (mu, Sigma)...", log_file, console_print = TRUE)
-  group_params <- extract_group_params(extended_model)
+  # --- 1. Group-level parameters ---
+  # Production: extract (mu, Sigma) from the converged fit. Callers MAY inject a
+  # known group_params instead (e.g. controlled recovery studies, or smoke tests
+  # that must avoid the diffuse Sigma of a tiny under-converged fit).
+  if (is.null(group_params)) {
+    log_msg("Extracting group parameters (mu, Sigma)...", log_file, console_print = TRUE)
+    group_params <- extract_group_params(extended_model)
+  } else {
+    log_msg("Using caller-supplied group parameters (mu, Sigma).", log_file, console_print = TRUE)
+  }
   log_msg(sprintf("  mu: %d parameters", length(group_params$mu)), log_file, console_print = TRUE)
   log_msg(sprintf("  Sigma: %dx%d matrix",
                   nrow(group_params$Sigma), ncol(group_params$Sigma)),

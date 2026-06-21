@@ -117,12 +117,22 @@ test_that("smoke A/B: fit_to_convergence fits a fresh model then resumes it", {
 
 # =============================================================================
 # Smoke C: end-to-end recovery pipeline (fit_recovery_cloud.R::run_recovery_fit)
-# Driven entirely by the synthetic fitted model from smoke A/B -- no real fit
-# required. Exercises extract -> simulate -> build -> fit_to_convergence.
+# Driven by the synthetic fitted model from smoke A/B -- no real fit required.
+# Exercises extract -> simulate -> build -> fit_to_convergence.
+#
+# The smoke fit is tiny + under-converged, so its extracted Sigma is too diffuse:
+# make_random_effects() draws extreme alpha and make_data() rejects >10% as
+# out-of-bounds (flaky). We therefore inject group_params with the real means but
+# a TAME diagonal Sigma so the chain runs deterministically. Production extracts
+# Sigma from a well-converged fit (group_params = NULL) and does not hit this.
 # =============================================================================
 
 test_that("smoke C: run_recovery_fit completes end-to-end on the synthetic model", {
   skip_if(is.null(smoke_fitted), "smoke A/B did not produce a fitted model")
+
+  gp <- extract_group_params(smoke_fitted)
+  gp$Sigma <- diag(0.1, length(gp$mu))
+  dimnames(gp$Sigma) <- list(names(gp$mu), names(gp$mu))
 
   result <- run_recovery_fit(
     extended_model    = smoke_fitted,
@@ -132,6 +142,7 @@ test_that("smoke C: run_recovery_fit completes end-to-end on the synthetic model
     log_file          = file.path(SMOKE_DIR, "smoke_C_recovery.log"),
     out_dir           = SMOKE_DIR,
     sim_seed          = 123L,
+    group_params      = gp,
     convergence_criteria = TRIVIAL_CC,
     max_tries         = 3L,
     batch_size        = 20L,
