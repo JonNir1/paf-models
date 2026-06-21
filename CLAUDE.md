@@ -50,6 +50,13 @@ CI (GitHub Actions):
 
 When adding a new pipeline, add a unit test at L1 (for any pure helper), a build/structural test at L2 (uses the fixture, no MCMC), and a smoke test at L3 (tiny MCMC end-to-end).
 
+## Agent tooling (local, project-authored)
+
+The repo ships Claude Code tooling tuned to this PAF/EMC2 pipeline (tracked for reproducibility; vendored third-party skills under `.claude/skills/` are gitignored and reinstallable via `npx skills add`):
+- **`.claude/agents/`** — three subagents: **Coder** (clean/reusable/efficient R, reuses `build_lba_model`/`fit_to_convergence`), **Tester** (adversarial tests + prunes the suite; testthat 3 via the `testing-r-packages` skill), **Reviewer** (read-only audit of code + tests). All are EMC2-fluent (docs: https://r-packages.io/packages/EMC2) and pipeline-aware (model spec → fit → convergence → recovery → GoF → PPC → OOD).
+- **`/code-test-review-loop`** (`.claude/skills/code-test-review-loop/`) — orchestrates a looped Coder → Tester → Reviewer cycle with warm agents (continued via `SendMessage`), a persistent open-issues ledger, and an iteration cap; `iterations=1` for a single pass. The loop is sequential within an iteration (Coder + Tester both write the shared tree; Reviewer reads a stable snapshot).
+- The agents ground in the working tree / `git diff`, not authorship memory, so they work mid-stream on already-written code (e.g. a Tester-first "brownfield" pass).
+
 ## Data loading (R-native pipeline)
 
 The pipeline reads raw experiment CSVs directly in R:
@@ -91,6 +98,8 @@ The earlier Python data pipeline (`load_data.py`, `enum_types.py`, `playground.p
 The new analysis (new model family) is being set up; the step-by-step plan is a **skeleton** in `README.md` ("Analysis plan") pending the new model specs. Steps marked `X.9` are **stop-and-review checkpoints**: surface diagnostics and prompt a discussion (PI where noted) rather than auto-proceeding. Do not pre-decide outcomes at these checkpoints.
 
 The **completed** `model1`–`model5` analysis (through step 4.9: convergence, recovery, GoF, PPC) is archived on branch `analysis1` (tag `analysis1-v1.0`); consult it for the prior 16-step plan and findings.
+
+**Baseline tags**: `analysis1-v1.0` marks the archived model1-5 world; **`unified-pipeline-v1.0`** marks the current `main` baseline — the first state with the unified pipeline CI-green across all tiers (L1 + L2 build/recovery + L3 smoke A/B/C/D) on real EMC2. Revert/branch from either with `git switch -c <name> <tag>`.
 
 **Asymmetric convergence target** (production default, encoded in `default_convergence_criteria()` reading `R/config.R`):
 

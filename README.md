@@ -207,3 +207,7 @@ goodness-of-fit, and posterior predictive checks) is preserved:
 It includes the old two-phase fitting pipeline (`fit_initial.R` + `fit_extend_{local,cloud}.R`,
 superseded here by `fit_to_convergence()`), the five model definitions, and their model-specific
 build/smoke tests.
+
+The current `main` has a CI-verified baseline tag **`unified-pipeline-v1.0`** - the first state with
+the unified pipeline passing all tiers (L1 unit, L2 build + recovery chain, L3 smoke A/B/C/D) on real
+EMC2. Revert/branch from it with `git switch -c <name> unified-pipeline-v1.0`.
