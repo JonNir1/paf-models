@@ -120,19 +120,18 @@ test_that("smoke A/B: fit_to_convergence fits a fresh model then resumes it", {
 # Driven by the synthetic fitted model from smoke A/B -- no real fit required.
 # Exercises extract -> simulate -> build -> fit_to_convergence.
 #
-# The smoke fit is tiny + under-converged, so its extracted Sigma is too diffuse:
-# make_random_effects() draws extreme alpha and make_data() rejects >10% as
-# out-of-bounds (flaky). We therefore inject group_params with the real means but
-# a TAME diagonal Sigma so the chain runs deterministically. Production extracts
-# Sigma from a well-converged fit (group_params = NULL) and does not hit this.
+# The smoke fit is tiny + under-converged, so BOTH its extracted mu and Sigma are
+# unreliable: make_random_effects() draws land >10% out of model bounds and
+# make_data() rejects them (flaky). We therefore inject KNOWN-GOOD group_params
+# (config means + tame diagonal Sigma) from the shared fixture helper -- the same
+# in-bounds construction L2 uses. Production extracts from a well-converged fit
+# (group_params = NULL) and does not hit this.
 # =============================================================================
 
 test_that("smoke C: run_recovery_fit completes end-to-end on the synthetic model", {
   skip_if(is.null(smoke_fitted), "smoke A/B did not produce a fitted model")
 
-  gp <- extract_group_params(smoke_fitted)
-  gp$Sigma <- diag(0.1, length(gp$mu))
-  dimnames(gp$Sigma) <- list(names(gp$mu), names(gp$mu))
+  gp <- test_group_params(extract_design(smoke_fitted))
 
   result <- run_recovery_fit(
     extended_model    = smoke_fitted,

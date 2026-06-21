@@ -66,40 +66,9 @@ test_that("build_model: base prior means come from fit_config.R", {
   expect_prior_mean(emc_obj, "t0", T0_MU)
 })
 
-# Hand-craft group_params using config priors as point estimates
-# (same values as base_mu in build_model.R). Keep only params in this design.
-group_means <- c(
-  v                     = V_BASELINE_MU,
-  v_PrevTargetAtLocTRUE = V_PREVTAR_TRUE_MU,
-  v_CueAtLocSMALL       = V_CUE_S_MU,
-  v_CueAtLocMEDIUM      = V_CUE_M_MU,
-  v_CueAtLocLARGE       = V_CUE_L_MU,
-  v_StimulusAtLocD      = V_STIM_D_MU,
-  v_StimulusAtLocE      = V_STIM_E_MU,
-  sv_StimulusAtLocD     = SV_STIM_D_MU,
-  sv_StimulusAtLocE     = SV_STIM_E_MU,
-  B                     = B_BASELINE_MU,
-  B_SearchDifficultyMIXED     = B_SEARCH_MIX_MU,
-  B_SearchDifficultyDIFFICULT = B_SEARCH_DIF_MU,
-  A                     = A_MU,
-  t0                    = T0_MU
-)
-# sampled_pars() returns a NAMED numeric vector, so filter on its NAMES, not its
-# values. Matching `%in% sp` (the values) silently kept zero parameters, making
-# Sigma a 0x0 matrix and crashing make_random_effects() with the cryptic
-# "as many means as parameters in your design".
-sp_names    <- if (!is.null(names(sp))) names(sp) else as.character(sp)
-group_means <- group_means[names(group_means) %in% sp_names]
-
-# Every sampled parameter must have a hand-crafted mean; fail fast + clearly here
-# rather than deep inside make_random_effects() if the design ever changes.
-stopifnot(setequal(names(group_means), sp_names))
-
-# Identity-scaled covariance (0.1 * I) as a simple valid (positive-definite) Sigma
-Sigma <- diag(0.1, length(group_means))
-rownames(Sigma) <- colnames(Sigma) <- names(group_means)
-
-group_params <- list(mu = group_means, Sigma = Sigma)
+# Known-good, in-bounds group params (config means + tame diagonal Sigma), built
+# by the shared fixture helper so L2 and the L3 recovery smoke stay in sync.
+group_params <- test_group_params(design_obj)
 
 
 # =============================================================================
