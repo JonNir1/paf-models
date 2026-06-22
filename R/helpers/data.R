@@ -98,6 +98,15 @@ PrevTargetAtLoc <- function(df) {
 }
 
 
+#' Boolean factor "FALSE" < "TRUE": whether the TARGET is at accumulator location lR.
+#' A binary collapse of StimulusAtLoc (T vs {D,E}); used by the prevtarget-locus
+#' family, where MIXED trials are excluded so distractor type is redundant with
+#' the trial-level SearchDifficulty factor.
+TargetAtLoc <- function(df) {
+  factor(StimulusAtLoc(df) == "T", levels = c("FALSE", "TRUE"))
+}
+
+
 # -------------------------
 # Raw-CSV Pipeline (R-native, no Python intermediate)
 
