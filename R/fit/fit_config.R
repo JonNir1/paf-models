@@ -50,6 +50,45 @@ A_MU  <- log(0.5);                       A_SD  <- 1
 T0_MU <- log(0.5 * MIN_SACCADE_CUTOFF);  T0_SD <- 1   # use saccade cutoff as initial t0 estimate
 
 
+# ----------------------------------------------------------------------------
+# Master prior table
+# ----------------------------------------------------------------------------
+# Single source of truth mapping every POSSIBLE sampled parameter name to its
+# (mean, sd). build_lba_model() selects the entries matching the design's
+# `sampled_pars()` and errors on any sampled parameter with no entry here, so a
+# model family simply adds its parameter names below. Per-model `extra_mu`/
+# `extra_sd` override or extend these. Derived from the scalar constants above
+# (which remain the editable values and are referenced directly by tests).
+PRIOR_MU <- c(
+  v                     = V_BASELINE_MU,
+  v_PrevTargetAtLocTRUE = V_PREVTAR_TRUE_MU,
+  v_CueAtLocSMALL       = V_CUE_S_MU,
+  v_CueAtLocMEDIUM      = V_CUE_M_MU,
+  v_CueAtLocLARGE       = V_CUE_L_MU,
+  v_StimulusAtLocD      = V_STIM_D_MU,
+  v_StimulusAtLocE      = V_STIM_E_MU,
+  sv_StimulusAtLocD     = SV_STIM_D_MU,
+  sv_StimulusAtLocE     = SV_STIM_E_MU,
+  B                     = B_BASELINE_MU,
+  A                     = A_MU,
+  t0                    = T0_MU
+)
+PRIOR_SD <- c(
+  v                     = V_BASELINE_SD,
+  v_PrevTargetAtLocTRUE = V_PREVTAR_TRUE_SD,
+  v_CueAtLocSMALL       = V_CUE_S_SD,
+  v_CueAtLocMEDIUM      = V_CUE_M_SD,
+  v_CueAtLocLARGE       = V_CUE_L_SD,
+  v_StimulusAtLocD      = V_STIM_D_SD,
+  v_StimulusAtLocE      = V_STIM_E_SD,
+  sv_StimulusAtLocD     = SV_STIM_D_SD,
+  sv_StimulusAtLocE     = SV_STIM_E_SD,
+  B                     = B_BASELINE_SD,
+  A                     = A_SD,
+  t0                    = T0_SD
+)
+
+
 # ============================================================================
 # Model Fitting
 # Defaults for the unified fit_to_convergence() loop (helpers/fitting.R).
