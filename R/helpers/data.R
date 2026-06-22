@@ -57,6 +57,13 @@ filter_data <- function(data,
 
   data_filtered <- data_filtered %>% select(where(~ n_distinct(.) > 1))
 
+  # Drop factor levels left empty by row filtering. Critical for EMC2: design()
+  # harvests factor levels from each data column's levels() attribute (not from
+  # row contents), so an empty level (e.g. a MIXED-display S string after the
+  # MIXED exclusion) would otherwise seed unidentifiable structural-zero
+  # parameters in the design grid.
+  data_filtered <- droplevels(data_filtered)
+
   message(sprintf(
     "Exclusion criteria kept %.0f rows (%.1f%%) from the original %.0f rows",
     nrow(data_filtered), 100 * nrow(data_filtered) / nrow(data), nrow(data)
@@ -276,7 +283,12 @@ load_data <- function(data_dir             = DATA_DIR,
 
 #' Ordinal factor "EASY" < "MIXED" < "DIFFICULT": derived from the stimulus string S
 #' (T=target, D=distractor, E=easy-distractor; 4 stimuli per display).
+#' droplevels() removes any of the three levels absent from the data (e.g. MIXED
+#' when the prevtarget-locus family excludes MIXED trials): EMC2 design() reads
+#' the returned factor's levels() attribute, so a hardcoded-but-empty level would
+#' seed unidentifiable structural-zero parameters. Order of remaining levels is
+#' preserved.
 SearchDifficulty <- function(df) {
   results <- vapply(as.character(df$S), .classify_difficulty, character(1), USE.NAMES = FALSE)
-  factor(results, levels = c("EASY", "MIXED", "DIFFICULT"))
+  droplevels(factor(results, levels = c("EASY", "MIXED", "DIFFICULT")))
 }
