@@ -57,6 +57,13 @@ filter_data <- function(data,
 
   data_filtered <- data_filtered %>% select(where(~ n_distinct(.) > 1))
 
+  # Drop factor levels left empty by row filtering. Critical for EMC2: design()
+  # harvests factor levels from each data column's levels() attribute (not from
+  # row contents), so an empty level (e.g. a MIXED-display S string after the
+  # MIXED exclusion) would otherwise seed unidentifiable structural-zero
+  # parameters in the design grid.
+  data_filtered <- droplevels(data_filtered)
+
   message(sprintf(
     "Exclusion criteria kept %.0f rows (%.1f%%) from the original %.0f rows",
     nrow(data_filtered), 100 * nrow(data_filtered) / nrow(data), nrow(data)
@@ -180,15 +187,24 @@ TargetAtLoc <- function(df) {
 #' Read both raw experiment CSVs, apply all transformations, and return a
 #' filtered EMC2-ready tibble.
 #'
+#' The `search_difficulty` column is derived from the stimulus string `S` (the
+#' single source of truth, classified by `.classify_difficulty()` — the same
+#' logic the `SearchDifficulty()` design closure uses) and validated against the
+#' raw CSV `search_difficulty` field; any disagreement is a hard error.
+#'
 #' @param data_dir             Root data directory (must contain exp1/ and exp2/).
 #' @param min_rt               Lower RT bound in seconds (inclusive). Default 0.
 #' @param max_rt               Upper RT bound in seconds (inclusive). Default Inf.
 #' @param allow_target_repeats If FALSE, drops repeated-target trials. Default TRUE.
+#' @param difficulties         Character vector of search-difficulty levels to
+#'   keep (subset of EASY/MIXED/DIFFICULT, case-insensitive). NULL (default)
+#'   keeps all. E.g. `c("EASY","DIFFICULT")` for the prevtarget-locus family.
 #' @return Filtered tibble ready for EMC2::design().
 load_data <- function(data_dir             = DATA_DIR,
                       min_rt               = 0,
                       max_rt               = Inf,
-                      allow_target_repeats = TRUE) {
+                      allow_target_repeats = TRUE,
+                      difficulties         = NULL) {
   if (max_rt < min_rt)
     stop(sprintf("Invalid range: max_rt (%s) cannot be lower than min_rt (%s)", max_rt, min_rt))
 
@@ -199,6 +215,23 @@ load_data <- function(data_dir             = DATA_DIR,
     arrange(experiment, subjects, trials)
 
   message(sprintf("Loaded %d trials from raw CSVs in: %s", nrow(data), data_dir))
+
+  # search_difficulty: derive from the S stimulus string (single source of truth)
+  # and validate against the raw CSV field — they must agree.
+  raw_difficulty     <- toupper(as.character(data$search_difficulty))
+  derived_difficulty <- as.character(SearchDifficulty(data))
+  mismatch <- which(raw_difficulty != derived_difficulty)
+  if (length(mismatch) > 0) {
+    ex <- mismatch[1]
+    stop(sprintf(
+      paste0("search_difficulty disagreement between the raw CSV field and the ",
+             "S-derived classification in %d of %d trials (e.g. row %d: S='%s', ",
+             "raw='%s', S-derived='%s'). The S string is the single source of ",
+             "truth; investigate the raw data."),
+      length(mismatch), nrow(data), ex,
+      as.character(data$S)[ex], raw_difficulty[ex], derived_difficulty[ex]))
+  }
+  data$search_difficulty <- derived_difficulty
 
   # Factor encoding
   data <- data %>%
@@ -215,27 +248,47 @@ load_data <- function(data_dir             = DATA_DIR,
     mutate(across(where(is.character), factor)) %>%
     mutate(across(where(is.logical),   factor))
 
+  # Optional difficulty subset (e.g. exclude MIXED for the prevtarget-locus family).
+  if (!is.null(difficulties)) {
+    difficulties <- toupper(as.character(difficulties))
+    valid <- c("EASY", "MIXED", "DIFFICULT")
+    bad   <- setdiff(difficulties, valid)
+    if (length(bad) > 0)
+      stop(sprintf("Invalid difficulties: %s. Choose from %s.",
+                   paste(bad, collapse = ", "), paste(valid, collapse = ", ")))
+    data <- data %>% filter(search_difficulty %in% difficulties)
+  }
+
   # Filtering — delegates to existing filter_data()
   filter_data(data, min_rt = min_rt, max_rt = max_rt, allow_target_repeats = allow_target_repeats)
 }
 
 
 # -------------------------
+#' Classify one stimulus string S into a difficulty label (single source of
+#' truth, used by BOTH load_data() and the SearchDifficulty() design closure).
+#' T=target, D=distractor, E=easy-distractor; exactly 4 stimuli, 1 target.
+.classify_difficulty <- function(s) {
+  elements <- trimws(unlist(strsplit(s, ",")))
+  counts   <- table(factor(elements, levels = c("T", "D", "E")))
+  n_T <- counts["T"]; n_D <- counts["D"]; n_E <- counts["E"]
+  if (n_T + n_D + n_E != 4) stop(paste("Unexpected number of stimuli in string:", s))
+  if (n_T != 1)             stop(paste("Invalid number of Targets (T) in string:", s))
+  if      (n_E == 3)             return("EASY")
+  else if (n_D == 3)             return("DIFFICULT")
+  else if (n_D == 1 && n_E == 2) return("MIXED")
+  else if (n_D == 2 && n_E == 1) stop(paste("Unsupported distractor combination (2D, 1E):", s))
+  else                           stop(paste("String does not match any difficulty criteria:", s))
+}
+
 #' Ordinal factor "EASY" < "MIXED" < "DIFFICULT": derived from the stimulus string S
 #' (T=target, D=distractor, E=easy-distractor; 4 stimuli per display).
+#' droplevels() removes any of the three levels absent from the data (e.g. MIXED
+#' when the prevtarget-locus family excludes MIXED trials): EMC2 design() reads
+#' the returned factor's levels() attribute, so a hardcoded-but-empty level would
+#' seed unidentifiable structural-zero parameters. Order of remaining levels is
+#' preserved.
 SearchDifficulty <- function(df) {
-  classify_string <- function(s) {
-    elements <- trimws(unlist(strsplit(s, ",")))
-    counts   <- table(factor(elements, levels = c("T", "D", "E")))
-    n_T <- counts["T"]; n_D <- counts["D"]; n_E <- counts["E"]
-    if (n_T + n_D + n_E != 4) stop(paste("Unexpected number of stimuli in string:", s))
-    if (n_T != 1)             stop(paste("Invalid number of Targets (T) in string:", s))
-    if      (n_E == 3)             return("EASY")
-    else if (n_D == 3)             return("DIFFICULT")
-    else if (n_D == 1 && n_E == 2) return("MIXED")
-    else if (n_D == 2 && n_E == 1) stop(paste("Unsupported distractor combination (2D, 1E):", s))
-    else                           stop(paste("String does not match any difficulty criteria:", s))
-  }
-  results <- vapply(as.character(df$S), classify_string, character(1), USE.NAMES = FALSE)
-  factor(results, levels = c("EASY", "MIXED", "DIFFICULT"))
+  results <- vapply(as.character(df$S), .classify_difficulty, character(1), USE.NAMES = FALSE)
+  droplevels(factor(results, levels = c("EASY", "MIXED", "DIFFICULT")))
 }
