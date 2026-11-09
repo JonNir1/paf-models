@@ -190,7 +190,15 @@ loo_summary_row <- function(model_name, loo_obj, waic_obj,
 #' @param loo_list  Named list of loo objects (one per model).
 #' @return data.frame, columns: model, elpd_diff, se_diff.
 make_loo_comparison_df <- function(loo_list) {
-  comp_mat <- loo::loo_compare(loo_list)
+  .tidy_loo_compare(loo::loo_compare(loo_list))
+}
+
+
+#' Tidy a `loo::loo_compare()` matrix into a data.frame. Pure.
+#'
+#' @param comp_mat Matrix with rownames = models, columns incl. elpd_diff, se_diff.
+#' @return data.frame, columns: model, elpd_diff, se_diff.
+.tidy_loo_compare <- function(comp_mat) {
   df <- as.data.frame(comp_mat[, c("elpd_diff", "se_diff"), drop = FALSE])
   df$model <- rownames(comp_mat)
   rownames(df) <- NULL
