@@ -40,10 +40,7 @@ MODEL_NAMES <- discover_model_names()
 # =============================================================================
 
 .latest_ppc <- function(model_name, dir = PPC_MODELS_DIR) {
-  pattern <- sprintf("^[0-9]{6}_%s_ppc\\.rds$", model_name)
-  files   <- list.files(dir, pattern = pattern, full.names = TRUE)
-  if (length(files) == 0L) return(NA_character_)
-  files[which.max(as.Date(sub("_.*", "", basename(files)), format = "%y%m%d"))]
+  latest_dated_file(dir, sprintf("^[0-9]{6}_%s_ppc\\.rds$", model_name))
 }
 
 

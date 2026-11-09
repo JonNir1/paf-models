@@ -178,9 +178,7 @@ if (length(args) == 0L) {
   suffix_override     <- parse_str_arg(args, "--suffix")
   suffix <- if (!is.null(suffix_override)) suffix_override else ""
 
-  # Derive model name from rds filename: strip date prefix + _extended suffix
-  ppc_name <- sub("^[0-9]{6}_", "", tools::file_path_sans_ext(extended_rds))
-  ppc_name <- sub("(_extended)+$", "", ppc_name)
+  ppc_name <- model_name_from_rds(extended_rds)
 
   ppc_out_dir <- file.path(MODELS_DIR, "fit_ppc")
   if (!dir.exists(ppc_out_dir)) dir.create(ppc_out_dir, recursive = TRUE)

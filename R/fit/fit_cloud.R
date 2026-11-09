@@ -34,6 +34,7 @@ library(EMC2)
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/fit/helpers/fitting.R")   # transitively: build_model.R, fit_config.R, data.R, config.R
+source_root("R/eval/helpers/io.R")       # model_name_from_rds
 
 RNGkind(RNG_KIND)
 set.seed(RNG_SEED)
@@ -84,7 +85,7 @@ if (!is.null(model_script)) {
   source(model_script)                       # defines build_model() and MODEL_NAME
   model_name <- MODEL_NAME
 } else {
-  model_name <- sub("^[0-9]{6}_", "", tools::file_path_sans_ext(basename(resume_rds)))
+  model_name <- model_name_from_rds(resume_rds)
 }
 
 run_date  <- format(Sys.Date(), "%y%m%d")
