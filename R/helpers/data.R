@@ -287,8 +287,11 @@ load_data <- function(data_dir             = DATA_DIR,
 #' when the prevtarget-locus family excludes MIXED trials): EMC2 design() reads
 #' the returned factor's levels() attribute, so a hardcoded-but-empty level would
 #' seed unidentifiable structural-zero parameters. Order of remaining levels is
-#' preserved.
+#' preserved. Classifies each distinct S once: design() calls this on grids of
+#' ~200k rows holding only a handful of distinct strings.
 SearchDifficulty <- function(df) {
-  results <- vapply(as.character(df$S), .classify_difficulty, character(1), USE.NAMES = FALSE)
-  droplevels(factor(results, levels = c("EASY", "MIXED", "DIFFICULT")))
+  s        <- as.character(df$S)
+  unique_s <- unique(s)
+  labels   <- vapply(unique_s, .classify_difficulty, character(1), USE.NAMES = FALSE)
+  droplevels(factor(labels[match(s, unique_s)], levels = c("EASY", "MIXED", "DIFFICULT")))
 }
