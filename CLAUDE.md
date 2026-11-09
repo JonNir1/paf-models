@@ -88,29 +88,11 @@ The earlier Python data pipeline (`load_data.py`, `enum_types.py`, `playground.p
 
 ## Analysis workflow
 
-The research pipeline runs in numbered stages. Steps marked `X.9` (and one `2.4`) are **stop-and-review checkpoints**: Claude must surface diagnostics and prompt a discussion (with PI flagged where noted) rather than auto-proceeding to the next stage. Do not pre-decide outcomes for deferred questions at these checkpoints.
+The modeling pipeline runs in stages: initial fit, extend to convergence, parameter recovery, goodness-of-fit / model selection, posterior predictive checks, then out-of-distribution (exp3) prediction. Steps marked as stop-and-review checkpoints surface diagnostics for discussion (PI where noted) rather than auto-proceeding.
 
-| # | Step | Status |
-|---|---|---|
-| 0a | PAF predictions pre-registered (notes/paper) | DONE |
-| 0b | Pre-hoc exclusion: RT cutoffs (0.23-1.0 s) only; no further subject filter | DONE |
-| 1 | `fit_initial.R`: 1000 samples per model | DONE |
-| 2 | `fit_extend_local.R` with asymmetric convergence target (see below). All models run to 3000 total iterations. | DONE |
-| **2.4** | **Claude-only sanity check**: flag models with severe non-convergence (`$mu` Rhat > 1.1 or ESS < 200). No hard flags triggered. Models 4 and 5 show marginal convergence (soft flags for 2.9 trace-plot review). Model 3 excluded from all further analyses (mechanistically identical to model 4 but less interpretable). Active set: models 1, 2, 4, 5. | DONE |
-| 2.5 | **Parameter recovery** -- Replicating Strickland et al. (2026) Supplementary: extract (μ̂, Σ̂) from each extended fit; for each of 3 simulations draw fresh subject parameters via `make_random_effects(design, μ̂, Σ̂)` and simulate data via `make_data()` on the real trial structure; refit each model from scratch using the same priors as the original fits. Evaluate recovery with EMC2's built-in `recovery()` (RMSE + correlation at μ and α levels; Strickland et al. 2026) and posterior z-scores + contraction (Schad, Betancourt & Vasishth 2021). | NEXT |
-| **2.9** | **STOP & REVIEW (with PI)**: combined convergence + recovery review. Decide which models survive. | |
-| 3 | **Goodness of fit** -- BPIC (screening), DIC (reporting only, not for decisions), PSIS-LOO-CV (primary, with Pareto-k diagnostic), WAIC (confirmatory); no Bayes factors (priors not grounded enough to trust marginal-likelihood ratios). | |
-| **3.9** | **STOP & REVIEW (with PI)**: review Pareto-k diagnostics (flag any model with > 10% k > 0.7), check LOO/WAIC agreement, identify candidate winner(s) or co-winners. | |
-| 4 | PPC for top model(s): per-subject KS + theory-relevant contrasts on exp1+2. | |
-| **4.9** | **STOP & REVIEW**: PPC quality + exp1+2 vs exp3 descriptive comparison (population-shift check). | |
-| 5 | OOD test: within-subject prediction. Use trained `$alpha` to simulate exp3 conditions (incl. all-cue: see mechanism below). Compare to empirical exp3. | |
-| **5.9** | **STOP & REVIEW (with PI)**: define pass/fail rule (deferred until now), interpret results. | |
-| 6 | PPC + OOD for all other accepted models (diagnostic comparison). | |
-| 7 | Identifiability spot-check: max pairwise posterior correlation per accepted model. | |
-| **7.9** | **STOP & REVIEW**: final synthesis. Joint GoF + OOD ranking, write-up plan. | |
-| 8 | Conclude / write up. | |
+The completed `model1`-`model5` analysis (`analysis1-v1.0`) is summarized in `docs/analysis1_summary.md` (local-only): consult it for that analysis's workflow, model specs, results, and findings.
 
-**Asymmetric convergence target for step 2** (overrides the symmetric defaults in `R/fit/fit_config.R`):
+**Asymmetric convergence target** (production default; thresholds in `R/config.R`):
 
 | Block | Rhat | ESS bulk | Notes |
 |---|---|---|---|
@@ -123,13 +105,7 @@ This is implemented in `check_block_convergence()` in `R/fit/helpers/fitting.R`:
 
 **All-cue prediction mechanism (step 5)**: exp3 introduces a novel "all-cue" condition (the same visual cue shown at all 4 locations simultaneously). The trained LBA model handles this without retraining: set `CueAtLoc=X` on **all 4 accumulators** rather than one cued and three NONE. The additive linear LBA then predicts (a) uniformly faster RTs, (b) no location bias, (c) linear speedup vs. single-cue. Any of these failing in empirical exp3 is informative falsification (attention-splitting, saturation, or non-additive cue combination).
 
-**Deferred decisions** (do NOT pre-decide; resolve at the listed checkpoint):
-- OOD contrast pass/fail rule → resolve at 5.9.
-- `$sigma2` non-convergence acceptance for models 4-5 → resolve at 2.9.
-
-**No forced single winner**: GoF and OOD rankings are reported jointly. The analysis may legitimately conclude with co-winners or with different "best" models for different criteria.
-
-**Compute envelope through step 5** (parallel cloud, spot pricing): ~$200-300, ~3-4 weeks wall-clock.
+**No forced single winner**: GoF and OOD rankings are reported jointly. An analysis may legitimately conclude with co-winners or with different "best" models for different criteria.
 
 ## Important files
 
@@ -200,17 +176,11 @@ Other:
 
 ## Known issues (deferred)
 
-### L2 build tests — `'listgreater'` and assertion bugs RESOLVED; `design()` is slow (L2 now nightly)
+### `EMC2::design()` is intrinsically slow (L2 runs nightly, not per-push)
 
-History (all resolved): L2 (`test_build_models.R`) errored for a long time inside `EMC2::design()` with `unimplemented type 'list' in 'listgreater'`. **Root cause was the test fixture**: the old `sample_data.csv`/`generate_fixture.R` emitted each trial **4x-duplicated** (one row per accumulator) with only 11 columns, whereas `load_data()` returns **one row per trial** with 15 columns and EMC2's `design()`/`add_accumulators()` does the per-`lR` expansion itself. Feeding pre-expanded rows corrupted the accumulator ordering. Regenerating the fixture as a faithful one-row-per-trial, 15-column matrix fixed it. Once `design()` succeeded, two pre-existing bugs in `__tests__/models/shared_assertions.R` surfaced and were fixed: `expect_type()`/`expect_setequal()` were being passed an unsupported `label=` arg, and `expect_prior_mean()` read `prior$mu_mean` instead of `prior$theta_mu_mean` (the EMC2 3.4.1 field).
+`EMC2::design()` is ~minutes per model with the PAF LBA spec, on both synthetic and real data. It is dominated by EMC2 evaluating the custom design `functions` (the `SearchDifficulty`/`StimulusAtLoc`/`CueAtLoc`/`PrevTargetAtLoc` closures) over its design grid; it is **not** row-count-driven (a tiny fixture is just as slow). Real fits absorb this one-time cost inside multi-hour MCMC runs. Consequences for testing: L2 builds each model **once** and reuses it across that model's assertions, and L2 is **off the per-push gate**, on nightly + manual dispatch (`.github/workflows/build.yml`); L1 is the fast per-push gate.
 
-**Remaining characteristic (not a bug): `EMC2::design()` is intrinsically slow** with the PAF LBA spec — ~minutes per model, on both synthetic and real data (measured: ~10 min for `design()` on a 300-row real slice locally; CI build-tests were ~8 min/build). It is dominated by EMC2 evaluating the custom design `functions` (the `SearchDifficulty`/`StimulusAtLoc`/`CueAtLoc`/`PrevTargetAtLoc` closures) over its design grid; it is not row-count-driven (a 16-row fixture is just as slow). The real fits tolerate this one-time cost inside multi-hour MCMC runs. Consequences for testing:
-- L2 now builds each model **once** and reuses it across that model's assertions (`test_build_models.R`, `test_recovery_build.R`), cutting ~23 builds → ~5 (+2 for recovery). Suite is ~tens of minutes.
-- L2 was moved **off the per-push gate** to nightly + manual dispatch (`.github/workflows/build.yml`); L1 remains the fast per-push gate.
-
-**Deferred (not now):** optimizing `design()` itself (e.g. vectorizing the `SearchDifficulty` closure). This touches the modeling code used by real fits, so it needs careful behavior-preserving validation and was deliberately not attempted as part of the test cleanup.
-
-**Status**: not blocking the analysis pipeline (recovery/fit/extend work end-to-end via L3 smoke tests). Next: confirm a green L2 on the nightly/manual `build.yml` run.
+**Deferred (not now):** optimizing `design()` itself (e.g. vectorizing the `SearchDifficulty` closure). This touches the modeling code used by real fits, so it needs careful behavior-preserving validation.
 
 ---
 
