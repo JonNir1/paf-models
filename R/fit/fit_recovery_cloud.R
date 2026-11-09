@@ -31,8 +31,6 @@
 #' scripts/run_recovery.sh). No-op if either is unset (safe for local use).
 #' =============================================================================
 
-library(EMC2)
-
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/fit/helpers/recovery.R")
 
@@ -173,6 +171,8 @@ if (length(args) == 0L) {
     "--fit-samples 5 --max-tries 1 --step-size 5 --save-every 1 --suffix _smoke"
   )
 } else {
+
+  library(EMC2)
 
   RNGkind(RNG_KIND)
   set.seed(RNG_SEED)

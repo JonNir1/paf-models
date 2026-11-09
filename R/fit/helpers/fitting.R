@@ -153,8 +153,6 @@ save_model <- function(model, name, dir_path, date_prefix = NULL) {
 #' @return List with `converged` (overall boolean) and `groups` (per-group list
 #'   of max_rhat, min_ess, thresholds, and per-group `converged`).
 check_convergence <- function(model, convergence_criteria) {
-  library(EMC2)
-
   group_keys <- setdiff(names(convergence_criteria), "num_samples")
   if (length(group_keys) == 0L)
     stop("convergence_criteria gates no parameter groups (only num_samples given).")
@@ -162,7 +160,7 @@ check_convergence <- function(model, convergence_criteria) {
   tokens <- vapply(group_keys, .convergence_group_token, character(1))
 
   capture.output(
-    chk <- suppressWarnings(check(
+    chk <- suppressWarnings(emc_check(
       model, selection = unname(tokens), plot_worst = FALSE, digits = 4
     ))
   )
@@ -336,7 +334,6 @@ fit_to_convergence <- function(emc,
                                log_file             = NULL,
                                init_stop_criteria   = NULL,
                                append_log           = FALSE) {
-  library(EMC2)
   start_time <- Sys.time()
 
   # ---- Validate inputs BEFORE any heavy work (fail in ms, not hours) ----
@@ -378,7 +375,7 @@ fit_to_convergence <- function(emc,
   if (n_samp_start == 0L) {
     log_msg(sprintf("Fresh model: warming up (burn/adapt) + initial %d sample iters...", batch_size),
             log_file, console_print = TRUE)
-    emc <- fit(
+    emc <- emc_fit(
       emc,
       cores_for_chains = core_args$cores_for_chains,
       cores_per_chain  = core_args$cores_per_chain,
@@ -415,7 +412,7 @@ fit_to_convergence <- function(emc,
     for (try_idx in seq_len(max_tries)) {
       log_msg(sprintf("Try %d/%d: adding %d sample iters...", try_idx, max_tries, batch_size),
               log_file, console_print = TRUE)
-      emc <- run_emc(
+      emc <- emc_run(
         emc,
         stage            = "sample",
         stop_criteria    = list(iter = batch_size, max_gr = 1.5, min_es = 1),

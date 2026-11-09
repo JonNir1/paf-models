@@ -30,8 +30,6 @@ source_root("R/fit/helpers/fitting.R")
 #' @param model A fitted EMC2 model object (emc class).
 #' @return Named list: mu (named numeric vector), Sigma (named square matrix).
 extract_group_params <- function(model) {
-  library(EMC2)
-
   # Helper: combine mcmc.list chains into a plain numeric matrix.
   # as.matrix() strips the mcmc class so rbind + colMeans work reliably.
   .chain_means <- function(samples) {
@@ -40,18 +38,18 @@ extract_group_params <- function(model) {
   }
 
   # --- Population means (mu block) ---
-  mu_samples <- get_pars(model, selection = "mu", stage = "sample",
-                         map = FALSE, return_mcmc = TRUE)
+  mu_samples <- emc_get_pars(model, selection = "mu", stage = "sample",
+                             map = FALSE, return_mcmc = TRUE)
   mu_hat <- .chain_means(mu_samples)
 
   # --- Covariance: Sigma = E[diag(SD_i) %*% Cor_i %*% diag(SD_i)] ---
   # We average per-sample Sigma matrices rather than averaging variances and
   # correlations separately and then combining. This guarantees positive-
   # definiteness because the mean of PD matrices is PD (convex combination).
-  var_samples <- get_pars(model, selection = "sigma2", stage = "sample",
-                          return_mcmc = TRUE)
-  cor_samples <- get_pars(model, selection = "correlation", stage = "sample",
-                          flatten = TRUE, return_mcmc = TRUE)
+  var_samples <- emc_get_pars(model, selection = "sigma2", stage = "sample",
+                              return_mcmc = TRUE)
+  cor_samples <- emc_get_pars(model, selection = "correlation", stage = "sample",
+                              flatten = TRUE, return_mcmc = TRUE)
 
   var_mat <- do.call(rbind, lapply(var_samples, as.matrix))  # (n_samples x n_pars)
   cor_mat <- do.call(rbind, lapply(cor_samples, as.matrix))  # (n_samples x n_pairs)
@@ -118,11 +116,10 @@ extract_design <- function(model) {
 #' @param seed    Optional integer RNG seed (affects draw-index jitter if any).
 #' @return List of n_draws matrices, each [n_subjects x n_pars] with named columns.
 sample_posterior_alphas <- function(model, n_draws, seed = NULL) {
-  library(EMC2)
   if (!is.null(seed)) set.seed(seed)
 
-  alpha_raw <- get_pars(model, selection = "alpha", stage = "sample",
-                        map = FALSE, return_mcmc = TRUE)
+  alpha_raw <- emc_get_pars(model, selection = "alpha", stage = "sample",
+                            map = FALSE, return_mcmc = TRUE)
 
   # Collapse each element to a plain [n_samples x n_subjects] matrix.
   # Each element may be a plain matrix or an mcmc.list of per-chain matrices.
@@ -174,7 +171,6 @@ sample_posterior_alphas <- function(model, n_draws, seed = NULL) {
 #'   $data         -- simulated data frame (same structure as template_data)
 #'   $subject_pars -- matrix of true alpha_i (subjects x parameters)
 simulate_recovery_data <- function(model, group_params, template_data, seed) {
-  library(EMC2)
   set.seed(seed)
 
   design_obj <- extract_design(model)
@@ -187,7 +183,7 @@ simulate_recovery_data <- function(model, group_params, template_data, seed) {
                     error = function(e) FALSE))
 
   if (Sigma_ok) {
-    subject_pars <- make_random_effects(
+    subject_pars <- emc_make_random_effects(
       design      = design_obj,
       group_means = group_params$mu,
       n_subj      = NULL,
@@ -195,7 +191,7 @@ simulate_recovery_data <- function(model, group_params, template_data, seed) {
     )
   } else {
     warning("Using variance_proportion = 0.2 fallback (Sigma not positive-definite).")
-    subject_pars <- make_random_effects(
+    subject_pars <- emc_make_random_effects(
       design             = design_obj,
       group_means        = group_params$mu,
       n_subj             = NULL,
@@ -206,7 +202,7 @@ simulate_recovery_data <- function(model, group_params, template_data, seed) {
   # Simulate data using the real trial structure as template.
   # make_data() returns FALSE (not a data frame) when >10% of parameter values
   # fall outside model bounds; stop early with a clear message in that case.
-  sim_data <- make_data(subject_pars, design_obj, data = template_data)
+  sim_data <- emc_make_data(subject_pars, design_obj, data = template_data)
   if (isFALSE(sim_data)) {
     stop(
       "make_data() returned FALSE: >10% of drawn subject parameters fall ",
