@@ -26,8 +26,9 @@ source_root("R/helpers/emc2_api.R")      # emc_* wrappers
 #'
 #' Prior means/SDs are NOT hardcoded here: they are selected from the master
 #' PRIOR_MU/PRIOR_SD tables in fit_config.R by matching the design's
-#' `sampled_pars()`. A sampled parameter with no entry in the master table (and
-#' not supplied via extra_mu/extra_sd) is a hard error -- add it to the table.
+#' `sampled_pars()`. A sampled parameter lacking a mean or an SD in the master
+#' table (and not supplied via extra_mu/extra_sd) is a hard error -- add it to
+#' the table.
 #'
 #' @param data       Data frame returned by filter_data().
 #' @param v_formula  Formula object for drift rate, e.g.
@@ -76,7 +77,7 @@ build_lba_model <- function(data,
   master_sd <- PRIOR_SD; master_sd[names(extra_sd)] <- extra_sd
 
   sp_names <- names(emc_sampled_pars(LBA_design))
-  missing  <- setdiff(sp_names, names(master_mu))
+  missing  <- setdiff(sp_names, intersect(names(master_mu), names(master_sd)))
   if (length(missing) > 0) {
     stop(sprintf(
       "No prior defined for sampled parameter(s): %s. Add them to PRIOR_MU/PRIOR_SD in fit_config.R or pass via extra_mu/extra_sd.",
