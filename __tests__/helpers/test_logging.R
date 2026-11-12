@@ -57,9 +57,10 @@ test_that("log_msg: console_print flag does not affect file content", {
   expect_equal(strip_ts(readLines(f1)), strip_ts(readLines(f2)))
 })
 
-test_that("log_msg: invalid path throws error", {
+test_that("log_msg: invalid path throws error; NULL path logs to the console only", {
   expect_error(log_msg("msg", ""))
   expect_error(log_msg("msg", NA_character_))
+  expect_output(log_msg("console only", NULL), "console only")
 })
 
 

@@ -14,11 +14,16 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 # -------------------------
 #' Write a timestamped message to a log file, optionally echoing to console.
 #' @param msg         Character string to log.
-#' @param file_path   Path to the log file (appended to).
+#' @param file_path   Path to the log file (appended to), or NULL to log to the
+#'   console only (as fit_to_convergence(log_file = NULL) documents).
 #' @param console_print Logical; if TRUE the message is also cat()-ed to stdout.
 log_msg <- function(msg, file_path, console_print = FALSE) {
-  if (!check_valid_string(file_path)) stop(sprintf("Invalid Log File Path: %s", file_path))
   timestamped_msg <- paste0("[", Sys.time(), "] :: ", msg, "\n")
+  if (is.null(file_path)) {
+    cat(timestamped_msg)
+    return(invisible(NULL))
+  }
+  if (!check_valid_string(file_path)) stop(sprintf("Invalid Log File Path: %s", file_path))
   if (console_print) {
     cat(timestamped_msg)
   }
