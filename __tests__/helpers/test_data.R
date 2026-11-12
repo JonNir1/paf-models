@@ -1,21 +1,9 @@
-.libPaths(c(file.path(Sys.getenv("USERPROFILE"), "R", "library"), .libPaths()))
 library(testthat)
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
 source(file.path(ROOT, "R", "helpers", "data.R"))
+source(file.path(ROOT, "__tests__", "fixtures", "common.R"))
 
-FIXTURE <- file.path(ROOT, "__tests__", "fixtures", "sample_data.csv")
-
-# Helper: read the fixture CSV and apply EMC2 factor encoding (replaces old load_safe_csv).
-fixture_df <- function() {
-  readr::read_csv(FIXTURE, show_col_types = FALSE) %>%
-    mutate(
-      search_difficulty    = factor(search_difficulty, levels=c("EASY","MIXED","DIFFICULT"), ordered=TRUE),
-      cue_size             = factor(cue_size, levels=c("NONE","SMALL","MEDIUM","LARGE"), ordered=TRUE),
-      R=factor(R), cue_location=factor(cue_location),
-      target_location=factor(target_location), prev_target_location=factor(prev_target_location)
-    ) %>%
-    mutate(across(where(is.character), factor), across(where(is.logical), factor))
-}
+fixture_df <- load_fixture_raw
 
 
 # =============================================================================

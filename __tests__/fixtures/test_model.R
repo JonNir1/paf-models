@@ -62,7 +62,7 @@ test_group_params <- function(design, sd = 0.1) {
     t0                    = T0_MU
   )
   # sampled_pars() returns a NAMED numeric vector -> filter on names, not values.
-  sp       <- sampled_pars(design)
+  sp       <- emc_sampled_pars(design)
   sp_names <- if (!is.null(names(sp))) names(sp) else as.character(sp)
   mu       <- mu_full[names(mu_full) %in% sp_names]
   stopifnot(setequal(names(mu), sp_names))   # every sampled param must have a mean

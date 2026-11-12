@@ -18,7 +18,7 @@ library(testthat)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
 source(file.path(ROOT, "R", "utils.R"))
-source_root("R/fit/helpers/fitting.R")   # source-time EMC2-free (library(EMC2) is call-time)
+source_root("R/fit/helpers/fitting.R")   # EMC2-free: EMC2 is reached only via emc_* wrappers
 
 
 # =============================================================================
