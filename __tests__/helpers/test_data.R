@@ -109,14 +109,104 @@ test_that(".parse_cue_at_prev: 1/congruent -> TRUE, 0 and both incongruent spell
 
 
 # =============================================================================
-# load_data: input validation (no real data required)
+# load_data(): end to end on tiny synthetic raw CSVs
 # =============================================================================
 
-test_that("load_data: non-existent data_dir throws informative error", {
-  expect_error(load_data(data_dir = file.path(tempdir(), "no_such_dir")),
-               regexp = "not found")
+# Minimal raw schema read by .read_one_experiment(). Distractor codes:
+# 1 = T, 2 = D, 3 = E. The shapes_types_vec_* columns are written out of order
+# to check that S is built from the location-sorted columns. Row 5 has no
+# saccade onset and must be dropped.
+raw_experiment <- function(exp_id) {
+  raw <- data.frame(
+    Subject              = c(1, 1, 2, 2, 2) + 10 * exp_id,
+    Trial                = 1:5,
+    trial_number         = c(1, 2, 1, 2, 3),
+    target_location_idx  = c(1, 2, 3, 4, 1),
+    cue_location_idx     = c(1, 3, 2, 4, 1),
+    fixation_offset_fix1 = c(300, 450, 600, 900, NA),
+    fixation_location_fix2 = c(1, 2, 4, 3, NA),
+    prev_tar_loc         = c(2, 1, 4, 3, 1),
+    search_difficulty    = c("easy", "difficult", "mixed", "easy", "easy"),
+    reploc               = c("oldloc", "newloc", "same", "diff", "same"),
+    ReplocCue            = c("1", "0", "congruent", "incongurent", "1"),
+    shapes_types_vec_3   = c(3, 2, 1, 3, 3),
+    shapes_types_vec_1   = c(1, 2, 3, 3, 1),
+    shapes_types_vec_4   = c(3, 2, 2, 1, 3),
+    shapes_types_vec_2   = c(3, 1, 3, 3, 3)
+  )
+  if (exp_id == 1) {
+    raw$Block <- c(1, 1, 2, 2, 2)
+  } else {
+    raw$block_number <- c(1, 1, 2, 2, 2)
+    raw$cue_size     <- c(1, 2, 1, 2, 1)
+  }
+  raw
+}
+EXPECTED_S <- c("T,E,E,E", "D,T,D,D", "E,E,T,D", "E,E,E,T")
+
+write_raw_data <- function(exp1 = raw_experiment(1), exp2 = raw_experiment(2)) {
+  dir <- tempfile("raw_data_")
+  for (i in 1:2) {
+    dir.create(file.path(dir, sprintf("exp%d", i)), recursive = TRUE)
+    readr::write_csv(list(exp1, exp2)[[i]],
+                     file.path(dir, sprintf("exp%d", i), sprintf("Exp%d_clean.csv", i)),
+                     na = "")
+  }
+  dir
+}
+load_quiet <- function(dir, ...) suppressMessages(load_data(data_dir = dir, ...))
+
+test_that("load_data: returns the 15-column trial contract of sample_data.csv", {
+  out <- load_quiet(write_raw_data())
+  expect_equal(names(out), names(readr::read_csv(file.path(FIXTURES_DIR, "sample_data.csv"),
+                                                 n_max = 0, show_col_types = FALSE)))
+  expect_equal(nrow(out), 8L)   # the NA-onset row of each experiment is dropped
+  expect_equal(as.character(out$experiment), rep(c("exp_1", "exp_2"), each = 4))
 })
 
-test_that("load_data: max_rt < min_rt throws error", {
-  expect_error(load_data(data_dir = tempdir(), min_rt = 0.8, max_rt = 0.2))
+test_that("load_data: converts ms to s, builds S from sorted locations, maps every raw field", {
+  out <- load_quiet(write_raw_data())
+  expect_equal(out$rt, rep(c(0.3, 0.45, 0.6, 0.9), 2))
+  expect_equal(as.character(out$S), rep(EXPECTED_S, 2))
+  expect_equal(as.character(out$R), rep(c("1", "2", "4", "3"), 2))
+  expect_equal(as.character(out$search_difficulty), rep(c("EASY", "DIFFICULT", "MIXED", "EASY"), 2))
+  expect_equal(as.character(out$cue_size), c(rep("MEDIUM", 4), "SMALL", "LARGE", "SMALL", "LARGE"))
+  expect_equal(as.character(out$is_target_repeated), rep(c("TRUE", "FALSE", "TRUE", "FALSE"), 2))
+  expect_equal(as.character(out$is_cue_at_prev_target), rep(c("TRUE", "FALSE", "TRUE", "FALSE"), 2))
+  expect_equal(as.numeric(as.character(out$block)), rep(c(1, 1, 2, 2), 2))
+  expect_equal(as.character(out$subjects), c("11", "11", "12", "12", "21", "21", "22", "22"))
+})
+
+test_that("load_data: ordered factors keep the canonical order, minus absent levels", {
+  out <- load_quiet(write_raw_data())
+  expect_true(is.ordered(out$search_difficulty) && is.ordered(out$cue_size))
+  expect_equal(levels(out$search_difficulty), c("EASY", "MIXED", "DIFFICULT"))
+  expect_equal(levels(out$cue_size), c("SMALL", "MEDIUM", "LARGE"))   # NONE never occurs
+  expect_equal(levels(out$R), c("1", "2", "3", "4"))
+})
+
+test_that("load_data: difficulties keeps a case-insensitive subset and drops the others' levels", {
+  out <- load_quiet(write_raw_data(), difficulties = c("easy", "DIFFICULT"))
+  expect_equal(nrow(out), 6L)
+  expect_equal(levels(out$search_difficulty), c("EASY", "DIFFICULT"))
+  expect_error(load_quiet(write_raw_data(), difficulties = "hard"), "Invalid difficulties: HARD")
+})
+
+test_that("load_data: inconsistent raw data stops with a named error", {
+  bad_difficulty <- raw_experiment(1); bad_difficulty$search_difficulty[1] <- "difficult"
+  exp1_with_cue  <- raw_experiment(1); exp1_with_cue$cue_size <- 1
+  exp2_no_cue    <- raw_experiment(2); exp2_no_cue$cue_size <- NULL
+  no_landing     <- raw_experiment(2); no_landing$fixation_location_fix2[2] <- NA
+  cases <- list(
+    list(dir = write_raw_data(exp1 = bad_difficulty), pattern = "search_difficulty disagreement"),
+    list(dir = write_raw_data(exp1 = exp1_with_cue),  pattern = "Unexpected cue_size column in Experiment 1"),
+    list(dir = write_raw_data(exp2 = exp2_no_cue),    pattern = "Missing cue_size column in Experiment 2"),
+    list(dir = write_raw_data(exp2 = no_landing),     pattern = "Experiment 2: 1 trial\\(s\\) have a saccade onset but no landing")
+  )
+  for (cs in cases) expect_error(load_quiet(cs$dir), cs$pattern)
+})
+
+test_that("load_data: missing data_dir or an inverted RT range throws error", {
+  expect_error(load_data(data_dir = file.path(tempdir(), "no_such_dir")), "not found")
+  expect_error(load_data(data_dir = tempdir(), min_rt = 0.8, max_rt = 0.2), "Invalid range")
 })
