@@ -1,7 +1,7 @@
 #' =============================================================================
 #' Shared assertion helpers for build_model() tests (level 2).
 #'
-#' Imported at the top of test_build_models.R. Each function wraps one or more
+#' Imported at the top of test_recovery_build.R. Each function wraps one or more
 #' testthat expect_* calls so individual model tests stay concise.
 #' =============================================================================
 

@@ -160,13 +160,15 @@ TEST_LEVEL=2 Rscript __tests__/run_tests.R       # L2: + build/recovery-chain te
 TEST_LEVEL=3 Rscript __tests__/run_tests.R       # L3: + smoke tests (tiny end-to-end MCMC; CI only)
 ```
 
-**Tiered testing.** L1 are unit tests of pure helpers (fast per-push gate), including
-`fit_to_convergence()` input validation. L2 builds the synthetic `test_model` once and guards
-`build_lba_model()`/`make_emc()` plus the extract→simulate→build recovery chain (no MCMC); because
-`EMC2::design()` is intrinsically slow (~minutes), L2 runs nightly + on manual dispatch rather than
-per-push. L3 (`test_fit_smoke.R`) drives the synthetic model end-to-end with tiny MCMC: Smoke A/B
-(`fit_to_convergence` fresh + resume), Smoke C (recovery), Smoke D (PPC). When adding a new
-pipeline, add coverage at all three tiers.
+**Tiered testing.** L1 (fast per-push gate, no EMC2) covers the pure helpers, `load_data()` end to
+end on synthetic raw CSVs, config invariants, and the fit/PPC/recovery orchestration with EMC2
+mocked through the `emc_*` wrappers. L2 (real EMC2, no MCMC) builds the synthetic `test_model` once
+and runs checks on a committed tiny fit (`__tests__/fixtures/test_model_fitted.rds`): EMC2 object
+shapes, per-trial log-likelihood vs EMC2's own, and PPC simulation. Because `EMC2::design()` is
+intrinsically slow (~minutes), L2 runs nightly + on manual dispatch rather than per-push. L3
+(`test_fit_smoke.R`) drives the synthetic model end-to-end with tiny MCMC: Smoke A/B
+(`fit_to_convergence` fresh + resume) and Smoke C (recovery). When adding a new pipeline, add the
+logic tests at L1 (mocking the `emc_*` seam) and real-EMC2 coverage at L2 or L3.
 
 ---
 
