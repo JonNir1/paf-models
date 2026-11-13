@@ -73,6 +73,9 @@ test_that("get_pars(alpha) is parameter-keyed [samples x subjects]; the prior ho
   expect_equal(colnames(m), SUBJ)
   expect_equal(nrow(m), .sample_iters(FITTED) * length(FITTED))
 
+  expect_setequal(names(emc_sampled_pars(extract_design(FITTED))), PARS)
+  expect_true(all(PARS %in% names(PRIOR_MU)))
+
   V <- FITTED[[1]]$prior$theta_mu_var
   expect_equal(dim(V), c(length(PARS), length(PARS)))
   expect_equal(get_prior_sds(FITTED), setNames(sqrt(diag(V)), PARS))
