@@ -34,6 +34,18 @@ test_that("filter_data: experiment and target-repeat filters keep the right rows
                sum(!as.logical(as.character(df$is_target_repeated))))
 })
 
+# EMC2's design() builds its grid from levels(), so a level emptied by row
+# filtering would seed a structural-zero (ghost) parameter.
+test_that("filter_data: drops factor levels emptied by the row filter, keeping level order", {
+  df <- fixture_df()
+  df$search_difficulty[df$search_difficulty == "DIFFICULT"] <- "EASY"
+  df$search_difficulty[df$rt > 0.5] <- "DIFFICULT"   # only in rows the filter removes
+  out <- filter_data(df, max_rt = 0.5)
+  expect_false("DIFFICULT" %in% as.character(out$search_difficulty))
+  expect_equal(levels(out$search_difficulty), c("EASY", "MIXED"))
+  expect_true(is.ordered(out$search_difficulty))
+})
+
 test_that("filter_data: constant-valued columns are dropped", {
   df <- fixture_df()
   df$constant_col <- 99L
@@ -76,6 +88,11 @@ test_that("SearchDifficulty: classifies each display, order-insensitive, ordered
   res <- SearchDifficulty(data.frame(S = names(cases)))
   expect_equal(as.character(res), unname(cases))
   expect_equal(levels(res), c("EASY", "MIXED", "DIFFICULT"))
+})
+
+test_that("SearchDifficulty: drops levels absent from the data, keeping the order", {
+  res <- SearchDifficulty(data.frame(S = c("T,D,D,D", "T,E,E,E")))
+  expect_equal(levels(res), c("EASY", "DIFFICULT"))
 })
 
 test_that("SearchDifficulty: malformed displays throw named errors", {

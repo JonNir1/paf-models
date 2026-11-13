@@ -5,6 +5,7 @@
 #'   - simulate_recovery_data()   Sigma vs variance_proportion branch, FALSE guard
 #'   - run_ppc_simulation()       failed draws, checkpoint cadence, output name
 #'   - run_recovery_fit()         extraction branch, ordering, forwarded config
+#'   - extract_group_params()     Sigma reconstruction from sigma2 + correlation
 #'   - extract_design()           reads the design from the model closure
 #'
 #' The real EMC2 calls behind these run end to end at L2 (PPC, simulate) and L3
@@ -271,4 +272,62 @@ test_that("extract_design returns the design stored in the chain-1 model closure
   model_fn <- function() NULL
   environment(model_fn) <- list2env(list(design = design))
   expect_identical(extract_design(list(list(model = model_fn))), design)
+})
+
+
+# =============================================================================
+# extract_group_params()
+# =============================================================================
+
+GP_PARS <- c("a", "b", "c", "d")
+# EMC2's flatten = TRUE correlation order: the lower triangle, column-major.
+# With 4 parameters this differs from the row-major order (with 3 it does not).
+GP_PAIRS <- which(lower.tri(diag(4)), arr.ind = TRUE)
+
+#' get_pars() stand-in: two chains of two samples each, given as per-sample
+#' variances [4 x 4] and flattened correlations [4 x 6].
+group_samples <- function(vars, cors, mu = rbind(1:4, 3:6, 2:5, 0:3)) {
+  as_chains <- function(m, names) {
+    colnames(m) <- names
+    list(m[1:2, , drop = FALSE], m[3:4, , drop = FALSE])
+  }
+  pair_names <- paste0(GP_PARS[GP_PAIRS[, 1]], ".", GP_PARS[GP_PAIRS[, 2]])
+  function(model, selection, ...) {
+    switch(selection,
+           mu          = as_chains(mu, GP_PARS),
+           sigma2      = as_chains(vars, GP_PARS),
+           correlation = as_chains(cors, pair_names))
+  }
+}
+
+expected_sigma <- function(vars, cors) {
+  per_sample <- lapply(seq_len(nrow(vars)), function(i) {
+    R <- diag(4)
+    R[GP_PAIRS] <- cors[i, ]
+    R[GP_PAIRS[, 2:1]] <- cors[i, ]
+    diag(sqrt(vars[i, ])) %*% R %*% diag(sqrt(vars[i, ]))
+  })
+  Reduce(`+`, per_sample) / length(per_sample)
+}
+
+test_that("extract_group_params averages per-sample covariances in EMC2's correlation order", {
+  vars <- rbind(c(1, 4, 9, 16), c(2, 3, 5, 7), c(1, 1, 4, 4), c(3, 2, 1, 2))
+  cors <- rbind(c(0.5, -0.2, 0.1, 0.3, -0.4, 0.2),
+                c(0.1, 0.4, -0.3, -0.1, 0.2, 0.0),
+                c(-0.2, 0.0, 0.3, 0.2, 0.1, -0.1),
+                c(0.3, 0.1, 0.0, -0.3, 0.0, 0.4))
+  local_mocks(emc_get_pars = group_samples(vars, cors))
+  gp <- extract_group_params(NULL)
+
+  expect_equal(gp$mu, c(a = 1.5, b = 2.5, c = 3.5, d = 4.5))
+  expect_equal(unname(gp$Sigma), expected_sigma(vars, cors))
+  expect_equal(dimnames(gp$Sigma), list(GP_PARS, GP_PARS))
+  expect_true(isSymmetric(gp$Sigma))
+})
+
+test_that("extract_group_params warns when the reconstructed Sigma is not positive-definite", {
+  vars <- matrix(1, 4, 4)
+  cors <- matrix(-0.9, 4, 6)   # four mutually -0.9-correlated parameters cannot exist
+  local_mocks(emc_get_pars = group_samples(vars, cors))
+  expect_warning(extract_group_params(NULL), "not positive-definite")
 })
