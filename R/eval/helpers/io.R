@@ -100,7 +100,8 @@ save_eval_table <- function(df, stem, dir = EVAL_DIR) {
 #' Is the cached table at `cache_path` newer than EVERY input file?
 #'
 #' Used to decide whether to recompute an eval table. Returns FALSE (=> recompute)
-#' if the cache is missing or if any input is newer than (or equal to) the cache.
+#' if the cache is missing, or if any input is missing or newer than (or equal
+#' to) the cache.
 #'
 #' @param cache_path  Path to the cached .rds.
 #' @param input_paths Character vector of input file paths (e.g. model .rds files).
@@ -110,5 +111,5 @@ newer_than_inputs <- function(cache_path, input_paths) {
   if (length(input_paths) == 0) return(TRUE)
   cache_mtime  <- file.info(cache_path)$mtime
   input_mtimes <- file.info(input_paths)$mtime
-  all(cache_mtime > input_mtimes, na.rm = FALSE)
+  isTRUE(all(cache_mtime > input_mtimes))   # a missing input (NA mtime) => recompute
 }
