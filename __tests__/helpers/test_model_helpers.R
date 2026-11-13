@@ -1,73 +1,34 @@
-.libPaths(c(file.path(Sys.getenv("USERPROFILE"), "R", "library"), .libPaths()))
 library(testthat)
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
 source(file.path(ROOT, "R", "fit", "helpers", "fitting.R"))
 
 
-# =============================================================================
-# get_core_args
-# =============================================================================
-
-test_that("get_core_args: cores_for_chains <= n_chains for various n_chains", {
-  for (n in c(1L, 3L, 8L)) {
-    args <- get_core_args(n)
-    expect_lte(args$cores_for_chains, n)
+test_that("get_core_args: chain cores are capped by n_chains and the core count, never below 1", {
+  for (total in list(NA_integer_, 0L, 2L, 16L)) {
+    local_mocked_bindings(detectCores = function(...) total, .package = "parallel")
+    usable <- if (is.na(total) || total < 1L) 1L else total
+    for (n in c(1L, 3L, 8L)) {
+      args <- get_core_args(n)
+      lbl  <- sprintf("total=%s, n_chains=%d", total, n)
+      expect_setequal(names(args), c("cores_for_chains", "cores_per_chain"))
+      expect_equal(args$cores_for_chains, min(n, usable), label = lbl)
+      expect_gte(args$cores_per_chain, 1L)
+    }
   }
 })
 
-test_that("get_core_args: cores_for_chains >= 1 always", {
-  for (n in c(1L, 3L, 8L)) {
-    args <- get_core_args(n)
-    expect_gte(args$cores_for_chains, 1L)
-  }
+
+test_that("save_model: writes <date>_<name>.rds that round-trips, with today or a pinned date", {
+  dir  <- tempfile("save_model_")
+  obj  <- list(a = 42, b = "hello")
+  path <- save_model(obj, "mymodel", dir)
+  expect_true(dir.exists(dir))
+  expect_equal(basename(path), paste0(format(Sys.Date(), "%y%m%d"), "_mymodel.rds"))
+  expect_equal(readRDS(path), obj)
+  expect_equal(basename(save_model(obj, "m", dir, date_prefix = "991231")), "991231_m.rds")
 })
 
-test_that("get_core_args: cores_per_chain >= 1 always", {
-  for (n in c(1L, 3L, 8L)) {
-    args <- get_core_args(n)
-    expect_gte(args$cores_per_chain, 1L)
-  }
-})
-
-test_that("get_core_args: returns named list with correct keys", {
-  args <- get_core_args(3L)
-  expect_type(args, "list")
-  expect_setequal(names(args), c("cores_for_chains", "cores_per_chain"))
-})
-
-
-# =============================================================================
-# save_model
-# =============================================================================
-
-test_that("save_model: filename matches pattern YYMMDD_<name>.rds", {
-  dir  <- tempdir()
-  path <- save_model(list(x = 1), "mymodel", dir)
-  fname <- basename(path)
-  expect_match(fname, "^[0-9]{6}_mymodel\\.rds$")
-})
-
-test_that("save_model: custom date_prefix is used", {
-  dir  <- tempdir()
-  path <- save_model(list(x = 1), "m", dir, date_prefix = "991231")
-  expect_match(basename(path), "^991231_m\\.rds$")
-})
-
-test_that("save_model: returns the full path as a string", {
-  dir  <- tempdir()
-  path <- save_model(list(x = 1), "m", dir)
-  expect_type(path, "character")
-  expect_true(file.exists(path))
-})
-
-test_that("save_model: saved object round-trips correctly via readRDS", {
-  dir <- tempdir()
-  obj <- list(a = 42, b = "hello")
-  path <- save_model(obj, "roundtrip", dir)
-  restored <- readRDS(path)
-  expect_equal(restored, obj)
-})
-
-test_that("save_model: empty model name throws error", {
-  expect_error(save_model(list(), "", tempdir()))
+test_that("save_model: empty name or directory throws error", {
+  expect_error(save_model(list(), "", tempdir()), "Invalid model name")
+  expect_error(save_model(list(), "m", ""), "Invalid directory path")
 })

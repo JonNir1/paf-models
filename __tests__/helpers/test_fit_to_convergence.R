@@ -3,22 +3,23 @@
 #'
 #' Exercises the pure validation helpers that fail fast before any fitting:
 #'   - .validate_convergence_criteria()  (criteria shape + group keys)
-#'   - .validate_fit_args()              (max_tries/batch_size/save_every/
-#'                                        reachability/post_save_hook)
+#'   - .validate_fit_args()              (n_samp_start/max_tries/batch_size/
+#'                                        save_every/reachability/post_save_hook)
 #'   - .convergence_group_token()        (group-key aliasing)
 #'   - default_convergence_criteria()    (standard / recovery profiles)
-#'   - .block_rhat_ess()                 (pure check()-shape extraction; mocked
-#'                                        EMC2 object shapes, no real EMC2 call)
+#'   - .block_rhat_ess()                 (pure check()-shape extraction)
 #'   - .sample_iters()                   (fresh-vs-resume sample-stage counting)
 #'   - model_log_path()                  (per-model log path derivation)
+#' The fit loop itself is covered by test_fit_orchestration.R.
 #' =============================================================================
 
-.libPaths(c(file.path(Sys.getenv("USERPROFILE"), "R", "library"), .libPaths()))
 library(testthat)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
 source(file.path(ROOT, "R", "utils.R"))
 source_root("R/fit/helpers/fitting.R")   # EMC2-free: EMC2 is reached only via emc_* wrappers
+
+GOOD_GROUP <- list(max_rhat = 1.1, min_ess = 100)
 
 
 # =============================================================================
@@ -50,20 +51,16 @@ test_that("default_convergence_criteria rejects an unsupported profile", {
 # .convergence_group_token()
 # =============================================================================
 
-test_that(".convergence_group_token maps + aliases supported groups", {
-  expect_equal(.convergence_group_token("mu"), "mu")
-  expect_equal(.convergence_group_token("Sigma2"), "sigma2")   # case-insensitive alias
-  expect_equal(.convergence_group_token("alpha"), "alpha")
-  expect_equal(.convergence_group_token("correlation"), "correlation")
+test_that(".convergence_group_token maps supported groups, case-insensitively", {
+  cases <- c(mu = "mu", Sigma2 = "sigma2", alpha = "alpha", correlation = "correlation")
+  for (key in names(cases)) expect_equal(.convergence_group_token(key), cases[[key]])
 })
 
-test_that(".convergence_group_token rejects unknown groups", {
-  expect_error(.convergence_group_token("variance"), "Unknown convergence group")
-})
-
-test_that(".convergence_group_token rejects non-character and NA keys", {
-  expect_error(.convergence_group_token(NA_character_), "Unknown convergence group")
-  expect_error(.convergence_group_token(123), "Unknown convergence group")
+test_that(".convergence_group_token rejects unknown, NA and non-character keys", {
+  for (key in list("variance", NA_character_, 123)) {
+    expect_error(.convergence_group_token(key), "Unknown convergence group",
+                 label = deparse(key))
+  }
 })
 
 
@@ -75,215 +72,127 @@ test_that(".validate_convergence_criteria accepts a well-formed criteria list", 
   expect_true(.validate_convergence_criteria(default_convergence_criteria()))
 })
 
-test_that(".validate_convergence_criteria rejects a missing/invalid num_samples", {
-  expect_error(.validate_convergence_criteria(list(mu = list(max_rhat = 1.1, min_ess = 100))),
-               "num_samples")
-  expect_error(.validate_convergence_criteria(list(num_samples = 0, mu = list(max_rhat = 1.1, min_ess = 100))),
-               "num_samples")
-})
-
-test_that(".validate_convergence_criteria requires at least one gated group", {
-  expect_error(.validate_convergence_criteria(list(num_samples = 100)),
-               "at least one group")
-})
-
-test_that(".validate_convergence_criteria requires numeric max_rhat + min_ess per group", {
-  expect_error(.validate_convergence_criteria(list(num_samples = 100, mu = list(max_rhat = 1.1))),
-               "max_rhat and min_ess")
-})
-
-test_that(".validate_convergence_criteria rejects an unknown group even alongside valid ones", {
-  cc <- list(num_samples = 100,
-             mu      = list(max_rhat = 1.1, min_ess = 100),
-             variance = list(max_rhat = 1.1, min_ess = 100))
-  expect_error(.validate_convergence_criteria(cc), "Unknown convergence group")
-})
-
-test_that(".validate_convergence_criteria rejects a non-scalar num_samples", {
-  expect_error(
-    .validate_convergence_criteria(list(num_samples = c(100, 200),
-                                        mu = list(max_rhat = 1.1, min_ess = 100))),
-    "num_samples")
-})
-
-test_that(".validate_convergence_criteria rejects an NA num_samples with the informative message", {
-  # An NA num_samples (e.g. parse_int_arg() returning NA_integer_ for a malformed
-  # `--fit-samples abc` CLI flag) must hit the intended "must be a positive
-  # integer." message via an explicit is.na() guard, not R's raw
-  # "missing value where TRUE/FALSE needed" error from `if (NA)`.
-  expect_error(
-    .validate_convergence_criteria(list(num_samples = NA_real_,
-                                        mu = list(max_rhat = 1.1, min_ess = 100))),
-    "num_samples must be a positive integer"
-  )
-})
-
-
-# =============================================================================
-# .validate_fit_args()
-# =============================================================================
-
-test_that(".validate_fit_args accepts a reachable, well-formed configuration", {
-  expect_true(.validate_fit_args(n_samp_start = 0, num_samples = 1000,
-                                 max_tries = 10, batch_size = 200,
-                                 save_every = 2, save_path = "x.rds",
-                                 post_save_hook = NULL))
-})
-
-test_that(".validate_fit_args rejects non-positive-integer / negative max_tries and batch_size", {
-  # Table of (max_tries, batch_size, expected error pattern) -- covers zero,
-  # negative, and non-integer values for each argument independently.
-  cases <- list(
-    list(max_tries = 0,    batch_size = 50,  pattern = "max_tries"),
-    list(max_tries = -3,   batch_size = 50,  pattern = "max_tries"),
-    list(max_tries = 2,    batch_size = 1.5, pattern = "batch_size"),
-    list(max_tries = 2,    batch_size = -10, pattern = "batch_size")
-  )
-  for (cs in cases) {
-    expect_error(
-      .validate_fit_args(0, 100, cs$max_tries, cs$batch_size, NULL, NULL, NULL),
-      cs$pattern,
-      info = sprintf("max_tries=%s, batch_size=%s", cs$max_tries, cs$batch_size)
-    )
+# NA must reach the informative message via an explicit is.na() guard, not R's
+# raw "missing value where TRUE/FALSE needed" (parse_int_arg() returns NA on a
+# malformed CLI flag).
+test_that(".validate_convergence_criteria rejects a missing, non-positive, non-scalar or NA num_samples", {
+  for (ns in list(NULL, 0, c(100, 200), NA_real_)) {
+    cc <- list(num_samples = ns, mu = GOOD_GROUP)
+    expect_error(.validate_convergence_criteria(cc), "num_samples must be a positive integer",
+                 label = deparse(ns))
   }
 })
 
-test_that(".validate_fit_args enforces save_every bounds (1 <= save_every <= max_tries) + save_path presence", {
-  # save_every > max_tries
-  expect_error(.validate_fit_args(0, 100, 2, 100, 3, "x.rds", NULL), "save_every")
-  # save_every == max_tries is the valid upper boundary
-  expect_true(.validate_fit_args(0, 100, 3, 100, 3, "x.rds", NULL))
-  # save_every == 1 is the valid lower boundary
-  expect_true(.validate_fit_args(0, 100, 3, 100, 1, "x.rds", NULL))
-  # save_every == 0 violates the documented 1 <= save_every floor
-  expect_error(.validate_fit_args(0, 100, 3, 100, 0, "x.rds", NULL), "save_every")
-  # save_every without save_path
-  expect_error(.validate_fit_args(0, 100, 5, 100, 1, NULL, NULL), "save_path is NULL")
-  # non-integer save_every
-  expect_error(.validate_fit_args(0, 100, 5, 100, 1.5, "x.rds", NULL), "save_every")
+test_that(".validate_convergence_criteria rejects no groups, incomplete groups and unknown groups", {
+  cases <- list(
+    list(cc = list(num_samples = 100), pattern = "at least one group"),
+    list(cc = list(num_samples = 100, mu = list(max_rhat = 1.1)), pattern = "max_rhat and min_ess"),
+    list(cc = list(num_samples = 100, mu = GOOD_GROUP, variance = GOOD_GROUP),
+         pattern = "Unknown convergence group")
+  )
+  for (cs in cases) expect_error(.validate_convergence_criteria(cs$cc), cs$pattern)
+})
+
+
+# =============================================================================
+# .validate_fit_args(n_samp_start, num_samples, max_tries, batch_size,
+#                    save_every, save_path, post_save_hook)
+# =============================================================================
+
+test_that(".validate_fit_args accepts reachable configurations, incl. both save_every boundaries", {
+  expect_true(.validate_fit_args(0, 1000, 10, 200, 2, "x.rds", NULL))
+  expect_true(.validate_fit_args(0, 100, 3, 100, 3, "x.rds", NULL))   # save_every == max_tries
+  expect_true(.validate_fit_args(0, 100, 3, 100, 1, "x.rds", function(...) NULL))
+})
+
+test_that(".validate_fit_args rejects invalid n_samp_start, max_tries and batch_size, incl. NA", {
+  cases <- list(
+    list(start = -1, tries = 2,           batch = 50,          pattern = "n_samp_start must be a non-negative"),
+    list(start = NA, tries = 2,           batch = 50,          pattern = "n_samp_start must be a non-negative"),
+    list(start = 0,  tries = 0,           batch = 50,          pattern = "max_tries must be a positive integer"),
+    list(start = 0,  tries = -3,          batch = 50,          pattern = "max_tries must be a positive integer"),
+    list(start = 0,  tries = NA_integer_, batch = 50,          pattern = "max_tries must be a positive integer"),
+    list(start = 0,  tries = 2,           batch = 1.5,         pattern = "batch_size must be a positive integer"),
+    list(start = 0,  tries = 2,           batch = -10,         pattern = "batch_size must be a positive integer"),
+    list(start = 0,  tries = 5,           batch = NA_integer_, pattern = "batch_size must be a positive integer")
+  )
+  for (cs in cases) {
+    expect_error(.validate_fit_args(cs$start, 100, cs$tries, cs$batch, NULL, NULL, NULL),
+                 cs$pattern, info = deparse(cs[1:3]))
+  }
+})
+
+test_that(".validate_fit_args rejects bad save_every, a missing save_path and a non-function hook", {
+  cases <- list(
+    list(every = 3,    path = "x.rds", hook = NULL, pattern = "save_every \\(3\\) > max_tries"),
+    list(every = 0,    path = "x.rds", hook = NULL, pattern = "save_every must be a positive"),
+    list(every = 1.5,  path = "x.rds", hook = NULL, pattern = "save_every must be a positive"),
+    list(every = 1,    path = NULL,    hook = NULL, pattern = "save_path is NULL"),
+    list(every = NULL, path = NULL,    hook = "fn", pattern = "post_save_hook")
+  )
+  for (cs in cases) {
+    expect_error(.validate_fit_args(0, 100, 2, 100, cs$every, cs$path, cs$hook), cs$pattern)
+  }
 })
 
 test_that(".validate_fit_args reachability is exact at the boundary (existing + batch*tries vs num_samples)", {
-  # 0 + 200 * 4 = 800 < 1000 -> unreachable
   expect_error(.validate_fit_args(0, 1000, 4, 200, NULL, NULL, NULL), "unreachable")
-  # exactly at the floor: 600 + 200*2 = 1000 >= 1000 -> reachable
   expect_true(.validate_fit_args(600, 1000, 2, 200, NULL, NULL, NULL))
-  # one short of the floor: 599 + 200*2 = 999 < 1000 -> unreachable
   expect_error(.validate_fit_args(599, 1000, 2, 200, NULL, NULL, NULL), "unreachable")
 })
 
-test_that(".validate_fit_args rejects a non-function post_save_hook", {
-  expect_error(.validate_fit_args(0, 100, 5, 100, NULL, NULL, "not a function"),
-               "post_save_hook")
-})
-
-test_that(".validate_fit_args rejects NA max_tries/batch_size with the informative message", {
-  # An NA max_tries/batch_size (e.g. parse_int_arg() on a malformed CLI flag,
-  # `--max-tries abc` on fit_cloud.R/fit_recovery_cloud.R) must hit the intended
-  # "must be a positive integer." message via an explicit is.na() guard, not
-  # R's raw "missing value where TRUE/FALSE needed" error from `if (NA)`.
-  expect_error(.validate_fit_args(0, 100, NA_integer_, 50, NULL, NULL, NULL),
-               "max_tries must be a positive integer")
-  expect_error(.validate_fit_args(0, 100, 5, NA_integer_, NULL, NULL, NULL),
-               "batch_size must be a positive integer")
-})
-
 
 # =============================================================================
-# .block_rhat_ess()
-# Pure check()-shape extraction: takes the list/matrix structure EMC2's check()
-# returns and pulls max Rhat / min ESS. No EMC2 call inside the function itself,
-# so we drive it entirely with mocked object shapes (per CLAUDE.md's empirically
-# confirmed 3.4.1 shapes: 2-row matrix for mu/sigma2/correlation, alpha as a
-# per-subject list of such matrices).
+# .block_rhat_ess(): pure check()-shape extraction, on the confirmed 3.4.1
+# shapes (2-row Rhat/ESS matrix; alpha as a per-subject list of them)
 # =============================================================================
 
-# A 2-row matrix block: row 1 = Rhat, row 2 = ESS, one column per parameter.
-.mk_matrix_block <- function(rhat, ess) {
-  matrix(c(rhat, ess), nrow = 2, byrow = TRUE)
-}
+.mk_matrix_block <- function(rhat, ess) matrix(c(rhat, ess), nrow = 2, byrow = TRUE)
 
-test_that(".block_rhat_ess extracts max Rhat / min ESS from a flat matrix block (mu/sigma2/correlation shape)", {
-  chk <- list(mu = .mk_matrix_block(rhat = c(1.01, 1.04, 1.02), ess = c(900, 600, 750)))
-  out <- .block_rhat_ess(chk, "mu")
-  expect_equal(out$max_rhat, 1.04)
-  expect_equal(out$min_ess, 600)
-})
-
-test_that(".block_rhat_ess unwraps a nested list-of-one block (chk$mu$mu shape)", {
-  chk <- list(mu = list(mu = .mk_matrix_block(rhat = c(1.0, 1.2), ess = c(1000, 200))))
-  out <- .block_rhat_ess(chk, "mu")
-  expect_equal(out$max_rhat, 1.2)
-  expect_equal(out$min_ess, 200)
+test_that(".block_rhat_ess takes max Rhat / min ESS from flat and nested blocks, ignoring NA", {
+  flat   <- list(mu = .mk_matrix_block(c(1.01, NA, 1.04), c(900, NA, 600)))
+  nested <- list(mu = list(mu = .mk_matrix_block(c(1.0, 1.2), c(1000, 200))))
+  expect_equal(.block_rhat_ess(flat, "mu"),   list(max_rhat = 1.04, min_ess = 600))
+  expect_equal(.block_rhat_ess(nested, "mu"), list(max_rhat = 1.2,  min_ess = 200))
 })
 
 test_that(".block_rhat_ess pools across the per-subject list for the alpha shape", {
   chk <- list(alpha = list(
-    subj1 = .mk_matrix_block(rhat = c(1.01, 1.05), ess = c(800, 700)),
-    subj2 = .mk_matrix_block(rhat = c(1.20, 1.02), ess = c(150, 900))
+    subj1 = .mk_matrix_block(c(1.01, 1.05), c(800, 700)),
+    subj2 = .mk_matrix_block(c(1.20, 1.02), c(150, 900))
   ))
-  out <- .block_rhat_ess(chk, "alpha")
-  expect_equal(out$max_rhat, 1.20)   # worst Rhat across all subjects x params
-  expect_equal(out$min_ess, 150)     # worst ESS across all subjects x params
-})
-
-test_that(".block_rhat_ess ignores NA entries within a block via na.rm", {
-  chk <- list(mu = .mk_matrix_block(rhat = c(1.01, NA, 1.03), ess = c(900, NA, 700)))
-  out <- .block_rhat_ess(chk, "mu")
-  expect_equal(out$max_rhat, 1.03)
-  expect_equal(out$min_ess, 700)
+  expect_equal(.block_rhat_ess(chk, "alpha"), list(max_rhat = 1.20, min_ess = 150))
 })
 
 test_that(".block_rhat_ess errors informatively when the requested block is absent", {
-  chk <- list(mu = .mk_matrix_block(rhat = 1.0, ess = 1000))
+  chk <- list(mu = .mk_matrix_block(1.0, 1000))
   expect_error(.block_rhat_ess(chk, "alpha"), "no 'alpha' block")
 })
 
 
 # =============================================================================
-# .sample_iters()
-# Counts sample-stage iterations from model[[1]]$samples$stage; must return 0
-# for a freshly-built (unfitted) make_emc() mock with no $samples element yet.
+# .sample_iters() and model_log_path()
 # =============================================================================
 
-test_that(".sample_iters returns 0 for an unfitted mock model (no $samples)", {
-  fresh_mock <- list(list(some_other_field = TRUE))   # no $samples at all
-  expect_equal(.sample_iters(fresh_mock), 0L)
+test_that(".sample_iters returns 0 for unfitted, NULL or empty models", {
+  for (m in list(list(list(some_other_field = TRUE)), NULL, list())) {
+    expect_equal(.sample_iters(m), 0L)
+  }
 })
 
-test_that(".sample_iters returns 0 for NULL or an empty list", {
-  expect_equal(.sample_iters(NULL), 0L)
-  expect_equal(.sample_iters(list()), 0L)
-})
-
-test_that(".sample_iters counts only stage == 'sample', ignoring burn/adapt/preburn", {
-  mock_model <- list(list(samples = list(
-    stage = c("preburn", "preburn", "burn", "burn", "burn", "adapt", "sample", "sample", "sample")
-  )))
-  expect_equal(.sample_iters(mock_model), 3L)
-})
-
-test_that(".sample_iters reads only chain 1 (chains are assumed in lockstep)", {
-  mock_model <- list(
-    list(samples = list(stage = rep("sample", 5))),
-    list(samples = list(stage = rep("sample", 999)))   # chain 2 ignored
+test_that(".sample_iters counts only chain 1's sample stage, ignoring preburn/burn/adapt", {
+  m <- list(
+    list(samples = list(stage = c("preburn", "burn", "burn", "adapt", rep("sample", 3)))),
+    list(samples = list(stage = rep("sample", 999)))   # chains are assumed in lockstep
   )
-  expect_equal(.sample_iters(mock_model), 5L)
+  expect_equal(.sample_iters(m), 3L)
 })
 
-
-# =============================================================================
-# model_log_path()
-# =============================================================================
-
-test_that("model_log_path derives log_fit_<name>.txt under the given dir, stripping any .rds extension", {
-  expect_equal(model_log_path("mymodel", "outputs/models/fit"),
-               file.path("outputs/models/fit", "log_fit_mymodel.txt"))
-  expect_equal(model_log_path("260618_mymodel.rds", "outputs/models/fit"),
-               file.path("outputs/models/fit", "log_fit_260618_mymodel.txt"))
-})
-
-test_that("model_log_path strips directory components from name, keeping only the basename", {
-  expect_equal(model_log_path("some/nested/path/mymodel.rds", "logs"),
-               file.path("logs", "log_fit_mymodel.txt"))
+test_that("model_log_path derives <dir>/log_fit_<basename>.txt, stripping .rds", {
+  cases <- list(
+    c("mymodel",                      "outputs/models/fit", "log_fit_mymodel.txt"),
+    c("260618_mymodel.rds",           "outputs/models/fit", "log_fit_260618_mymodel.txt"),
+    c("some/nested/path/mymodel.rds", "logs",               "log_fit_mymodel.txt")
+  )
+  for (cs in cases) expect_equal(model_log_path(cs[1], cs[2]), file.path(cs[2], cs[3]))
 })
