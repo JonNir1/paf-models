@@ -10,241 +10,101 @@ fixture_df <- load_fixture_raw
 # filter_data
 # =============================================================================
 
-test_that("filter_data: max_rt < min_rt throws error", {
-  expect_error(filter_data(fixture_df(), min_rt = 0.8, max_rt = 0.2))
+test_that("filter_data: invalid range or missing rt column throws error", {
+  expect_error(filter_data(fixture_df(), min_rt = 0.8, max_rt = 0.2), "Invalid range")
+  expect_error(filter_data(data.frame(is_target_repeated = FALSE)), "rt")
 })
 
-test_that("filter_data: missing rt column throws error", {
-  df <- data.frame(is_target_repeated = FALSE)
-  expect_error(filter_data(df))
-})
-
-test_that("filter_data: RT boundaries are inclusive", {
+test_that("filter_data: RT bounds are inclusive and the row count matches", {
   df  <- fixture_df()
   lo  <- min(df$rt); hi <- max(df$rt)
-  out <- filter_data(df, min_rt = lo, max_rt = hi)
-  expect_true(any(out$rt == lo))
-  expect_true(any(out$rt == hi))
-})
-
-test_that("filter_data: allow_target_repeats = FALSE removes repeated-target rows", {
-  out <- filter_data(fixture_df(), allow_target_repeats = FALSE)
-  expect_equal(sum(as.logical(as.character(out$is_target_repeated))), 0)
-})
-
-test_that("filter_data: experiment = 1 keeps only exp_1 rows", {
-  out <- filter_data(fixture_df(), experiment = 1)
-  expect_true(all(as.character(out$experiment) == "exp_1"))
-})
-
-test_that("filter_data: constant-valued columns are dropped", {
-  df <- fixture_df()
-  # artificially introduce a constant column
-  df$constant_col <- 99L
-  out <- filter_data(df)
-  expect_false("constant_col" %in% names(out))
-})
-
-test_that("filter_data: returned row count is correct", {
-  df  <- fixture_df()
+  expect_equal(nrow(filter_data(df, min_rt = lo, max_rt = hi)), nrow(df))
   out <- filter_data(df, min_rt = 0.3, max_rt = 0.8)
   expect_equal(nrow(out), sum(df$rt >= 0.3 & df$rt <= 0.8))
 })
 
+# Both filtered columns become constant and are then dropped, so assert on the
+# row counts rather than on the (absent) column.
+test_that("filter_data: experiment and target-repeat filters keep the right rows", {
+  df <- fixture_df()
+  expect_equal(nrow(filter_data(df, experiment = 1)), sum(df$experiment == "exp_1"))
+  expect_equal(nrow(filter_data(df, experiment = "exp_2")), sum(df$experiment == "exp_2"))
+  expect_error(filter_data(df, experiment = 3), "Invalid experiment")
+  expect_equal(nrow(filter_data(df, allow_target_repeats = FALSE)),
+               sum(!as.logical(as.character(df$is_target_repeated))))
+})
+
+test_that("filter_data: constant-valued columns are dropped", {
+  df <- fixture_df()
+  df$constant_col <- 99L
+  expect_false("constant_col" %in% names(filter_data(df)))
+})
+
 
 # =============================================================================
-# StimulusAtLoc
+# Design closures: one table per closure, values + factor levels
 # =============================================================================
 
-make_stim_df <- function(S_str, lR_val) {
-  data.frame(S = S_str, lR = lR_val, stringsAsFactors = FALSE)
-}
-
-test_that("StimulusAtLoc: lR=1 on 'T,D,E,E' returns 'T'", {
-  df  <- make_stim_df("T,D,E,E", 1)
-  res <- StimulusAtLoc(df)
-  expect_equal(as.character(res), "T")
-})
-
-test_that("StimulusAtLoc: lR=2 on 'T,D,E,E' returns 'D'", {
-  df  <- make_stim_df("T,D,E,E", 2)
-  res <- StimulusAtLoc(df)
-  expect_equal(as.character(res), "D")
-})
-
-test_that("StimulusAtLoc: lR=3 on 'T,D,E,E' returns 'E'", {
-  df  <- make_stim_df("T,D,E,E", 3)
-  res <- StimulusAtLoc(df)
-  expect_equal(as.character(res), "E")
-})
-
-test_that("StimulusAtLoc: factor levels are exactly T < D < E", {
-  df  <- make_stim_df(c("T,D,E,E", "E,T,D,E"), c(1, 2))
-  res <- StimulusAtLoc(df)
+test_that("StimulusAtLoc: returns the stimulus at location lR, levels T < D < E", {
+  res <- StimulusAtLoc(data.frame(S = "T,D,E,E", lR = 1:4))
+  expect_equal(as.character(res), c("T", "D", "E", "E"))
   expect_equal(levels(res), c("T", "D", "E"))
 })
 
-
-# =============================================================================
-# CueAtLoc
-# =============================================================================
-
-make_cue_df <- function(lR, cue_location, cue_size) {
-  data.frame(lR = lR, cue_location = cue_location, cue_size = cue_size,
-             stringsAsFactors = FALSE)
-}
-
-test_that("CueAtLoc: lR == cue_location returns cue_size value", {
-  df  <- make_cue_df(2, 2, "LARGE")
-  res <- CueAtLoc(df)
-  expect_equal(as.character(res), "LARGE")
-})
-
-test_that("CueAtLoc: lR != cue_location returns 'NONE'", {
-  df  <- make_cue_df(3, 1, "SMALL")
-  res <- CueAtLoc(df)
-  expect_equal(as.character(res), "NONE")
-})
-
-test_that("CueAtLoc: factor levels are NONE < SMALL < MEDIUM < LARGE", {
-  df  <- make_cue_df(c(1, 2, 3, 4), c(1, 2, 3, 4), c("NONE", "SMALL", "MEDIUM", "LARGE"))
-  res <- CueAtLoc(df)
-  expect_equal(levels(res), c("NONE", "SMALL", "MEDIUM", "LARGE"))
-})
-
-
-# =============================================================================
-# PrevTargetAtLoc
-# =============================================================================
-
-make_prev_df <- function(lR, prev_target_location) {
-  data.frame(lR = lR, prev_target_location = prev_target_location,
-             stringsAsFactors = FALSE)
-}
-
-test_that("PrevTargetAtLoc: lR == prev_target_location returns TRUE", {
-  df  <- make_prev_df(3, 3)
-  res <- PrevTargetAtLoc(df)
-  expect_equal(as.character(res), "TRUE")
-})
-
-test_that("PrevTargetAtLoc: lR != prev_target_location returns FALSE", {
-  df  <- make_prev_df(2, 4)
-  res <- PrevTargetAtLoc(df)
-  expect_equal(as.character(res), "FALSE")
-})
-
-test_that("PrevTargetAtLoc: factor levels are FALSE < TRUE", {
-  df  <- make_prev_df(c(1, 2), c(1, 3))
-  res <- PrevTargetAtLoc(df)
+test_that("TargetAtLoc: TRUE only where the target is, levels FALSE < TRUE", {
+  res <- TargetAtLoc(data.frame(S = "E,D,T,E", lR = 1:4))
+  expect_equal(as.character(res), c("FALSE", "FALSE", "TRUE", "FALSE"))
   expect_equal(levels(res), c("FALSE", "TRUE"))
 })
 
-
-# =============================================================================
-# SearchDifficulty
-# =============================================================================
-
-make_search_df <- function(S_vec) data.frame(S = S_vec, stringsAsFactors = FALSE)
-
-test_that("SearchDifficulty: T,E,E,E -> EASY", {
-  res <- SearchDifficulty(make_search_df("T,E,E,E"))
-  expect_equal(as.character(res), "EASY")
+test_that("CueAtLoc: cue size at the cued location, NONE elsewhere, ordered levels", {
+  df  <- data.frame(lR = 1:4, cue_location = 2, cue_size = "large")
+  res <- CueAtLoc(df)
+  expect_equal(as.character(res), c("NONE", "LARGE", "NONE", "NONE"))
+  expect_equal(levels(res), c("NONE", "SMALL", "MEDIUM", "LARGE"))
 })
 
-test_that("SearchDifficulty: T,D,D,D -> DIFFICULT", {
-  res <- SearchDifficulty(make_search_df("T,D,D,D"))
-  expect_equal(as.character(res), "DIFFICULT")
+test_that("PrevTargetAtLoc: TRUE at the previous target location, levels FALSE < TRUE", {
+  res <- PrevTargetAtLoc(data.frame(lR = 1:4, prev_target_location = "3"))
+  expect_equal(as.character(res), c("FALSE", "FALSE", "TRUE", "FALSE"))
+  expect_equal(levels(res), c("FALSE", "TRUE"))
 })
 
-test_that("SearchDifficulty: T,D,E,E -> MIXED", {
-  res <- SearchDifficulty(make_search_df("T,D,E,E"))
-  expect_equal(as.character(res), "MIXED")
-})
-
-test_that("SearchDifficulty: wrong total count throws error", {
-  expect_error(SearchDifficulty(make_search_df("T,E,E")))
-})
-
-test_that("SearchDifficulty: unsupported 2D+1E combination throws error", {
-  expect_error(SearchDifficulty(make_search_df("T,D,D,E")))
-})
-
-test_that("SearchDifficulty: factor levels are EASY < MIXED < DIFFICULT", {
-  df  <- make_search_df(c("T,E,E,E", "T,D,E,E", "T,D,D,D"))
-  res <- SearchDifficulty(df)
+test_that("SearchDifficulty: classifies each display, order-insensitive, ordered levels", {
+  cases <- c("T,E,E,E" = "EASY", "E,E,T,E" = "EASY", "T,D,D,D" = "DIFFICULT",
+             "T,D,E,E" = "MIXED", "E,T,E,D" = "MIXED")
+  res <- SearchDifficulty(data.frame(S = names(cases)))
+  expect_equal(as.character(res), unname(cases))
   expect_equal(levels(res), c("EASY", "MIXED", "DIFFICULT"))
 })
 
+test_that("SearchDifficulty: malformed displays throw named errors", {
+  errors <- c("T,E,E"   = "Unexpected number of stimuli",
+              "D,E,E,E" = "Invalid number of Targets",
+              "T,T,E,E" = "Invalid number of Targets",
+              "T,D,D,E" = "Unsupported distractor combination")
+  for (s in names(errors)) {
+    expect_error(SearchDifficulty(data.frame(S = s)), errors[[s]], label = s)
+  }
+})
+
 
 # =============================================================================
-# .map_distractor
+# Raw-CSV value parsers
 # =============================================================================
 
-test_that(".map_distractor: 1 -> T", {
-  expect_equal(.map_distractor(1L), "T")
-})
-
-test_that(".map_distractor: 2 -> D", {
-  expect_equal(.map_distractor(2L), "D")
-})
-
-test_that(".map_distractor: 3 -> E", {
-  expect_equal(.map_distractor(3L), "E")
-})
-
-test_that(".map_distractor: 0 -> U", {
-  expect_equal(.map_distractor(0L), "U")
-})
-
-test_that(".map_distractor: vectorized over a row", {
+test_that(".map_distractor: maps the enum codes 0-3 to U/T/D/E, vectorized", {
   expect_equal(.map_distractor(c(1L, 2L, 3L, 0L)), c("T", "D", "E", "U"))
 })
 
-
-# =============================================================================
-# .parse_reploc
-# =============================================================================
-
-test_that(".parse_reploc: 'oldloc' -> TRUE", {
-  expect_true(.parse_reploc("oldloc"))
+test_that(".parse_reploc: oldloc/same -> TRUE, newloc/diff -> FALSE", {
+  expect_equal(.parse_reploc(c("oldloc", "same", "newloc", "diff")),
+               c(TRUE, TRUE, FALSE, FALSE))
 })
 
-test_that(".parse_reploc: 'same' -> TRUE", {
-  expect_true(.parse_reploc("same"))
-})
-
-test_that(".parse_reploc: 'newloc' -> FALSE", {
-  expect_false(.parse_reploc("newloc"))
-})
-
-test_that(".parse_reploc: 'diff' -> FALSE", {
-  expect_false(.parse_reploc("diff"))
-})
-
-
-# =============================================================================
-# .parse_cue_at_prev
-# =============================================================================
-
-test_that(".parse_cue_at_prev: '1' -> TRUE", {
-  expect_true(.parse_cue_at_prev("1"))
-})
-
-test_that(".parse_cue_at_prev: 'congruent' -> TRUE", {
-  expect_true(.parse_cue_at_prev("congruent"))
-})
-
-test_that(".parse_cue_at_prev: '0' -> FALSE", {
-  expect_false(.parse_cue_at_prev("0"))
-})
-
-test_that(".parse_cue_at_prev: 'incongurent' (typo in source) -> FALSE", {
-  expect_false(.parse_cue_at_prev("incongurent"))
-})
-
-test_that(".parse_cue_at_prev: 'incongruent' (correct spelling) -> FALSE", {
-  expect_false(.parse_cue_at_prev("incongruent"))
+test_that(".parse_cue_at_prev: 1/congruent -> TRUE, 0 and both incongruent spellings -> FALSE", {
+  expect_equal(.parse_cue_at_prev(c("1", "congruent", "0", "incongurent", "incongruent")),
+               c(TRUE, TRUE, FALSE, FALSE, FALSE))
 })
 
 
