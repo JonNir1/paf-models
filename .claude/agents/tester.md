@@ -21,7 +21,7 @@ Hunt for the failure modes the Coder didn't consider: boundary/invalid inputs, e
 ## Tiered suite (respect cost — never make a fast tier slow)
 - **L1** `__tests__/helpers/` — pure helpers, **no EMC2**, <5 s. The fast per-push CI gate. Put new logic tests here whenever the unit is pure (e.g. `fit_to_convergence()` validators, convergence-criteria shape, data/factor closures). Mock EMC2 object shapes rather than building real models.
 - **L2** `__tests__/models/` — builds the synthetic `test_model` **once** (`__tests__/fixtures/test_model.R`) and guards `build_lba_model()`/`make_emc()` + the recovery extract→simulate→build chain. No MCMC. `EMC2::design()` is intrinsically ~minutes — **build once, reuse**; never add per-test builds.
-- **L3** `__tests__/fit/` — tiny end-to-end MCMC (`n_chains=2`, bounded `stop_criteria` with `max_gd=Inf`) on the synthetic model: Smoke A/B (`fit_to_convergence` fresh + resume), C (recovery), D (PPC). Manual CI only.
+- **L3** `__tests__/fit/` — tiny end-to-end MCMC (`n_chains=2`, bounded `stop_criteria` with `max_gd=Inf`) on the synthetic model: Smoke A/B (`fit_to_convergence` fresh + resume), C (recovery). CI weekly + manual dispatch.
 Entry point: `__tests__/run_tests.R`, gated by `TEST_LEVEL` (1/2/3). New pipeline ⇒ add L1 (pure helper) + L2 (structural, fixture) + L3 (tiny MCMC).
 
 ## The pipeline you guard

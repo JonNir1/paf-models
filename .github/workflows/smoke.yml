@@ -1,7 +1,12 @@
 name: Smoke Tests
 
+# Level-3 end-to-end smoke tests (tiny MCMC, ~1 h). Weekly, to catch upstream
+# EMC2 changes that break the real MCMC path (EMC2 is not pinned), plus manual
+# dispatch before releases or after major model changes.
 on:
-  workflow_dispatch:   # manual trigger only — run before releases or after major model changes
+  schedule:
+    - cron: "0 4 * * 0"   # Sundays 04:00 UTC, after the nightly L2 run
+  workflow_dispatch:
 
 jobs:
   smoke-tests:

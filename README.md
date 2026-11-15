@@ -66,13 +66,13 @@ paf-models/
 |   |   |- test_model.R          # Minimal synthetic LBA model used by L2/L3
 |   |- helpers/                  # Level-1 unit tests (logging, data, fit/recovery helpers; no EMC2)
 |   |- models/                   # Level-2 build + recovery-chain tests on the synthetic model (requires EMC2)
-|   |- fit/                      # Level-3 smoke tests (tiny MCMC; slow, manual CI only)
+|   |- fit/                      # Level-3 smoke tests (tiny MCMC; slow, weekly + manual CI)
 |
 |- .github/
 |   |- workflows/
 |   |   |- test.yml              # CI: L1 unit tests on every push / PR to main (fast)
 |   |   |- build.yml             # CI: L2 build tests, nightly (03:00 UTC) + manual dispatch
-|   |   |- smoke.yml             # CI: L3 smoke tests, manual dispatch only
+|   |   |- smoke.yml             # CI: L3 smoke tests, weekly + manual dispatch
 |   |- r-deps-level1.txt         # Package list for L1 cache key
 |   |- r-deps-level2.txt         # Package list for L2 cache key
 |
@@ -166,7 +166,7 @@ mocked through the `emc_*` wrappers. L2 (real EMC2, no MCMC) builds the syntheti
 and runs checks on a committed tiny fit (`__tests__/fixtures/test_model_fitted.rds`): EMC2 object
 shapes, per-trial log-likelihood vs EMC2's own, and PPC simulation. Because `EMC2::design()` is
 intrinsically slow (~minutes), L2 runs nightly + on manual dispatch rather than per-push. L3
-(`test_fit_smoke.R`) drives the synthetic model end-to-end with tiny MCMC: Smoke A/B
+(`test_fit_smoke.R`, weekly + manual dispatch) drives the synthetic model end-to-end with tiny MCMC: Smoke A/B
 (`fit_to_convergence` fresh + resume) and Smoke C (recovery). When adding a new pipeline, add the
 logic tests at L1 (mocking the `emc_*` seam) and real-EMC2 coverage at L2 or L3.
 

@@ -39,12 +39,13 @@ TEST_LEVEL=3 Rscript __tests__/run_tests.R       # level 3: + fit smoke tests (C
 |---|---|---|---|---|
 | L1 | `__tests__/helpers/` | Unit tests with no EMC2 installed. EMC2 is reached only through the `emc_*` wrappers in `R/helpers/emc2_api.R`, which the tests mock (`local_mocks()` in `__tests__/fixtures/common.R`). Covers the pure helpers, `load_data()` end to end on synthetic raw CSVs, config invariants, naming/I/O, and the fit/PPC/recovery orchestration (`fit_to_convergence` loop, `run_ppc_simulation`, `run_recovery_fit`, `build_lba_model` wiring). | seconds | Every push/PR (CI auto). |
 | L2 | `__tests__/models/` | Real EMC2, no MCMC. `test_recovery_build.R` builds the synthetic `test_model` **once** (dominated by `EMC2::design()`) and checks the build + simulate step. `test_fitted_fixture.R` runs on the committed tiny fit `__tests__/fixtures/test_model_fitted.rds`: EMC2 object shapes, per-trial log-lik vs EMC2's own likelihood, PPC simulation. | minutes | Nightly + manual dispatch (CI). |
-| L3 | `__tests__/fit/` | End-to-end smoke tests with tiny MCMC (n_chains=2), driven by the synthetic model. One file (`test_fit_smoke.R`): **Smoke A/B** = `fit_to_convergence` (fresh + resume), **Smoke C** = recovery (incl. the rebuild on simulated data). | ~1 h | Manual dispatch only (CI). |
+| L3 | `__tests__/fit/` | End-to-end smoke tests with tiny MCMC (n_chains=2), driven by the synthetic model. One file (`test_fit_smoke.R`): **Smoke A/B** = `fit_to_convergence` (fresh + resume), **Smoke C** = recovery (incl. the rebuild on simulated data). | ~1 h | Weekly (Sun 04:00 UTC) + manual dispatch (CI). |
 
 CI (GitHub Actions):
 - L1 runs automatically on every push and on PRs to `main` (`.github/workflows/test.yml`).
 - L2 is **not** per-push (intrinsically slow: `EMC2::design()` is ~minutes per model). It runs nightly (03:00 UTC) and on manual dispatch: Actions tab → "Build Tests" → "Run workflow" (`.github/workflows/build.yml`).
-- L3 is manual-only: Actions tab → "Smoke Tests" → "Run workflow" (`.github/workflows/smoke.yml`).
+- L3 runs weekly (Sundays 04:00 UTC, to catch upstream EMC2 changes; EMC2 is not pinned) and on manual dispatch: Actions tab → "Smoke Tests" → "Run workflow" (`.github/workflows/smoke.yml`).
+- Scheduled workflows run only from the default branch, and GitHub disables them after 60 days without repo activity; re-enable with `gh workflow enable <file>.yml` or the "Enable workflow" button in the Actions tab.
 - `use-public-rspm: true` serves pre-compiled Linux binaries; EMC2 installs in ~2 min instead of compiling from source.
 - Package caches are keyed on `.github/r-deps-level1.txt` / `r-deps-level2.txt` and auto-invalidate when the dep list changes.
 
@@ -164,10 +165,10 @@ Other:
 - `__tests__/fixtures/test_model_fitted.rds` - committed tiny fit of the synthetic model (2 chains, 100 sample iters, records its EMC2 version); regenerate with `generate_fitted_fixture.R`
 - `__tests__/helpers/` - L1 unit tests (no EMC2)
 - `__tests__/models/` - L2 real-EMC2 tests: `test_recovery_build.R` (one build) + `test_fitted_fixture.R` (on the fitted fixture)
-- `__tests__/fit/test_fit_smoke.R` - L3 smoke tests on the synthetic model: Smoke A/B (`fit_to_convergence` fresh + resume), Smoke C (recovery). CI manual dispatch only. Bounded `stop_criteria` (`max_gd=Inf`) makes all EMC2 phases exit after a fixed iteration count.
+- `__tests__/fit/test_fit_smoke.R` - L3 smoke tests on the synthetic model: Smoke A/B (`fit_to_convergence` fresh + resume), Smoke C (recovery). CI weekly + manual dispatch. Bounded `stop_criteria` (`max_gd=Inf`) makes all EMC2 phases exit after a fixed iteration count.
 - `.github/workflows/test.yml` - CI: L1 unit tests (auto on push/PR to `main`)
 - `.github/workflows/build.yml` - CI: L2 build tests (nightly 03:00 UTC + manual dispatch)
-- `.github/workflows/smoke.yml` - CI: L3 smoke tests (manual dispatch only)
+- `.github/workflows/smoke.yml` - CI: L3 smoke tests (weekly + manual dispatch)
 - `.github/r-deps-level1.txt` / `r-deps-level2.txt` - package lists used by CI cache keys
 
 ## Gotchas

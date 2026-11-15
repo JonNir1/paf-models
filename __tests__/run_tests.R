@@ -21,7 +21,7 @@
 #'                  log-lik vs EMC2's own likelihood, PPC simulation.
 #'
 #'   Level 3 -- __tests__/fit/     : end-to-end smoke tests (tiny MCMC).
-#'              About an hour; manual dispatch only. test_fit_smoke.R:
+#'              About an hour; weekly + manual dispatch. test_fit_smoke.R:
 #'                Smoke A/B: fit_to_convergence (fresh fit + resume)
 #'                Smoke C:   recovery (extract -> simulate -> refit)
 #'              Smokes run n_chains=2 with bounded stop_criteria.
