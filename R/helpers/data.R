@@ -158,7 +158,7 @@ TargetAtLoc <- function(df) {
   raw$S <- apply(raw[, dist_cols, drop = FALSE], 1, function(row)
     paste(.map_distractor(as.integer(row)), collapse = ","))
 
-  raw %>%
+  trials <- raw %>%
     rename(
       subjects             = Subject,
       trials               = Trial,
@@ -169,19 +169,44 @@ TargetAtLoc <- function(df) {
       saccade_location     = fixation_location_fix2,
       prev_target_location = prev_tar_loc
     ) %>%
-    filter(!is.na(saccade_onset)) %>%
+    filter(!is.na(saccade_onset))
+
+  n_no_landing <- sum(is.na(trials$saccade_location))
+  if (n_no_landing > 0) {
+    stop(sprintf(
+      "Experiment %d: %d trial(s) have a saccade onset but no landing location; R must be in 1..4.",
+      exp_id, n_no_landing))
+  }
+
+  trials %>%
     mutate(
       experiment            = sprintf("exp_%d", exp_id),
       search_difficulty     = toupper(search_difficulty),
       rt                    = as.numeric(saccade_onset) / 1000.0,
-      R                     = ifelse(is.na(saccade_location), 0L,
-                                     as.integer(as.numeric(saccade_location))),
+      R                     = as.integer(as.numeric(saccade_location)),
       is_target_repeated    = .parse_reploc(reploc),
       is_cue_at_prev_target = .parse_cue_at_prev(ReplocCue)
     ) %>%
     select(experiment, subjects, block, trial_in_block, trials,
            rt, R, S, search_difficulty, target_location, cue_location, cue_size,
            is_target_repeated, is_cue_at_prev_target, prev_target_location)
+}
+
+# Canonical factor encoding of the trial table (shared with the test fixtures).
+.encode_factors <- function(df) {
+  df %>%
+    mutate(
+      search_difficulty    = factor(search_difficulty,
+                                    levels = c("EASY", "MIXED", "DIFFICULT"), ordered = TRUE),
+      cue_size             = factor(cue_size,
+                                    levels = c("NONE", "SMALL", "MEDIUM", "LARGE"), ordered = TRUE),
+      R                    = factor(R),
+      cue_location         = factor(cue_location),
+      target_location      = factor(target_location),
+      prev_target_location = factor(prev_target_location)
+    ) %>%
+    mutate(across(where(is.character), factor)) %>%
+    mutate(across(where(is.logical),   factor))
 }
 
 #' Read both raw experiment CSVs, apply all transformations, and return a
@@ -233,20 +258,7 @@ load_data <- function(data_dir             = DATA_DIR,
   }
   data$search_difficulty <- derived_difficulty
 
-  # Factor encoding
-  data <- data %>%
-    mutate(
-      search_difficulty    = factor(search_difficulty,
-                                    levels = c("EASY", "MIXED", "DIFFICULT"), ordered = TRUE),
-      cue_size             = factor(cue_size,
-                                    levels = c("NONE", "SMALL", "MEDIUM", "LARGE"), ordered = TRUE),
-      R                    = factor(R),
-      cue_location         = factor(cue_location),
-      target_location      = factor(target_location),
-      prev_target_location = factor(prev_target_location)
-    ) %>%
-    mutate(across(where(is.character), factor)) %>%
-    mutate(across(where(is.logical),   factor))
+  data <- .encode_factors(data)
 
   # Optional difficulty subset (e.g. exclude MIXED for the prevtarget-locus family).
   if (!is.null(difficulties)) {
@@ -287,8 +299,11 @@ load_data <- function(data_dir             = DATA_DIR,
 #' when the prevtarget-locus family excludes MIXED trials): EMC2 design() reads
 #' the returned factor's levels() attribute, so a hardcoded-but-empty level would
 #' seed unidentifiable structural-zero parameters. Order of remaining levels is
-#' preserved.
+#' preserved. Classifies each distinct S once: design() calls this on grids of
+#' ~200k rows holding only a handful of distinct strings.
 SearchDifficulty <- function(df) {
-  results <- vapply(as.character(df$S), .classify_difficulty, character(1), USE.NAMES = FALSE)
-  droplevels(factor(results, levels = c("EASY", "MIXED", "DIFFICULT")))
+  s        <- as.character(df$S)
+  unique_s <- unique(s)
+  labels   <- vapply(unique_s, .classify_difficulty, character(1), USE.NAMES = FALSE)
+  droplevels(factor(labels[match(s, unique_s)], levels = c("EASY", "MIXED", "DIFFICULT")))
 }

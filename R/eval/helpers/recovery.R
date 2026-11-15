@@ -15,9 +15,10 @@
 #' "True" group mu = the data-generating value, recovered from the ORIGINAL
 #' extended fit via extract_group_params() (R/fit/helpers/recovery.R).
 #'
-#' Source chain: recovery.R (eval) -> utils.R. EMC2 loaded by the caller.
+#' Source chain: recovery.R (eval) -> utils.R, emc2_api.R.
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/helpers/emc2_api.R")
 
 
 #' Prior SDs for the population means, from a fitted model's stored prior.
@@ -42,9 +43,8 @@ get_prior_sds <- function(model) {
 #' @param fit A fitted EMC2 model.
 #' @return list(mean = <named numeric>, sd = <named numeric>).
 mu_posterior <- function(fit) {
-  library(EMC2)
-  samples <- get_pars(fit, selection = "mu", stage = "sample",
-                      map = FALSE, return_mcmc = TRUE)
+  samples <- emc_get_pars(fit, selection = "mu", stage = "sample",
+                          map = FALSE, return_mcmc = TRUE)
   mat <- do.call(rbind, lapply(samples, as.matrix))   # (n_samples x n_pars), named cols
   list(mean = colMeans(mat), sd = apply(mat, 2, stats::sd))
 }
@@ -129,9 +129,8 @@ recovery_zscore_rows <- function(fit, mu_true, prior_sds, model_name, sim) {
 #' @param fit A fitted EMC2 model.
 #' @return matrix (subjects x parameters); rownames = subject ids, colnames = params.
 alpha_posterior_means <- function(fit) {
-  library(EMC2)
-  per_par <- get_pars(fit, selection = "alpha", stage = "sample",
-                      map = FALSE, return_mcmc = TRUE)
+  per_par <- emc_get_pars(fit, selection = "alpha", stage = "sample",
+                          map = FALSE, return_mcmc = TRUE)
   # colMeans of each [samples x subjects] -> named vector over subjects;
   # sapply binds one column per parameter -> subjects x parameters.
   sapply(per_par, function(ch) colMeans(as.matrix(ch)))

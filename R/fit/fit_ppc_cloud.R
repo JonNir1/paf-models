@@ -27,8 +27,6 @@
 #' scripts/run_ppc.sh). No-op if either is unset (safe for local use).
 #' =============================================================================
 
-library(EMC2)
-
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/fit/helpers/recovery.R")   # sample_posterior_alphas, extract_design
 source_root("R/eval/eval_config.R")       # PPC_N_DRAWS, PPC_MODELS_DIR
@@ -95,7 +93,7 @@ run_ppc_simulation <- function(extended_model, template_data,
 
   for (i in seq_along(alpha_list)) {
     sim_i <- tryCatch(
-      make_data(alpha_list[[i]], design_obj, data = template_data),
+      emc_make_data(alpha_list[[i]], design_obj, data = template_data),
       error = function(e) {
         log_msg(sprintf("  draw %d: make_data() error: %s", i, conditionMessage(e)),
                 log_file, console_print = TRUE)
@@ -159,6 +157,8 @@ if (length(args) == 0L) {
   )
 } else {
 
+  library(EMC2)
+
   RNGkind(RNG_KIND)
   set.seed(RNG_SEED)
 
@@ -178,9 +178,7 @@ if (length(args) == 0L) {
   suffix_override     <- parse_str_arg(args, "--suffix")
   suffix <- if (!is.null(suffix_override)) suffix_override else ""
 
-  # Derive model name from rds filename: strip date prefix + _extended suffix
-  ppc_name <- sub("^[0-9]{6}_", "", tools::file_path_sans_ext(extended_rds))
-  ppc_name <- sub("(_extended)+$", "", ppc_name)
+  ppc_name <- model_name_from_rds(extended_rds)
 
   ppc_out_dir <- file.path(MODELS_DIR, "fit_ppc")
   if (!dir.exists(ppc_out_dir)) dir.create(ppc_out_dir, recursive = TRUE)

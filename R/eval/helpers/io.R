@@ -3,6 +3,10 @@
 #' =========================
 #' Small cross-cutting helpers shared by the evaluation drivers
 #' (`R/eval/convergence.R`, `R/eval/model_comparison.R`, ...):
+#'   - latest_dated_file(): newest `YYMMDD_*` file matching a regex in a dir
+#'   - model_rds_pattern(): exact-name regex for a model's fit files
+#'   - model_name_from_rds(): bare model name from a fit file name
+#'   - latest_model_path(): path of a model's latest fit, or stop()
 #'   - load_model()       : load the latest-dated .rds for a model name from a dir
 #'   - save_eval_table()  : write a data frame as paired .rds + .csv under EVAL_DIR
 #'   - newer_than_inputs(): mtime freshness check for cached eval tables
@@ -13,10 +17,54 @@
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 
 
+#' Newest file in `dir` matching a regex, judged by its `YYMMDD_` name prefix.
+#'
+#' @param dir     Directory to search.
+#' @param pattern Regex applied to base file names.
+#' @return The file's path, or NA_character_ if nothing matches.
+latest_dated_file <- function(dir, pattern) {
+  files <- list.files(dir, pattern = pattern, full.names = TRUE)
+  if (length(files) == 0L) return(NA_character_)
+  files[which.max(as.Date(sub("_.*", "", basename(files)), format = "%y%m%d"))]
+}
+
+
+#' Regex matching exactly one model's `YYMMDD_<name>[_extended].rds` files.
+#'
+#' @param model_name Bare model name, matched literally.
+#' @return A single regex string.
+model_rds_pattern <- function(model_name) {
+  escaped <- gsub("([.|()\\\\^{}+$*?\\[\\]])", "\\\\\\1", model_name, perl = TRUE)
+  sprintf("^[0-9]{6}_%s(_extended)?\\.rds$", escaped)
+}
+
+
+#' Bare model name from a `YYMMDD_<name>[_extended].rds` path. Vectorised.
+#'
+#' @param path Character vector of file names or paths.
+#' @return Character vector of model names.
+model_name_from_rds <- function(path) {
+  name <- sub("^[0-9]{6}_", "", tools::file_path_sans_ext(basename(path)))
+  sub("(_extended)+$", "", name)
+}
+
+
+#' Path of the latest-dated fit of a model, or stop().
+#'
+#' @param model_name Bare model name, e.g. "mymodel".
+#' @param dir_path   Directory to search.
+#' @return Path to the latest `YYMMDD_<model_name>[_extended].rds`.
+latest_model_path <- function(model_name, dir_path) {
+  path <- latest_dated_file(dir_path, model_rds_pattern(model_name))
+  if (is.na(path)) stop(sprintf("No version of %s found in: %s", model_name, dir_path))
+  path
+}
+
+
 #' Load the latest-dated version of a model from a directory, or stop().
 #'
-#' File names are expected as `YYMMDD_<model_name>[_extended].rds`. The most
-#' recent date prefix wins.
+#' File names are expected as `YYMMDD_<model_name>[_extended].rds`. The name is
+#' matched exactly and the most recent date prefix wins.
 #'
 #' @param model_name Bare model name, e.g. "mymodel".
 #' @param dir_path   Directory to search.
@@ -26,16 +74,7 @@ load_model <- function(model_name, dir_path) {
   if (!check_valid_string(dir_path))   stop(sprintf("Invalid directory path: %s", dir_path))
   if (!dir.exists(dir_path))           stop(sprintf("Directory not found: %s", dir_path))
 
-  all_files <- list.files(dir_path, full.names = TRUE)
-  pattern   <- paste0(".*_", model_name, "(_extended)?\\.rds$")
-  matches   <- all_files[grepl(pattern, basename(all_files))]
-  if (length(matches) == 0) {
-    stop(sprintf("No version of %s found in: %s", model_name, dir_path))
-  }
-
-  date_strings <- sub("_.*", "", basename(matches))
-  dates        <- as.Date(date_strings, format = "%y%m%d")
-  latest_file  <- matches[which.max(dates)]
+  latest_file <- latest_model_path(model_name, dir_path)
   message(sprintf("Loading latest version of %s: %s", model_name, basename(latest_file)))
   readRDS(latest_file)
 }
@@ -61,7 +100,8 @@ save_eval_table <- function(df, stem, dir = EVAL_DIR) {
 #' Is the cached table at `cache_path` newer than EVERY input file?
 #'
 #' Used to decide whether to recompute an eval table. Returns FALSE (=> recompute)
-#' if the cache is missing or if any input is newer than (or equal to) the cache.
+#' if the cache is missing, or if any input is missing or newer than (or equal
+#' to) the cache.
 #'
 #' @param cache_path  Path to the cached .rds.
 #' @param input_paths Character vector of input file paths (e.g. model .rds files).
@@ -71,5 +111,5 @@ newer_than_inputs <- function(cache_path, input_paths) {
   if (length(input_paths) == 0) return(TRUE)
   cache_mtime  <- file.info(cache_path)$mtime
   input_mtimes <- file.info(input_paths)$mtime
-  all(cache_mtime > input_mtimes, na.rm = FALSE)
+  isTRUE(all(cache_mtime > input_mtimes))   # a missing input (NA mtime) => recompute
 }

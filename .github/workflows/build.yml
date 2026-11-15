@@ -1,8 +1,8 @@
 name: Build Tests
 
-# Level-2 model-build tests (make_emc() for all 5 models + recovery build
-# chain; no MCMC). These are intrinsically slow because EMC2::design() takes
-# ~minutes per model, so they do NOT run on every push. Instead:
+# Level-2 real-EMC2 tests (one build of the synthetic test model + checks on
+# the committed fitted fixture; no MCMC). Slow because EMC2::design() takes
+# ~minutes per build, so they do NOT run on every push. Instead:
 #   - nightly schedule (03:00 UTC), and
 #   - manual dispatch (Actions tab -> "Build Tests" -> "Run workflow").
 # Level-1 unit tests remain the fast per-push gate (.github/workflows/test.yml).

@@ -42,14 +42,7 @@ MODEL_NAMES <- discover_model_names()
 if (length(MODEL_NAMES) == 0)
   stop(sprintf("No fitted models found in %s; fit models before running goodness_of_fit.", MODELS_FIT_DIR))
 
-MODEL_PATHS <- vapply(MODEL_NAMES, function(mn) {
-  pattern <- paste0(".*_", mn, "(_extended)?\\.rds$")
-  files   <- list.files(MODELS_FIT_DIR, full.names = TRUE)
-  matches <- files[grepl(pattern, basename(files))]
-  if (length(matches) == 0) stop(sprintf("No fit for %s in %s", mn, MODELS_FIT_DIR))
-  dates <- as.Date(sub("_.*", "", basename(matches)), format = "%y%m%d")
-  matches[which.max(dates)]
-}, character(1))
+MODEL_PATHS <- vapply(MODEL_NAMES, latest_model_path, character(1), dir_path = MODELS_FIT_DIR)
 
 MODEL_LIST <- lapply(MODEL_NAMES, load_model, dir_path = MODELS_FIT_DIR)
 names(MODEL_LIST) <- MODEL_NAMES

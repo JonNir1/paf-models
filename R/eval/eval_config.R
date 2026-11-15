@@ -9,6 +9,7 @@
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/config.R")
+source_root("R/eval/helpers/io.R")
 
 # Subdir under EVAL_DIR for per-step evaluation outputs.
 RECOVERY_EVAL_DIR <- file.path(EVAL_DIR, "parameter_recovery")
@@ -26,9 +27,7 @@ RECOVERY_EVAL_DIR <- file.path(EVAL_DIR, "parameter_recovery")
 discover_model_names <- function(dir_path = MODELS_FIT_DIR) {
   if (!dir.exists(dir_path)) return(character(0))
   files <- list.files(dir_path, pattern = "^[0-9]{6}_.*\\.rds$")
-  names <- sub("^[0-9]{6}_", "", tools::file_path_sans_ext(files))
-  names <- sub("(_extended)+$", "", names)
-  sort(unique(names))
+  sort(unique(model_name_from_rds(files)))
 }
 
 

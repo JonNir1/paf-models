@@ -5,7 +5,6 @@
 #'   - compute_qpf_table()          (R/eval/helpers/ppc.R) [marginal + by_response]
 #' =============================================================================
 
-.libPaths(c(file.path(Sys.getenv("USERPROFILE"), "R", "library"), .libPaths()))
 library(testthat)
 library(dplyr)
 
@@ -19,17 +18,17 @@ source(file.path(ROOT, "R", "eval", "helpers", "ppc.R"))
 # Shared mock data helpers
 # =============================================================================
 
-# Build a minimal observed data frame with known structure.
-# S = "T,E,E,E" -> target at loc 1, easy distractors elsewhere.
-# All saccades (R) go to loc 1 (target), so response_type = "T" everywhere.
+QPF_COLS   <- c("model", "experiment", "cue_size", "search_difficulty",
+                "quantile", "obs", "pred_median", "pred_ci_lo", "pred_ci_hi")
+QUANTILES  <- c(0.10, 0.25, 0.50, 0.75, 0.90)
+
+# Observed data: S = "T,E,E,E" and every saccade to loc 1, so response_type = "T".
 .mk_obs <- function(n_subj = 3L, n_trials = 20L) {
-  subjects <- rep(seq_len(n_subj), each = n_trials)
-  rt       <- runif(n_subj * n_trials, min = 0.25, max = 0.90)
   data.frame(
-    subjects          = subjects,
-    rt                = rt,
-    R                 = 1L,                   # always saccade to loc 1
-    S                 = "T,E,E,E",            # target at loc 1
+    subjects          = rep(seq_len(n_subj), each = n_trials),
+    rt                = runif(n_subj * n_trials, min = 0.25, max = 0.90),
+    R                 = 1L,
+    S                 = "T,E,E,E",
     cue_size          = "NONE",
     search_difficulty = "EASY",
     experiment        = "exp_1",
@@ -37,179 +36,16 @@ source(file.path(ROOT, "R", "eval", "helpers", "ppc.R"))
   )
 }
 
-# Build a minimal ppc_list: T copies of obs_data with slightly jittered RTs
-# but same trial structure, so proportions match exactly.
+# S = "T,D,E,E" with n_per_type saccades each to loc 1 (T), 2 (D) and 3 (E).
+.mk_obs_mixed <- function(n_subj = 3L, n_per_type = 20L) {
+  obs   <- .mk_obs(n_subj, 3L * n_per_type)
+  obs$S <- "T,D,E,E"
+  obs$R <- rep(rep(1:3, each = n_per_type), n_subj)
+  obs
+}
+
+# T copies of the observed data with jittered RTs and the same trial structure.
 .mk_ppc <- function(obs_data, T = 10L) {
-  lapply(seq_len(T), function(i) {
-    d      <- obs_data
-    d$rt   <- d$rt + rnorm(nrow(d), sd = 0.02)
-    d$rt   <- pmax(d$rt, 0.10)
-    d
-  })
-}
-
-
-# =============================================================================
-# compute_dist_stats()
-# =============================================================================
-
-test_that("compute_dist_stats returns correct columns and shape", {
-  set.seed(42L)
-  obs  <- .mk_obs(n_subj = 4L, n_trials = 30L)
-  ppcs <- .mk_ppc(obs, T = 5L)
-  out  <- compute_dist_stats(ppcs, obs, "model1")
-
-  expect_s3_class(out, "data.frame")
-  expect_named(out, c("model", "subject", "ks_d", "ks_p", "ks_p_fdr", "fdr_pass"),
-               ignore.order = FALSE)
-  expect_equal(nrow(out), 4L)
-  expect_true(all(out$model == "model1"))
-  expect_true(all(out$ks_d >= 0, na.rm = TRUE))
-})
-
-test_that("compute_dist_stats applies BH FDR within model", {
-  set.seed(123L)
-  obs  <- .mk_obs(n_subj = 10L, n_trials = 50L)
-  ppcs <- .mk_ppc(obs, T = 10L)
-  out  <- compute_dist_stats(ppcs, obs, "model1")
-
-  # ks_p_fdr should be >= ks_p (BH correction is conservative)
-  valid <- !is.na(out$ks_p) & !is.na(out$ks_p_fdr)
-  expect_true(all(out$ks_p_fdr[valid] >= out$ks_p[valid]))
-
-  # fdr_pass should equal (ks_p_fdr >= PPC_AD_ALPHA)
-  expect_equal(out$fdr_pass[valid],
-               out$ks_p_fdr[valid] >= PPC_AD_ALPHA)
-})
-
-
-# =============================================================================
-# compute_choice_proportions()
-# =============================================================================
-
-test_that("choice proportions sum to 1 per condition", {
-  set.seed(7L)
-  obs  <- .mk_obs(n_subj = 5L, n_trials = 40L)
-  ppcs <- .mk_ppc(obs, T = 8L)
-  out  <- compute_choice_proportions(ppcs, obs, "model1")
-
-  expect_s3_class(out, "data.frame")
-  expect_true(all(c("model", "experiment", "cue_size", "search_difficulty",
-                    "response_type", "obs", "pred_median",
-                    "pred_ci_lo", "pred_ci_hi") %in% names(out)))
-
-  # Proportions (obs + pred_median) must sum to 1 per condition cell
-  cond_obs_sum <- out %>%
-    group_by(experiment, cue_size, search_difficulty) %>%
-    summarise(obs_sum = sum(obs), pred_sum = sum(pred_median), .groups = "drop")
-
-  expect_true(all(abs(cond_obs_sum$obs_sum  - 1) < 1e-9))
-  expect_true(all(abs(cond_obs_sum$pred_sum - 1) < 0.01))  # median may not sum exactly to 1
-})
-
-test_that("choice proportions are in [0, 1]", {
-  set.seed(8L)
-  obs  <- .mk_obs(n_subj = 3L, n_trials = 20L)
-  ppcs <- .mk_ppc(obs, T = 5L)
-  out  <- compute_choice_proportions(ppcs, obs, "model1")
-  expect_true(all(out$obs >= 0 & out$obs <= 1 + 1e-9))
-  expect_true(all(out$pred_median >= 0 & out$pred_median <= 1 + 1e-9, na.rm = TRUE))
-})
-
-test_that("all three response types are present", {
-  set.seed(9L)
-  # Mix of target + easy + difficult distractors
-  n <- 60L
-  obs <- data.frame(
-    subjects          = rep(1L, n),
-    rt                = runif(n, 0.25, 0.90),
-    R                 = sample(1:4, n, replace = TRUE),
-    S                 = sample(c("T,E,E,E", "T,D,D,D", "T,D,E,E"), n, replace = TRUE),
-    cue_size          = "NONE",
-    search_difficulty = "EASY",
-    experiment        = "exp_1",
-    stringsAsFactors  = FALSE
-  )
-  ppcs <- .mk_ppc(obs, T = 3L)
-  out  <- compute_choice_proportions(ppcs, obs, "model2")
-  expect_true(all(c("T", "D", "E") %in% out$response_type))
-})
-
-
-# =============================================================================
-# compute_qpf_table()
-# =============================================================================
-
-test_that("QPF quantiles are monotone within each condition", {
-  set.seed(11L)
-  obs  <- .mk_obs(n_subj = 4L, n_trials = 50L)
-  ppcs <- .mk_ppc(obs, T = 10L)
-  out  <- compute_qpf_table(ppcs, obs, "model1")
-
-  expect_s3_class(out, "data.frame")
-  expect_true(all(c("model", "experiment", "cue_size", "search_difficulty",
-                    "quantile", "obs", "pred_median",
-                    "pred_ci_lo", "pred_ci_hi") %in% names(out)))
-
-  # Within each condition, obs quantiles must be non-decreasing in probability
-  cond_key <- paste(out$experiment, out$cue_size, out$search_difficulty)
-  for (key in unique(cond_key)) {
-    sub <- out[cond_key == key, ]
-    sub <- sub[order(sub$quantile), ]
-    expect_true(all(diff(sub$obs) >= -1e-10),
-                info = sprintf("obs quantiles not monotone for condition: %s", key))
-    expect_true(all(diff(sub$pred_median) >= -1e-10),
-                info = sprintf("pred_median quantiles not monotone for condition: %s", key))
-  }
-})
-
-test_that("QPF returns 5 quantile levels", {
-  set.seed(13L)
-  obs  <- .mk_obs(n_subj = 2L, n_trials = 30L)
-  ppcs <- .mk_ppc(obs, T = 5L)
-  out  <- compute_qpf_table(ppcs, obs, "model4")
-  expect_equal(sort(unique(out$quantile)), c(0.10, 0.25, 0.50, 0.75, 0.90))
-})
-
-test_that("CI bounds bracket the median", {
-  set.seed(15L)
-  obs  <- .mk_obs(n_subj = 3L, n_trials = 40L)
-  ppcs <- .mk_ppc(obs, T = 20L)
-  out  <- compute_qpf_table(ppcs, obs, "model5")
-  valid <- !is.na(out$pred_ci_lo) & !is.na(out$pred_ci_hi) & !is.na(out$pred_median)
-  expect_true(all(out$pred_ci_lo[valid] <= out$pred_median[valid] + 1e-10))
-  expect_true(all(out$pred_ci_hi[valid] >= out$pred_median[valid] - 1e-10))
-})
-
-
-# =============================================================================
-# compute_qpf_table(by_response = TRUE)
-# =============================================================================
-
-# Mixed-response mock data: saccades go to all 4 locations, yielding T/D/E types.
-# S = "T,D,E,E" so: loc1 = T, loc2 = D, loc3 = E, loc4 = E.
-# R cycles through 1..4 so response_type cycles T, D, E, E.
-.mk_obs_mixed <- function(n_subj = 4L, n_trials_per_type = 20L) {
-  # Each subject gets n_trials_per_type each of T, D, E (4 * n_trials_per_type total)
-  resp_locs <- c(rep(1L, n_trials_per_type),   # T
-                 rep(2L, n_trials_per_type),   # D
-                 rep(3L, n_trials_per_type))   # E
-  n_each <- length(resp_locs)
-  subjects <- rep(seq_len(n_subj), each = n_each)
-  rt <- runif(n_subj * n_each, min = 0.25, max = 0.90)
-  data.frame(
-    subjects          = subjects,
-    rt                = rt,
-    R                 = rep(resp_locs, n_subj),
-    S                 = "T,D,E,E",
-    cue_size          = "NONE",
-    search_difficulty = "EASY",
-    experiment        = "exp_1",
-    stringsAsFactors  = FALSE
-  )
-}
-
-.mk_ppc_mixed <- function(obs_data, T = 10L) {
   lapply(seq_len(T), function(i) {
     d    <- obs_data
     d$rt <- pmax(d$rt + rnorm(nrow(d), sd = 0.02), 0.10)
@@ -217,54 +53,115 @@ test_that("CI bounds bracket the median", {
   })
 }
 
-test_that("compute_qpf_table(by_response=TRUE) returns response_type column", {
-  set.seed(21L)
-  obs  <- .mk_obs_mixed(n_subj = 3L, n_trials_per_type = 20L)
-  ppcs <- .mk_ppc_mixed(obs, T = 5L)
-  out  <- compute_qpf_table(ppcs, obs, "model1", by_response = TRUE)
-
-  expect_s3_class(out, "data.frame")
-  expect_true("response_type" %in% names(out))
-  expect_true(all(out$response_type %in% c("T", "D", "E")))
-  # Standard columns still present
-  expect_true(all(c("model", "quantile", "obs", "pred_median",
-                    "pred_ci_lo", "pred_ci_hi") %in% names(out)))
-})
-
-test_that("compute_qpf_table(by_response=TRUE) quantiles are monotone per type", {
-  set.seed(22L)
-  obs  <- .mk_obs_mixed(n_subj = 3L, n_trials_per_type = 30L)
-  ppcs <- .mk_ppc_mixed(obs, T = 8L)
-  out  <- compute_qpf_table(ppcs, obs, "model2", by_response = TRUE)
-
-  cond_key <- paste(out$experiment, out$cue_size, out$search_difficulty,
-                    out$response_type)
-  for (key in unique(cond_key)) {
-    sub <- out[cond_key == key, ]
+expect_monotone_quantiles <- function(out, key_cols) {
+  key <- do.call(paste, out[key_cols])
+  for (k in unique(key)) {
+    sub <- out[key == k, ]
     sub <- sub[order(sub$quantile), ]
-    expect_true(all(diff(sub$obs) >= -1e-10),
-                info = sprintf("obs quantiles not monotone for: %s", key))
-    expect_true(all(diff(sub$pred_median) >= -1e-10),
-                info = sprintf("pred_median not monotone for: %s", key))
+    expect_true(all(diff(sub$obs) >= -1e-10), info = paste("obs not monotone:", k))
+    expect_true(all(diff(sub$pred_median) >= -1e-10), info = paste("pred not monotone:", k))
   }
+}
+
+
+# =============================================================================
+# compute_dist_stats()
+# =============================================================================
+
+test_that("compute_dist_stats: one row per subject, BH-adjusted within model", {
+  set.seed(123L)
+  obs <- .mk_obs(n_subj = 10L, n_trials = 50L)
+  out <- compute_dist_stats(.mk_ppc(obs, T = 10L), obs, "model1")
+
+  expect_named(out, c("model", "subject", "ks_d", "ks_p", "ks_p_fdr", "fdr_pass"))
+  expect_equal(out$subject, 1:10)
+  expect_true(all(out$model == "model1"))
+  expect_true(all(out$ks_d >= 0))
+  expect_equal(out$ks_p_fdr, p.adjust(out$ks_p, method = "BH"))
+  expect_equal(out$fdr_pass, out$ks_p_fdr >= PPC_AD_ALPHA)
 })
 
-test_that("compute_qpf_table(by_response=TRUE) skips cells below min_n", {
-  set.seed(23L)
-  # Build obs with only T responses (no D or E) so D and E are sparse
-  obs_t_only <- .mk_obs(n_subj = 3L, n_trials = 20L)   # all R=1 = T
-  ppcs <- .mk_ppc(obs_t_only, T = 5L)
-  out  <- compute_qpf_table(ppcs, obs_t_only, "model4",
-                              by_response = TRUE, min_n = 10L)
-  # Only T rows should appear (D and E have 0 observations -> below min_n)
-  expect_true(all(out$response_type == "T"))
+test_that("compute_dist_stats: a subject with < 2 observations gets NA stats and fails", {
+  set.seed(1L)
+  obs <- .mk_obs(n_subj = 3L, n_trials = 20L)
+  obs <- obs[!(obs$subjects == 2L & duplicated(obs$subjects)), ]   # subject 2 keeps 1 trial
+  out <- compute_dist_stats(.mk_ppc(obs, T = 5L), obs, "m")
+
+  s2 <- out[out$subject == 2L, ]
+  expect_true(is.na(s2$ks_d) && is.na(s2$ks_p) && is.na(s2$ks_p_fdr))
+  expect_false(s2$fdr_pass)
+  expect_false(anyNA(out$ks_p[out$subject != 2L]))
 })
 
-test_that("compute_qpf_table(by_response=FALSE) is unchanged (no response_type col)", {
-  set.seed(24L)
-  obs  <- .mk_obs(n_subj = 3L, n_trials = 20L)
-  ppcs <- .mk_ppc(obs, T = 5L)
-  out  <- compute_qpf_table(ppcs, obs, "model1", by_response = FALSE)
+
+# =============================================================================
+# compute_choice_proportions()
+# =============================================================================
+
+test_that("compute_choice_proportions: proportions lie in [0, 1] and sum to 1 per condition", {
+  set.seed(7L)
+  obs <- .mk_obs(n_subj = 5L, n_trials = 40L)
+  out <- compute_choice_proportions(.mk_ppc(obs, T = 8L), obs, "model1")
+
+  expect_true(all(c("model", "experiment", "cue_size", "search_difficulty", "response_type",
+                    "obs", "pred_median", "pred_ci_lo", "pred_ci_hi") %in% names(out)))
+  expect_true(all(out$obs >= 0 & out$obs <= 1 + 1e-9))
+  expect_true(all(out$pred_median >= 0 & out$pred_median <= 1 + 1e-9, na.rm = TRUE))
+  sums <- out %>%
+    group_by(experiment, cue_size, search_difficulty) %>%
+    summarise(obs_sum = sum(obs), pred_sum = sum(pred_median), .groups = "drop")
+  expect_true(all(abs(sums$obs_sum  - 1) < 1e-9))
+  expect_true(all(abs(sums$pred_sum - 1) < 0.01))   # medians need not sum exactly to 1
+})
+
+test_that("compute_choice_proportions: classifies the saccaded stimulus into T / D / E", {
+  set.seed(9L)
+  obs <- .mk_obs_mixed(n_subj = 1L, n_per_type = 20L)
+  out <- compute_choice_proportions(.mk_ppc(obs, T = 3L), obs, "model2")
+  expect_setequal(out$response_type, c("T", "D", "E"))
+  expect_equal(out$obs[match(c("T", "D", "E"), out$response_type)], rep(1 / 3, 3))
+})
+
+
+# =============================================================================
+# compute_qpf_table()
+# =============================================================================
+
+test_that("compute_qpf_table: 5 monotone quantiles per condition, no response_type by default", {
+  set.seed(11L)
+  obs <- .mk_obs(n_subj = 4L, n_trials = 50L)
+  out <- compute_qpf_table(.mk_ppc(obs, T = 10L), obs, "model1")
+
+  expect_true(all(QPF_COLS %in% names(out)))
   expect_false("response_type" %in% names(out))
-  expect_equal(sort(unique(out$quantile)), c(0.10, 0.25, 0.50, 0.75, 0.90))
+  expect_equal(sort(unique(out$quantile)), QUANTILES)
+  expect_monotone_quantiles(out, c("experiment", "cue_size", "search_difficulty"))
+})
+
+test_that("compute_qpf_table: CI bounds bracket the median", {
+  set.seed(15L)
+  obs   <- .mk_obs(n_subj = 3L, n_trials = 40L)
+  out   <- compute_qpf_table(.mk_ppc(obs, T = 20L), obs, "model5")
+  valid <- !is.na(out$pred_ci_lo) & !is.na(out$pred_ci_hi) & !is.na(out$pred_median)
+  expect_true(any(valid))
+  expect_true(all(out$pred_ci_lo[valid] <= out$pred_median[valid] + 1e-10))
+  expect_true(all(out$pred_ci_hi[valid] >= out$pred_median[valid] - 1e-10))
+})
+
+test_that("compute_qpf_table(by_response = TRUE): monotone quantiles per response type", {
+  set.seed(22L)
+  obs <- .mk_obs_mixed(n_subj = 3L, n_per_type = 30L)
+  out <- compute_qpf_table(.mk_ppc(obs, T = 8L), obs, "model2", by_response = TRUE)
+
+  expect_true(all(c(QPF_COLS, "response_type") %in% names(out)))
+  expect_setequal(out$response_type, c("T", "D", "E"))
+  expect_monotone_quantiles(out, c("experiment", "cue_size", "search_difficulty", "response_type"))
+})
+
+test_that("compute_qpf_table(by_response = TRUE): skips cells below min_n", {
+  set.seed(23L)
+  obs <- .mk_obs(n_subj = 3L, n_trials = 20L)   # only T responses
+  out <- compute_qpf_table(.mk_ppc(obs, T = 5L), obs, "model4", by_response = TRUE, min_n = 10L)
+  expect_gt(nrow(out), 0L)
+  expect_true(all(out$response_type == "T"))
 })

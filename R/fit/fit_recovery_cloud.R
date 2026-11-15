@@ -31,10 +31,9 @@
 #' scripts/run_recovery.sh). No-op if either is unset (safe for local use).
 #' =============================================================================
 
-library(EMC2)
-
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/fit/helpers/recovery.R")
+source_root("R/eval/helpers/io.R")        # model_name_from_rds
 
 
 # =============================================================================
@@ -174,6 +173,8 @@ if (length(args) == 0L) {
   )
 } else {
 
+  library(EMC2)
+
   RNGkind(RNG_KIND)
   set.seed(RNG_SEED)
 
@@ -199,9 +200,7 @@ if (length(args) == 0L) {
   suffix_override      <- parse_str_arg(args, "--suffix")
   suffix <- if (!is.null(suffix_override)) suffix_override else ""
 
-  # Derive model name from rds filename: strip date prefix + _extended suffix
-  orig_name     <- sub("^[0-9]{6}_", "", tools::file_path_sans_ext(extended_rds))
-  orig_name     <- sub("(_extended)+$", "", orig_name)
+  orig_name     <- model_name_from_rds(extended_rds)
   recovery_name <- sprintf("%s_recovery_sim%d%s", orig_name, sim_index, suffix)
 
   if (!dir.exists(MODELS_RECOVERY_DIR)) dir.create(MODELS_RECOVERY_DIR, recursive = TRUE)

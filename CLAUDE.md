@@ -28,18 +28,18 @@ source("R/eval/examine_model.R")                   # inspect a single fitted mod
 
 R (tests; requires `testthat` - `install.packages("testthat")`):
 ```
-Rscript __tests__/run_tests.R                    # level 1: helpers unit tests (<5 s, no EMC2)
-TEST_LEVEL=2 Rscript __tests__/run_tests.R       # level 2: + model build tests (requires EMC2)
-TEST_LEVEL=3 Rscript __tests__/run_tests.R       # level 3: + fit smoke tests (CI only, hours)
+Rscript __tests__/run_tests.R                    # level 1: unit tests (seconds, no EMC2)
+TEST_LEVEL=2 Rscript __tests__/run_tests.R       # level 2: + real-EMC2 tests, no MCMC (minutes)
+TEST_LEVEL=3 Rscript __tests__/run_tests.R       # level 3: + fit smoke tests (CI only, ~1 h)
 ```
 
 **Tiered testing strategy.** The suite is tiered by cost and intent; a higher TEST_LEVEL always runs the lower tiers too.
 
 | Tier | Dir | Scope | Cost | When |
 |---|---|---|---|---|
-| L1 | `__tests__/helpers/` | Unit tests for pure helpers (logging, data, fitting helpers incl. `fit_to_convergence()` validation, recovery helpers). No EMC2 required. | <5 s total | Every push/PR (CI auto). |
-| L2 | `__tests__/models/` | Integration tests: builds the synthetic `test_model` (`__tests__/fixtures/test_model.R`) **once** and guards `build_lba_model()`/`make_emc()` + the recovery extract→simulate→build chain. Committed fixture; no MCMC. Build is dominated by `EMC2::design()` (~minutes). | ~tens of min | Nightly + manual dispatch (CI). |
-| L3 | `__tests__/fit/` | End-to-end smoke tests with tiny MCMC (n_chains=2), all driven by the synthetic model. One file (`test_fit_smoke.R`): **Smoke A/B** = `fit_to_convergence` (fresh + resume), **Smoke C** = recovery, **Smoke D** = PPC. | minutes-hours | Manual dispatch only (CI). |
+| L1 | `__tests__/helpers/` | Unit tests with no EMC2 installed. EMC2 is reached only through the `emc_*` wrappers in `R/helpers/emc2_api.R`, which the tests mock (`local_mocks()` in `__tests__/fixtures/common.R`). Covers the pure helpers, `load_data()` end to end on synthetic raw CSVs, config invariants, naming/I/O, and the fit/PPC/recovery orchestration (`fit_to_convergence` loop, `run_ppc_simulation`, `run_recovery_fit`, `build_lba_model` wiring). | seconds | Every push/PR (CI auto). |
+| L2 | `__tests__/models/` | Real EMC2, no MCMC. `test_recovery_build.R` builds the synthetic `test_model` **once** (dominated by `EMC2::design()`) and checks the build + simulate step. `test_fitted_fixture.R` runs on the committed tiny fit `__tests__/fixtures/test_model_fitted.rds`: EMC2 object shapes, per-trial log-lik vs EMC2's own likelihood, PPC simulation. | minutes | Nightly + manual dispatch (CI). |
+| L3 | `__tests__/fit/` | End-to-end smoke tests with tiny MCMC (n_chains=2), driven by the synthetic model. One file (`test_fit_smoke.R`): **Smoke A/B** = `fit_to_convergence` (fresh + resume), **Smoke C** = recovery (incl. the rebuild on simulated data). | ~1 h | Manual dispatch only (CI). |
 
 CI (GitHub Actions):
 - L1 runs automatically on every push and on PRs to `main` (`.github/workflows/test.yml`).
@@ -48,7 +48,7 @@ CI (GitHub Actions):
 - `use-public-rspm: true` serves pre-compiled Linux binaries; EMC2 installs in ~2 min instead of compiling from source.
 - Package caches are keyed on `.github/r-deps-level1.txt` / `r-deps-level2.txt` and auto-invalidate when the dep list changes.
 
-When adding a new pipeline, add a unit test at L1 (for any pure helper), a build/structural test at L2 (uses the fixture, no MCMC), and a smoke test at L3 (tiny MCMC end-to-end).
+When adding a new pipeline, test its logic at L1 (mock the `emc_*` seam; call EMC2 only through those wrappers so L1 stays EMC2-free), its real EMC2 calls at L2 (on the fitted fixture where possible, no MCMC), and add an L3 smoke only if it needs fresh MCMC. If the fitted fixture's EMC2 major.minor no longer matches the installed EMC2, L2 skips with a hint: regenerate it with `__tests__/fixtures/generate_fitted_fixture.R` (~45 min locally).
 
 ## Agent tooling (local, project-authored)
 
@@ -123,7 +123,8 @@ Project-level:
 - `R/config.R` - RNG, RT cutoffs, paths (`OUTPUTS_DIR`, `MODELS_*_DIR`, `EVAL_DIR`, `DATA_DIR`)
 - `R/utils.R` - `source_root()` plus `parse_int_arg`, `parse_str_arg`, `check_valid_string`
 - `R/helpers/logging.R` - timestamped logging, error reporting, config serialisation
-- `R/helpers/data.R` - **entry point `load_data()`** reads raw CSVs end-to-end; `filter_data()` for custom RT cutoffs on an already-loaded tibble; EMC2 factor closures (`StimulusAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`, `SearchDifficulty`); sources `logging.R`
+- `R/helpers/data.R` - **entry point `load_data()`** reads raw CSVs end-to-end; `filter_data()` for custom RT cutoffs on an already-loaded tibble; `.encode_factors()` (canonical factor encoding, shared with the test fixtures); EMC2 factor closures (`StimulusAtLoc`, `TargetAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`, `SearchDifficulty`); sources `logging.R`
+- `R/helpers/emc2_api.R` - thin `emc_*` wrappers (`emc_fit`, `emc_run`, `emc_check`, `emc_get_pars`, `emc_make_data`, `emc_design`, ...), each a plain `EMC2::<fn>(...)`. The fit layer, the recovery helpers and the PPC runner call EMC2 only through these so L1 can mock them (the eval convergence/GoF helpers still call `check()`/`get_pars()` directly and are covered at L2)
 
 Fitting (`R/fit/`):
 - `R/fit/fit_config.R` - priors, `N_CHAINS`, fit-loop defaults, `default_convergence_criteria()`, recovery params, `CONSTANTS` (asymmetric convergence thresholds in `R/config.R`)
@@ -148,7 +149,7 @@ Evaluation (`R/eval/`):
 - `R/eval/helpers/gof.R` - goodness-of-fit computations (DIC/BPIC/LOO/WAIC)
 - `R/eval/helpers/ppc.R` - PPC computations (per-subject KS, theory contrasts)
 - `R/eval/helpers/plot.R` - Plotly figure builders + `save_plotly_png()` (PNG export with HTML fallback)
-- `R/eval/helpers/io.R` - `load_model()`, `save_eval_table()`, `newer_than_inputs()` (shared eval I/O)
+- `R/eval/helpers/io.R` - `latest_dated_file()`, `model_rds_pattern()` / `model_name_from_rds()` (the single `YYMMDD_<name>[_extended].rds` naming rule), `load_model()` (exact name, latest date), `save_eval_table()`, `newer_than_inputs()` (shared eval I/O)
 
 Other:
 - `scripts/helpers.sh` - shared config defaults and cloud copy helpers (sourced by the scripts below)
@@ -158,10 +159,12 @@ Other:
 - `scripts/run_ppc.sh` - download a fit, run `fit_ppc_cloud.R`, sync results
 - `__tests__/run_tests.R` - test entry point; gated by `TEST_LEVEL` env var (1/2/3)
 - `__tests__/fixtures/sample_data.csv` - committed synthetic fixture matching `load_data()`'s output contract (one row per trial, 15 columns, 120 rows); regenerate with `generate_fixture.R`
-- `__tests__/fixtures/test_model.R` - minimal synthetic LBA model (`build_model()` + `MODEL_NAME`) exercised by L2/L3
-- `__tests__/helpers/` - L1 unit tests (logging, data, fit/recovery helpers incl. `fit_to_convergence` validation; no EMC2)
-- `__tests__/models/` - L2 build + recovery-chain tests on the synthetic model (requires EMC2)
-- `__tests__/fit/test_fit_smoke.R` - L3 smoke tests on the synthetic model: Smoke A/B (`fit_to_convergence` fresh + resume), Smoke C (recovery), Smoke D (PPC). CI manual dispatch only. Bounded `stop_criteria` (`max_gd=Inf`) makes all EMC2 phases exit after a fixed iteration count.
+- `__tests__/fixtures/test_model.R` - minimal synthetic LBA model (`build_model()` + `MODEL_NAME`) exercised by L2/L3, plus `test_group_params()` (in-bounds group params from `PRIOR_MU`)
+- `__tests__/fixtures/common.R` - shared test infrastructure for every tier: `local_mocks()` (rebinds sourced functions; `local_mocked_bindings()` needs a package, this repo has none), mock EMC2 objects and call recorders, `load_fixture_raw()`/`load_fixture_data()`, `SMOKE_STOP_CRITERIA`/`TRIVIAL_CC`, `load_fitted_fixture()`
+- `__tests__/fixtures/test_model_fitted.rds` - committed tiny fit of the synthetic model (2 chains, 100 sample iters, records its EMC2 version); regenerate with `generate_fitted_fixture.R`
+- `__tests__/helpers/` - L1 unit tests (no EMC2)
+- `__tests__/models/` - L2 real-EMC2 tests: `test_recovery_build.R` (one build) + `test_fitted_fixture.R` (on the fitted fixture)
+- `__tests__/fit/test_fit_smoke.R` - L3 smoke tests on the synthetic model: Smoke A/B (`fit_to_convergence` fresh + resume), Smoke C (recovery). CI manual dispatch only. Bounded `stop_criteria` (`max_gd=Inf`) makes all EMC2 phases exit after a fixed iteration count.
 - `.github/workflows/test.yml` - CI: L1 unit tests (auto on push/PR to `main`)
 - `.github/workflows/build.yml` - CI: L2 build tests (nightly 03:00 UTC + manual dispatch)
 - `.github/workflows/smoke.yml` - CI: L3 smoke tests (manual dispatch only)
@@ -177,7 +180,8 @@ Other:
   - `R_HOME = C:\Program Files\R\R-4.5.2`
   - `R_LIBS_USER = C:\Users\nirjo\R_library\4.5`
   - The system library under `R_HOME` is not writable; install packages to `R_LIBS_USER`.
-  - The pattern `file.path(Sys.getenv("USERPROFILE"), "R", "library")` used in some test files resolves to the wrong path on this machine (`C:\Users\nirjo\R\library` vs the actual `R_LIBS_USER`).
+  - Do not add `.libPaths(file.path(Sys.getenv("USERPROFILE"), "R", "library"))` to test files (it was removed from all of them): it resolves to the wrong path on this machine (`C:\Users\nirjo\R\library` vs the actual `R_LIBS_USER`). Rely on `R_LIBS_USER`.
+  - **L3 smoke C is flaky on Windows**: EMC2 starts PSOCK socket clusters inside its own parallel workers, which intermittently fails with "creation of server socket failed: port ... cannot be opened" (1 pass in 4 local runs on identical code). Linux CI forks instead of using sockets; treat a local smoke C socket error as this flake, not a regression.
   - **Running `Rscript` from the Bash tool: set `R_LIBS_USER` first.** Bare `Rscript` falls back to the Claude app's sandboxed R library (`AppData/Local/Packages/Claude_.../R/win-library/4.5`) which has an older `rlang` that conflicts when loading `readr`/`EMC2`. Prefixing with `R_LIBS_USER="C:/Users/nirjo/R_library/4.5"` puts the user library first and `readr`/`dplyr`/`EMC2 3.4.1` load cleanly (verified). The PATH `Rscript` is already the real `R-4.5.2`. Recipe: `R_LIBS_USER="C:/Users/nirjo/R_library/4.5" Rscript <script>`. **eval/check/recovery analysis can run locally this way; heavy MCMC fitting still belongs on the cloud.** Note: `outputs/` and `data/` live in the main checkout, not the worktree — run eval from the main-repo cwd with `PAF_REPO_ROOT` pointed at the worktree to use edited code against real data.
 - **EMC2 API / object structure reference**: https://www.rdocumentation.org/packages/EMC2/versions/3.3.0 (function docs for `check()`, `get_pars()`, `recovery()`, `make_data()`, `make_random_effects()`, etc.). The rdocumentation mirror is for 3.3.0; the local install is **3.4.1**, so verify against the installed version if a signature or return shape differs. Empirically confirmed shapes (3.4.1): `check()` returns per-block `chk[[g]][[g]]` as a 2-row matrix (row 1 Rhat, row 2 ESS), with `chk$alpha` a per-subject list of such matrices; `get_pars(selection="mu")` returns an mcmc.list; `get_pars(selection="alpha", return_mcmc=TRUE)` is **parameter-keyed** (list of length n_pars, each `[samples x subjects]`); `prior$theta_mu_var` holds the population-mean prior covariance (`sqrt(diag(.))` = prior SDs); `recovery(do_plot=FALSE)` returns a per-parameter list with `$stats` (pearson/spearman/rmse/coverage) and `$quantiles`.
 - Avoid the em-dash (-) in any text destined for academic outputs; use `-` or en-dash (–) instead. This is a per-user writing rule.
@@ -188,10 +192,10 @@ Other:
 ### `EMC2::design()` is intrinsically slow (L2 runs nightly, not per-push)
 
 `EMC2::design()` is ~minutes per model with the PAF LBA spec, on both synthetic and real data. It is dominated by EMC2 evaluating the custom design `functions` (the `SearchDifficulty`/`StimulusAtLoc`/`CueAtLoc`/`PrevTargetAtLoc` closures) over its design grid; it is **not** row-count-driven (a tiny fixture is just as slow). Real fits absorb this one-time cost inside multi-hour MCMC runs. Consequences for testing:
-- L2 builds the synthetic model **once** and reuses it across all its assertions (`test_recovery_build.R`).
+- L2 builds the synthetic model **once** and reuses it across all its assertions (`test_recovery_build.R`); everything else at L2 runs on the committed fitted fixture, with no build.
 - L2 is **off the per-push gate**, on nightly + manual dispatch (`.github/workflows/build.yml`); L1 is the fast per-push gate.
 
-**Deferred (not now):** optimizing `design()` itself (e.g. vectorizing the `SearchDifficulty` closure). This touches the modeling code used by real fits, so it needs careful behavior-preserving validation.
+`SearchDifficulty()` now classifies each distinct `S` string once (`unique()` + `match()`) instead of once per row; one build of the synthetic model takes ~5 min locally. Further `design()` optimization is deferred: it touches the modeling code used by real fits, so it needs careful behavior-preserving validation.
 
 ---
 

@@ -1,11 +1,10 @@
 #' =============================================================================
 #' Level-1 unit tests for R/eval/helpers/gof.R (no EMC2 or loo required):
-#'   - log_lik_per_trial()
+#'   - log_lik_per_trial()   (per-trial copy of EMC2:::log_likelihood_race)
 #'   - loo_summary_row()
-#'   - make_loo_comparison_df() via comparison_matrix_to_df() logic
+#'   - .tidy_loo_compare()   (the pure part of make_loo_comparison_df())
 #' =============================================================================
 
-.libPaths(c(file.path(Sys.getenv("USERPROFILE"), "R", "library"), .libPaths()))
 library(testthat)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
@@ -13,100 +12,70 @@ source(file.path(ROOT, "R", "eval", "helpers", "gof.R"))
 
 
 # =============================================================================
-# Shared mock constructors
-# =============================================================================
-
-# Build a minimal 2-accumulator dadm for n_trials trials.
-# Row layout: [winner_acc, loser_acc] repeated n_trials times.
-.mk_dadm <- function(n_trials = 3, rt = 0.4) {
-  n_acc  <- 2
-  n_rows <- n_acc * n_trials
-  df <- data.frame(
-    rt     = rep(rt, n_rows),
-    R      = factor(rep(c("1", "2"), n_trials)),
-    lR     = factor(rep(c("1", "2"), n_trials)),
-    winner = rep(c(TRUE, FALSE), n_trials),
-    stringsAsFactors = FALSE
-  )
-  attr(df, "expand") <- seq_len(n_trials)
-  df
-}
-
-# Minimal model_obj: density always 0.5, survival always 0.3.
-.mk_model <- function() {
-  list(
-    dfun = function(rt, pars) rep(0.5, length(rt)),
-    pfun = function(rt, pars) rep(0.3, length(rt))
-  )
-}
-
-# Parameter matrix matching nrow(dadm).
-.mk_pars <- function(n_rows, n_pars = 3) {
-  matrix(1.0, nrow = n_rows, ncol = n_pars)
-}
-
-# Minimal loo object with the structure loo_summary_row() reads.
-.mk_loo <- function(pareto_k = c(0.1, 0.2, 0.8)) {
-  # matrix() fills column-by-column: Estimate col first, then SE col
-  list(
-    estimates = matrix(
-      c(-50, 5, 100,   # Estimate: elpd_loo, p_loo, looic
-          2, 1,  10),  # SE:       elpd_loo, p_loo, looic
-      nrow = 3, ncol = 2,
-      dimnames = list(c("elpd_loo", "p_loo", "looic"), c("Estimate", "SE"))
-    ),
-    diagnostics = list(pareto_k = pareto_k)
-  )
-}
-
-.mk_waic <- function() {
-  list(
-    estimates = matrix(
-      c(-51, 2.1, 5.2, 1.1, 102, 11),
-      nrow = 3, ncol = 2,
-      dimnames = list(c("elpd_waic", "p_waic", "waic"), c("Estimate", "SE"))
-    )
-  )
-}
-
-
-# =============================================================================
 # log_lik_per_trial()
 # =============================================================================
 
-test_that("log_lik_per_trial returns a vector, not a scalar", {
-  dadm <- .mk_dadm(3)
-  pars <- .mk_pars(nrow(dadm))
-  ll   <- log_lik_per_trial(pars, dadm, .mk_model())
-  expect_true(is.numeric(ll))
-  expect_false(is.matrix(ll))
-  expect_equal(length(ll), 3)
-})
-
-test_that("log_lik_per_trial length equals number of trials (expand attribute)", {
-  for (n in c(1, 5, 10)) {
-    dadm <- .mk_dadm(n)
-    ll   <- log_lik_per_trial(.mk_pars(nrow(dadm)), dadm, .mk_model())
-    expect_equal(length(ll), n, info = paste("n_trials =", n))
-  }
-})
-
-test_that("log_lik_per_trial values are all <= 0", {
-  dadm <- .mk_dadm(4)
-  ll   <- log_lik_per_trial(.mk_pars(nrow(dadm)), dadm, .mk_model())
-  expect_true(all(ll <= 0))
-})
-
-test_that("log_lik_per_trial clamps NaN/NA from bad densities to min_ll", {
-  dadm       <- .mk_dadm(2)
-  bad_model  <- list(
-    dfun = function(rt, pars) c(-1, 0),   # -1 triggers log(-1) = NaN
-    pfun = function(rt, pars) rep(0.3, length(rt))
+# A dadm with n_acc accumulator rows per trial (lR varies fastest, as in EMC2),
+# winner_acc[i] the responding accumulator of trial i. The mock model reads the
+# density from pars[, "d"] and the CDF from pars[, "p"], so each row can carry
+# its own value and the expected per-trial sum is closed form.
+.mk_dadm <- function(winner_acc, n_acc, expand = seq_along(winner_acc)) {
+  n_trials <- length(winner_acc)
+  lR <- rep(seq_len(n_acc), n_trials)
+  df <- data.frame(
+    rt     = 0.4,
+    R      = factor(rep(winner_acc, each = n_acc), levels = seq_len(n_acc)),
+    lR     = factor(lR, levels = seq_len(n_acc)),
+    winner = lR == rep(winner_acc, each = n_acc)
   )
-  pars <- .mk_pars(nrow(dadm))
-  ll   <- log_lik_per_trial(pars, dadm, bad_model, min_ll = log(1e-10))
-  expect_true(all(is.finite(ll)))
-  expect_true(all(ll >= log(1e-10)))
+  attr(df, "expand") <- expand
+  df
+}
+.mk_pars <- function(d, p) cbind(d = d, p = p)
+MODEL <- list(dfun = function(rt, pars) pars[, "d"],
+              pfun = function(rt, pars) pars[, "p"])
+
+test_that("log_lik_per_trial: log winner density + sum of log loser survivals, 2 and 4 accumulators", {
+  dadm2 <- .mk_dadm(winner_acc = c(1, 2), n_acc = 2)
+  pars2 <- .mk_pars(d = c(0.5, 0.9, 0.9, 0.4), p = c(0.9, 0.3, 0.2, 0.9))
+  expect_equal(log_lik_per_trial(pars2, dadm2, MODEL),
+               c(log(0.5) + log(1 - 0.3), log(0.4) + log(1 - 0.2)))
+
+  # Distinct loser CDFs catch any mis-grouping of losers into trials.
+  dadm4 <- .mk_dadm(winner_acc = c(2, 4), n_acc = 4)
+  d4    <- c(0.9, 0.6, 0.9, 0.9,   0.9, 0.9, 0.9, 0.2)
+  p4    <- c(0.1, 0.9, 0.2, 0.3,   0.4, 0.5, 0.6, 0.9)
+  expect_equal(log_lik_per_trial(.mk_pars(d4, p4), dadm4, MODEL),
+               c(log(0.6) + sum(log(1 - c(0.1, 0.2, 0.3))),
+                 log(0.2) + sum(log(1 - c(0.4, 0.5, 0.6)))))
+})
+
+test_that("log_lik_per_trial: returns one value per expanded trial", {
+  dadm <- .mk_dadm(winner_acc = c(1, 2), n_acc = 2, expand = c(1, 1, 2, 1))
+  pars <- .mk_pars(d = c(0.5, 0.9, 0.9, 0.4), p = c(0.9, 0.3, 0.2, 0.9))
+  ll   <- log_lik_per_trial(pars, dadm, MODEL)
+  expect_false(is.matrix(ll))
+  per_trial <- c(log(0.5) + log(0.7), log(0.4) + log(0.8))
+  expect_equal(ll, per_trial[c(1, 1, 2, 1)])
+})
+
+test_that("log_lik_per_trial: NaN densities, not-ok rows and out-of-race accumulators clamp to min_ll", {
+  min_ll <- log(1e-10)
+  dadm   <- .mk_dadm(winner_acc = c(1, 1, 1), n_acc = 2)
+  good   <- log(0.5) + log(0.7)
+
+  nan_pars <- .mk_pars(d = c(-1, 0.9, 0.5, 0.9, 0.5, 0.9), p = 0.3)
+  expect_warning(ll <- log_lik_per_trial(nan_pars, dadm, MODEL, min_ll), "NaN")
+  expect_equal(ll, c(min_ll, good, good))
+
+  ok_pars <- .mk_pars(d = 0.5, p = rep(0.3, 6))
+  attr(ok_pars, "ok") <- c(TRUE, TRUE, TRUE, FALSE, TRUE, TRUE)
+  expect_equal(log_lik_per_trial(ok_pars, dadm, MODEL, min_ll), c(good, min_ll, good))
+
+  race <- dadm
+  race$RACE <- factor(c(2, 2, 1, 1, 2, 2))   # trial 2 races only accumulator 1
+  expect_equal(log_lik_per_trial(.mk_pars(d = 0.5, p = rep(0.3, 6)), race, MODEL, min_ll),
+               c(good, min_ll, good))
 })
 
 
@@ -114,80 +83,65 @@ test_that("log_lik_per_trial clamps NaN/NA from bad densities to min_ll", {
 # loo_summary_row()
 # =============================================================================
 
-test_that("loo_summary_row returns a 1-row data.frame with all expected columns", {
+.mk_loo <- function(pareto_k = c(0.1, 0.2, 0.8)) {
+  list(
+    estimates = matrix(
+      c(-50, 5, 100,   # Estimate: elpd_loo, p_loo, looic
+          2, 1,  10),  # SE
+      nrow = 3, dimnames = list(c("elpd_loo", "p_loo", "looic"), c("Estimate", "SE"))
+    ),
+    diagnostics = list(pareto_k = pareto_k)
+  )
+}
+.mk_waic <- function() {
+  list(estimates = matrix(
+    c(-51, 2.1, 102,   # Estimate: elpd_waic, p_waic, waic
+      5.2, 1.1,  11),  # SE
+    nrow = 3, dimnames = list(c("elpd_waic", "p_waic", "waic"), c("Estimate", "SE"))
+  ))
+}
+
+test_that("loo_summary_row: one row with every column, values read from the estimate matrices", {
   row <- loo_summary_row("model1", .mk_loo(), .mk_waic())
   expect_equal(nrow(row), 1)
-  expected_cols <- c("model", "elpd_loo", "se_elpd_loo", "p_loo", "looic",
-                     "elpd_waic", "se_elpd_waic", "p_waic", "waic",
-                     "k_frac_bad", "k_flag")
-  expect_true(all(expected_cols %in% names(row)))
+  expect_setequal(names(row), c("model", "elpd_loo", "se_elpd_loo", "p_loo", "looic",
+                                "elpd_waic", "se_elpd_waic", "p_waic", "waic",
+                                "k_frac_bad", "k_flag"))
+  expect_equal(unlist(row[c("elpd_loo", "se_elpd_loo", "p_loo", "looic")]),
+               c(elpd_loo = -50, se_elpd_loo = 2, p_loo = 5, looic = 100))
+  expect_equal(unlist(row[c("elpd_waic", "se_elpd_waic", "p_waic", "waic")]),
+               c(elpd_waic = -51, se_elpd_waic = 5.2, p_waic = 2.1, waic = 102))
   expect_equal(row$model, "model1")
 })
 
-test_that("k_flag is FALSE when k_frac_bad <= pareto_k_bad_frac", {
-  # 1/10 = 10% exactly at threshold -> NOT flagged (strict >)
-  loo_10pct <- .mk_loo(pareto_k = c(rep(0.1, 9), 0.8))
-  row <- loo_summary_row("m", loo_10pct, .mk_waic(),
-                          pareto_k_threshold = 0.7, pareto_k_bad_frac = 0.10)
-  expect_false(row$k_flag)
-  expect_equal(row$k_frac_bad, 0.1)
-})
-
-test_that("k_flag is TRUE when k_frac_bad > pareto_k_bad_frac", {
-  # 2/10 = 20% > 10% -> flagged
-  loo_20pct <- .mk_loo(pareto_k = c(rep(0.1, 8), 0.8, 0.9))
-  row <- loo_summary_row("m", loo_20pct, .mk_waic(),
-                          pareto_k_threshold = 0.7, pareto_k_bad_frac = 0.10)
-  expect_true(row$k_flag)
-  expect_equal(row$k_frac_bad, 0.2)
-})
-
-test_that("k_flag is FALSE when no bad k values", {
-  loo_clean <- .mk_loo(pareto_k = rep(0.3, 20))
-  row <- loo_summary_row("m", loo_clean, .mk_waic())
-  expect_false(row$k_flag)
-  expect_equal(row$k_frac_bad, 0)
-})
-
-test_that("loo_summary_row extracts correct elpd_loo from estimates matrix", {
-  row <- loo_summary_row("m", .mk_loo(), .mk_waic())
-  expect_equal(row$elpd_loo, -50)
-  expect_equal(row$se_elpd_loo, 2)
-  expect_equal(row$looic, 100)
+test_that("loo_summary_row: k_flag needs a bad-k fraction strictly above the cutoff", {
+  cases <- list(
+    list(k = rep(0.3, 20),               frac = 0,   flag = FALSE),
+    list(k = c(rep(0.1, 9), 0.8),        frac = 0.1, flag = FALSE),   # exactly at 10%
+    list(k = c(rep(0.1, 9), 0.7),        frac = 0,   flag = FALSE),   # k == threshold is not bad
+    list(k = c(rep(0.1, 8), 0.8, 0.9),   frac = 0.2, flag = TRUE)
+  )
+  for (cs in cases) {
+    row <- loo_summary_row("m", .mk_loo(cs$k), .mk_waic(),
+                           pareto_k_threshold = 0.7, pareto_k_bad_frac = 0.10)
+    expect_equal(row$k_frac_bad, cs$frac, label = deparse(cs$k))
+    expect_identical(row$k_flag, cs$flag, label = deparse(cs$k))
+  }
 })
 
 
 # =============================================================================
-# make_loo_comparison_df() -- test the underlying tidy logic via a mock matrix
-# (loo::loo_compare() itself is not called at L1)
+# .tidy_loo_compare()
 # =============================================================================
 
-# Replicate what make_loo_comparison_df does, but driven from a raw matrix so
-# the loo package is not required.
-.comparison_matrix_to_df <- function(comp_mat) {
-  df <- as.data.frame(comp_mat[, c("elpd_diff", "se_diff"), drop = FALSE])
-  df$model <- rownames(comp_mat)
-  rownames(df) <- NULL
-  df[, c("model", "elpd_diff", "se_diff")]
-}
-
-test_that("comparison_matrix_to_df: reference model has elpd_diff = 0", {
-  mat <- matrix(
-    c(0, 0, -5.2, 2.1),
-    nrow = 2, ncol = 2,
-    dimnames = list(c("model1", "model2"), c("elpd_diff", "se_diff"))
-  )
-  df <- .comparison_matrix_to_df(mat)
-  expect_equal(df$elpd_diff[df$model == "model1"], 0)
-})
-
-test_that("comparison_matrix_to_df has exactly columns model, elpd_diff, se_diff", {
-  mat <- matrix(
-    c(0, 0, -3, 1.5, -8, 2.3),
-    nrow = 3, ncol = 2,
-    dimnames = list(c("m1", "m2", "m3"), c("elpd_diff", "se_diff"))
-  )
-  df <- .comparison_matrix_to_df(mat)
+test_that(".tidy_loo_compare: keeps loo_compare's row order as a model column", {
+  comp <- cbind(elpd_diff = c(0, -3, -8), se_diff = c(0, 1.5, 2.3),
+                elpd_loo = c(-50, -53, -58))
+  rownames(comp) <- c("m2", "m1", "m3")
+  df <- .tidy_loo_compare(comp)
   expect_equal(names(df), c("model", "elpd_diff", "se_diff"))
-  expect_equal(nrow(df), 3)
+  expect_equal(df$model, c("m2", "m1", "m3"))
+  expect_equal(df$elpd_diff, c(0, -3, -8))
+  expect_equal(df$se_diff, c(0, 1.5, 2.3))
+  expect_equal(rownames(df), c("1", "2", "3"))
 })

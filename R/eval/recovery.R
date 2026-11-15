@@ -34,17 +34,11 @@ N_SIMS      <- 3L
 #  Load the latest converged recovery fit + true_alpha for a sim.
 # =============================================================================
 
-.latest <- function(dir, pattern) {
-  files <- list.files(dir, pattern = pattern, full.names = TRUE)
-  if (length(files) == 0L) return(NA_character_)
-  files[which.max(as.Date(sub("_.*", "", basename(files)), format = "%y%m%d"))]
-}
-
 load_recovery_pair <- function(model_name, sim_index, dir = MODELS_RECOVERY_DIR) {
-  rds <- .latest(dir, sprintf("^[0-9]{6}_%s_recovery_sim%d\\.rds$",
-                              model_name, sim_index))
-  ta  <- .latest(dir, sprintf("^[0-9]{6}_%s_recovery_sim%d_true_alpha\\.rds$",
-                              model_name, sim_index))
+  rds <- latest_dated_file(dir, sprintf("^[0-9]{6}_%s_recovery_sim%d\\.rds$",
+                                        model_name, sim_index))
+  ta  <- latest_dated_file(dir, sprintf("^[0-9]{6}_%s_recovery_sim%d_true_alpha\\.rds$",
+                                        model_name, sim_index))
   if (is.na(rds) || is.na(ta)) {
     stop(sprintf("Missing recovery fit or true_alpha for %s sim%d in %s",
                  model_name, sim_index, dir))
@@ -72,7 +66,7 @@ message(sprintf("Loaded %d / %d pairs.", length(pairs), length(MODEL_NAMES) * N_
 mu_true_by_model   <- list()
 prior_sds_by_model <- list()
 for (mn in MODEL_NAMES) {
-  ext <- .latest(MODELS_FIT_DIR, sprintf("^[0-9]{6}_%s\\.rds$", mn))
+  ext <- latest_dated_file(MODELS_FIT_DIR, sprintf("^[0-9]{6}_%s\\.rds$", mn))
   if (is.na(ext)) { message(sprintf("  no fit for %s; skipping", mn)); next }
   em <- readRDS(ext)
   mu_true_by_model[[mn]]   <- extract_group_params(em)$mu

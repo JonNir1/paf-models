@@ -14,6 +14,7 @@
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/fit/fit_config.R")        # transitively: utils.R -> config.R
 source_root("R/helpers/data.R")          # transitively: utils.R -> logging.R
+source_root("R/helpers/emc2_api.R")      # emc_* wrappers
 
 
 # -------------------------
@@ -25,8 +26,9 @@ source_root("R/helpers/data.R")          # transitively: utils.R -> logging.R
 #'
 #' Prior means/SDs are NOT hardcoded here: they are selected from the master
 #' PRIOR_MU/PRIOR_SD tables in fit_config.R by matching the design's
-#' `sampled_pars()`. A sampled parameter with no entry in the master table (and
-#' not supplied via extra_mu/extra_sd) is a hard error -- add it to the table.
+#' `sampled_pars()`. A sampled parameter lacking a mean or an SD in the master
+#' table (and not supplied via extra_mu/extra_sd) is a hard error -- add it to
+#' the table.
 #'
 #' @param data       Data frame returned by filter_data().
 #' @param v_formula  Formula object for drift rate, e.g.
@@ -49,12 +51,9 @@ build_lba_model <- function(data,
                             extra_sd   = c(),
                             n_chains   = 3) {
 
-  library(EMC2)
-
   # --- Design ---
-  LBA_design <- design(
+  LBA_design <- emc_design(
     data      = data,
-    model     = LBA,
     constants = CONSTANTS,
     functions = list(
       PrevTargetAtLoc  = PrevTargetAtLoc,
@@ -77,8 +76,8 @@ build_lba_model <- function(data,
   master_mu <- PRIOR_MU; master_mu[names(extra_mu)] <- extra_mu
   master_sd <- PRIOR_SD; master_sd[names(extra_sd)] <- extra_sd
 
-  sp_names <- names(sampled_pars(LBA_design))
-  missing  <- setdiff(sp_names, names(master_mu))
+  sp_names <- names(emc_sampled_pars(LBA_design))
+  missing  <- setdiff(sp_names, intersect(names(master_mu), names(master_sd)))
   if (length(missing) > 0) {
     stop(sprintf(
       "No prior defined for sampled parameter(s): %s. Add them to PRIOR_MU/PRIOR_SD in fit_config.R or pass via extra_mu/extra_sd.",
@@ -89,8 +88,8 @@ build_lba_model <- function(data,
   Sigma <- master_sd[sp_names]
 
   # --- Prior ---
-  LBA_prior <- prior(LBA_design, type = "standard", mu_mean = mu, mu_sd = Sigma)
+  LBA_prior <- emc_prior(LBA_design, type = "standard", mu_mean = mu, mu_sd = Sigma)
 
   # --- Model object ---
-  make_emc(data, design = LBA_design, prior = LBA_prior, n_chains = n_chains)
+  emc_make_emc(data, design = LBA_design, prior = LBA_prior, n_chains = n_chains)
 }
