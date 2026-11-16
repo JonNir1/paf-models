@@ -91,8 +91,12 @@ if (eval_cache_fresh(loo_cache, MODEL_PATHS, loo_key)) {
     readRDS(file.path(LOO_DIR, paste0(nm, "_loo.rds"))))
   names(loo_objs) <- MODEL_NAMES
 
-  LOO_COMPARISON  <- make_loo_comparison_df(loo_objs)
-  save_eval_table(LOO_COMPARISON, "loo_comparison", dir = LOO_DIR)
+  if (length(loo_objs) >= 2L) {
+    LOO_COMPARISON <- make_loo_comparison_df(loo_objs)
+    save_eval_table(LOO_COMPARISON, "loo_comparison", dir = LOO_DIR)
+  } else {
+    message("Fewer than two models: skipping the LOO comparison and its plot.")
+  }
 
   pareto_df <- do.call(rbind, lapply(MODEL_NAMES, function(nm) {
     data.frame(model = nm,
@@ -101,8 +105,9 @@ if (eval_cache_fresh(loo_cache, MODEL_PATHS, loo_key)) {
   }))
   save_ggplot_png(plot_pareto_k(pareto_df),
                   file.path(LOO_DIR, "pareto_k_per_model.png"), height = 6)
-  save_ggplot_png(plot_loo_comparison(LOO_COMPARISON),
-                  file.path(LOO_DIR, "loo_comparison.png"), width = 7, height = 5)
+  if (length(loo_objs) >= 2L)
+    save_ggplot_png(plot_loo_comparison(LOO_COMPARISON),
+                    file.path(LOO_DIR, "loo_comparison.png"), width = 7, height = 5)
 }
 
 print(LOO_TABLE)
