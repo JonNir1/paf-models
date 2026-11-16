@@ -11,6 +11,9 @@
 #'   recovery_zscore_rows()    -- posterior z-score + contraction (Schad 2021)
 #'   recovery_subject_rows()   -- subject-level estimated vs true alpha (long)
 #'   recovery_subject_stats()  -- per-model RMSE + Pearson r at the alpha level
+#'   align_true_alpha()        -- true alpha reordered to a fit's subject/parameter order
+#'   recovery_emc2_rows()      -- EMC2's own per-sim recovery stats + interval hits
+#'   add_coverage95()          -- pooled 95% interval coverage onto the subject stats
 #'
 #' "True" group mu = the data-generating value, recovered from the ORIGINAL
 #' extended fit via extract_group_params() (R/fit/helpers/recovery.R).
@@ -187,6 +190,93 @@ recovery_subject_stats <- function(points_df) {
       stringsAsFactors = FALSE
     )
   }))
+}
+
+
+#' True alpha reordered to a fit's subject and parameter order, by name.
+#'
+#' EMC2::recovery() assigns `true_pars` positionally, so the order must match
+#' the fit's. The fit's subjects must equal the true subjects and its parameters
+#' must be a subset of the true ones (extra true columns, e.g. constants, are
+#' dropped); anything else is an error.
+#'
+#' @param true_alpha Matrix (subjects x parameters) with dimnames.
+#' @param est_mat    Matrix (subjects x parameters) from alpha_posterior_means().
+#' @return `true_alpha` as subjects x parameters in `est_mat`'s dimnames order.
+align_true_alpha <- function(true_alpha, est_mat) {
+  subj <- rownames(est_mat)
+  pars <- colnames(est_mat)
+  if (is.null(rownames(true_alpha)) || is.null(colnames(true_alpha))) {
+    stop("align_true_alpha: true_alpha needs subject (row) and parameter (column) names.")
+  }
+  if (!setequal(subj, rownames(true_alpha))) {
+    stop("align_true_alpha: subjects differ between the fit and true_alpha.")
+  }
+  absent <- setdiff(pars, colnames(true_alpha))
+  if (length(absent) > 0L) {
+    stop("align_true_alpha: fit parameters missing from true_alpha: ",
+         paste(absent, collapse = ", "))
+  }
+  true_alpha[subj, pars, drop = FALSE]
+}
+
+
+#' EMC2's own recovery statistics for one recovery fit (per sim, median-based).
+#'
+#' Calls EMC2::recovery() on the alpha block with its plotting sent to a null
+#' device (always closed, also on error). EMC2 compares the posterior MEDIAN
+#' with the truth, unlike recovery_subject_stats() (posterior mean, pooled).
+#'
+#' @param fit        Recovery fit (refit on simulated data).
+#' @param true_alpha Matrix (subjects x parameters) from make_random_effects().
+#' @param model_name,sim Labels.
+#' @return list(stats = data.frame(model, sim, parameter, pearson, spearman,
+#'   rmse, coverage), points = data.frame(model, sim, parameter, subject, inside)).
+#'   `coverage` is the percentage (0-100) of subjects whose true value lies
+#'   strictly inside EMC2's 2.5%-97.5% interval; `inside` is that per-subject flag.
+recovery_emc2_rows <- function(fit, true_alpha, model_name, sim) {
+  est_mat    <- alpha_posterior_means(fit)
+  true_align <- align_true_alpha(true_alpha, est_mat)
+
+  grDevices::pdf(NULL)
+  dev <- grDevices::dev.cur()
+  on.exit(grDevices::dev.off(dev), add = TRUE)
+  rec <- emc_recovery(fit, true_pars = true_align, selection = "alpha",
+                      stage = "sample", map = FALSE)
+
+  pars <- colnames(est_mat)
+  if (!identical(names(rec), pars)) {
+    stop("recovery_emc2_rows: EMC2::recovery() returned parameters (",
+         paste(names(rec), collapse = ", "), ") that differ from the fit's (",
+         paste(pars, collapse = ", "), ").")
+  }
+
+  stats <- do.call(rbind, lapply(pars, function(p) {
+    data.frame(model = model_name, sim = sim, parameter = p,
+               as.list(rec[[p]]$stats), stringsAsFactors = FALSE)
+  }))
+  points <- do.call(rbind, lapply(pars, function(p) {
+    q <- rec[[p]]$quantiles
+    data.frame(model = model_name, sim = sim, parameter = p,
+               subject = rownames(est_mat),
+               inside = q[, 1] < q[, "true"] & q[, "true"] < q[, 3],
+               stringsAsFactors = FALSE)
+  }))
+  list(stats = stats, points = points)
+}
+
+
+#' Add the pooled 95% interval coverage to the per-(model, parameter) subject stats.
+#'
+#' @param subj_stats Output of recovery_subject_stats().
+#' @param points     Stacked `$points` from recovery_emc2_rows() (all sims).
+#' @return `subj_stats` with an extra `coverage95` column (0-100; NA if no points),
+#'   all other columns and rows unchanged.
+add_coverage95 <- function(subj_stats, points) {
+  key <- function(d) paste(d$model, d$parameter, sep = "|")
+  pooled <- tapply(points$inside, key(points), function(x) 100 * mean(x))
+  subj_stats$coverage95 <- as.numeric(pooled[key(subj_stats)])
+  subj_stats
 }
 
 

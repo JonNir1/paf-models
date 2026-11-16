@@ -8,6 +8,10 @@
 #'   B. Subject scatter   -- estimated vs true alpha; RMSE + Pearson r per model.
 #'   C. z-score/contraction -- posterior z vs contraction (Schad et al. 2021).
 #'
+#' Plus EMC2's own per-sim recovery statistics (recovery_emc2_stats: Pearson,
+#' Spearman, RMSE, 95% coverage; posterior MEDIAN vs truth, one row per model x
+#' sim x parameter) and a pooled `coverage95` column on recovery_subject_stats.
+#'
 #' All computation lives in R/eval/helpers/recovery.R; figures in helpers/plot.R.
 #' Outputs land in RECOVERY_EVAL_DIR (outputs/evaluation/parameter_recovery/).
 #'
@@ -21,6 +25,7 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/eval/eval_config.R")              # utils -> config (RECOVERY_EVAL_DIR, dirs)
 source_root("R/fit/helpers/recovery.R")          # extract_group_params (data-generating mu)
 source_root("R/eval/helpers/recovery.R")         # recovery-eval computations
+source_root("R/eval/helpers/io.R")               # save_eval_table
 source_root("R/eval/helpers/plot.R")             # Plotly figures + save_plotly_png
 
 RECOVERY_OUT_DIR <- RECOVERY_EVAL_DIR
@@ -97,7 +102,7 @@ if (length(missing) > 0L && !ALLOW_PARTIAL_RECOVERY) {
 #  A. Population table   B. Subject points/stats   C. z-score/contraction
 # =============================================================================
 
-pop_rows <- list(); z_rows <- list(); subj_rows <- list()
+pop_rows <- list(); z_rows <- list(); subj_rows <- list(); emc2_rows <- list()
 for (p in pairs) {
   mn <- p$model_name; si <- p$sim_index
   if (is.null(mu_true_by_model[[mn]])) next
@@ -107,13 +112,16 @@ for (p in pairs) {
   pop_rows[[length(pop_rows) + 1L]]   <- recovery_population_rows(p$model, mu_true, mn, si)
   z_rows[[length(z_rows) + 1L]]       <- recovery_zscore_rows(p$model, mu_true, prior_sds, mn, si)
   subj_rows[[length(subj_rows) + 1L]] <- recovery_subject_rows(p$model, p$true_alpha, mn, si)
+  emc2_rows[[length(emc2_rows) + 1L]] <- recovery_emc2_rows(p$model, p$true_alpha, mn, si)
 }
 
 pop_table   <- do.call(rbind, pop_rows)
 z_table     <- do.call(rbind, z_rows)
 subj_points <- do.call(rbind, subj_rows)
 subj_points$identifiable <- flag_identifiable(subj_points$parameter)
-subj_stats  <- recovery_subject_stats(subj_points)
+emc2_stats  <- do.call(rbind, lapply(emc2_rows, `[[`, "stats"))
+emc2_points <- do.call(rbind, lapply(emc2_rows, `[[`, "points"))
+subj_stats  <- add_coverage95(recovery_subject_stats(subj_points), emc2_points)
 subj_stats$identifiable <- flag_identifiable(subj_stats$parameter)
 
 # Per-model summary over the full set AND the identifiable "core" subspace
@@ -124,6 +132,7 @@ write.csv(pop_table,   file.path(RECOVERY_OUT_DIR, "recovery_population_table.cs
 write.csv(z_table,     file.path(RECOVERY_OUT_DIR, "recovery_zscores_contraction.csv"), row.names = FALSE)
 write.csv(subj_stats,  file.path(RECOVERY_OUT_DIR, "recovery_subject_stats.csv"),      row.names = FALSE)
 write.csv(model_stats, file.path(RECOVERY_OUT_DIR, "recovery_model_stats.csv"),        row.names = FALSE)
+save_eval_table(emc2_stats, "recovery_emc2_stats", dir = RECOVERY_OUT_DIR)
 message("Saved recovery tables to ", RECOVERY_OUT_DIR)
 message("Per-model recovery (full vs identifiable core):")
 print(model_stats)
