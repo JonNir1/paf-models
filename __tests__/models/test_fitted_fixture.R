@@ -55,8 +55,8 @@ test_that("check() blocks are read by both the fit gate and the eval convergence
     de <- .block_rhat_ess(chk, g)
     expect_true(is.finite(de$max_rhat) && is.finite(de$min_ess), label = g)
   }
-  expect_length(.get_pooled_values(chk, "alpha", 1), length(SUBJ) * length(PARS))
-  expect_length(.get_pooled_values(chk, "mu", 2), length(PARS))
+  expect_length(check_block_values(chk, "alpha", 1), length(SUBJ) * length(PARS))
+  expect_length(check_block_values(chk, "mu", 2), length(PARS))
   expect_true(check_convergence(FITTED, TRIVIAL_CC)$converged)
 
   tbl <- add_convergence_verdict(create_convergence_table(list(test_model = FITTED)))

@@ -81,17 +81,6 @@ save_model <- function(model, name, dir_path, date_prefix = NULL) {
 
 
 # -------------------------
-#' Total stored iterations (all stages) in an EMC2 model.
-#' Used for logging only. Fails loudly if the expected structure is absent.
-.get_n_iter <- function(model) {
-  d <- tryCatch(dim(model[[1L]]$samples$theta_mu), error = function(e) NULL)
-  if (!is.null(d) && length(d) >= 1L)
-    return(as.integer(d[length(d)]))
-  return(0L)
-}
-
-
-# -------------------------
 #' Map a user-facing convergence-group key to EMC2's check()/get_pars() token.
 #' Accepts case-insensitive aliases ("Sigma2"/"sigma2", "Mu"/"mu", ...).
 .convergence_group_token <- function(key) {
@@ -108,28 +97,10 @@ save_model <- function(model, name, dir_path, date_prefix = NULL) {
 
 
 # -------------------------
-#' Pull max-Rhat and min-ESS for one EMC2 check() block.
-#' EMC2 3.4.1 shapes (empirically confirmed):
-#'   - mu / sigma2 / correlation: chk[[token]] is either a 2-row matrix
-#'     (row 1 = Rhat, row 2 = ESS) or a list whose [[token]] element is that
-#'     matrix (e.g. chk$mu$mu).
-#'   - alpha: chk$alpha is a PER-SUBJECT list of 2-row matrices.
-#' Verify against the installed EMC2 if a future selection changes shape.
+#' Pull max-Rhat and min-ESS for one EMC2 check() block (see check_block_values()).
 .block_rhat_ess <- function(chk, token) {
-  blk <- chk[[token]]
-  if (is.null(blk))
-    stop(sprintf("check() returned no '%s' block; cannot gate convergence on it.", token))
-
-  if (token == "alpha") {
-    rhat <- unlist(lapply(blk, function(x) x[1, ]))
-    ess  <- unlist(lapply(blk, function(x) x[2, ]))
-  } else {
-    m    <- if (is.matrix(blk)) blk else blk[[token]]
-    rhat <- m[1, ]
-    ess  <- m[2, ]
-  }
-  list(max_rhat = max(rhat, na.rm = TRUE),
-       min_ess  = min(ess,  na.rm = TRUE))
+  list(max_rhat = max(check_block_values(chk, token, 1), na.rm = TRUE),
+       min_ess  = min(check_block_values(chk, token, 2), na.rm = TRUE))
 }
 
 

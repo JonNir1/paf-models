@@ -17,7 +17,7 @@
 #' A feature request for a native per-trial LL export has been filed at the
 #' EMC2 GitHub (see spawned task in this Claude session).
 #'
-#' Source chain: gof.R -> utils.R  (callers load EMC2 + loo; no library() here)
+#' Source chain: gof.R -> utils.R, emc2_api.R  (callers load EMC2 + loo; no library() here)
 #'
 #' Public surface:
 #'   log_lik_per_trial()
@@ -29,6 +29,7 @@
 #' =============================================================================
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/helpers/emc2_api.R")       # emc_get_pars, emc_compare
 
 
 #' Per-trial log-likelihood for a race (LBA) model.
@@ -123,8 +124,8 @@ extract_log_lik_matrix <- function(fitted_model, max_samples = 2000L, cores = 1L
 
   # Alpha samples: get_pars returns list[par_name] of mcmc.list objects.
   # Collapse chains via as.matrix() -> list[par_name][total_samples x n_subj].
-  alpha_raw <- get_pars(fitted_model, selection = "alpha", stage = "sample", map = FALSE,
-                        return_mcmc = TRUE)
+  alpha_raw <- emc_get_pars(fitted_model, selection = "alpha", stage = "sample", map = FALSE,
+                            return_mcmc = TRUE)
   alpha     <- lapply(alpha_raw, as.matrix)
   n_all     <- nrow(alpha[[1]])
 
@@ -235,7 +236,7 @@ make_loo_comparison_df <- function(loo_list) {
 create_goodness_of_fit_table <- function(
     model_list, calc_bayes_factors = FALSE, verbose = FALSE
 ) {
-  comp_results <- EMC2::compare(
+  comp_results <- emc_compare(
     model_list,
     print_summary   = verbose,
     BayesFactor     = calc_bayes_factors,

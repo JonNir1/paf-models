@@ -15,10 +15,11 @@
 #' Goodness-of-fit / model comparison (DIC, BPIC, ...) lives separately in
 #' R/eval/model_comparison.R (step-3 scaffolding), NOT here.
 #'
-#' Source chain: convergence.R -> utils.R (check_valid_string lives in utils.R).
+#' Source chain: convergence.R -> utils.R, emc2_api.R.
 #' Convergence thresholds (MAX_RHAT_MU, ...) come from R/config.R via the caller.
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
+source_root("R/helpers/emc2_api.R")       # emc_check, check_block_values
 
 
 #' Create a single table comparing convergence metrics across models and blocks.
@@ -119,7 +120,7 @@ extract_convergence_tables <- function(model, verbose = FALSE) {
   selection_groups <- c("mu", "sigma2", "alpha", "correlation")
   check_call <- function() {
     suppressWarnings(
-      check(model, selection = selection_groups, plot_worst = FALSE, digits = 4)
+      emc_check(model, selection = selection_groups, plot_worst = FALSE, digits = 4)
     )
   }
   if (verbose) {
@@ -129,45 +130,17 @@ extract_convergence_tables <- function(model, verbose = FALSE) {
   }
 
   rhat_table <- do.call(rbind, lapply(selection_groups, function(g) {
-    vals  <- .get_pooled_values(chk, g, 1)   # row 1 = Rhat
+    vals  <- check_block_values(chk, g, 1)   # row 1 = Rhat
     stats <- .calc_summary_stats(vals, "Rhat")
     cbind(group = g, stats)
   }))
   ess_table <- do.call(rbind, lapply(selection_groups, function(g) {
-    vals  <- .get_pooled_values(chk, g, 2)   # row 2 = ESS
+    vals  <- check_block_values(chk, g, 2)   # row 2 = ESS
     stats <- .calc_summary_stats(vals, "ESS")
     cbind(group = g, stats)
   }))
 
   list(Rhat = rhat_table, ESS = ess_table)
-}
-
-
-#' Internal: pull and pool parameter values from a check() object.
-#'
-#' EMC2 `check()` returns, per block `g`, a matrix `chk[[g]][[g]]` whose
-#' row 1 is Rhat and row 2 is ESS (columns = parameters). For `alpha` the
-#' structure is a per-subject list of such matrices, which we pool into one
-#' long vector. Verified against EMC2 (see the layout round-trip in the step-2.9
-#' plan); guarded here so a future EMC2 change fails loudly rather than silently.
-#'
-#' @param chk     Object returned by EMC2::check().
-#' @param group   One of "mu","sigma2","alpha","correlation".
-#' @param row_idx 1 for Rhat, 2 for ESS.
-.get_pooled_values <- function(chk, group, row_idx) {
-  if (group == "alpha") {
-    if (is.null(chk$alpha)) stop("check() returned no $alpha block.")
-    return(unlist(lapply(chk$alpha, function(x) {
-      if (nrow(x) < row_idx) stop("Unexpected check() $alpha layout (need >= 2 rows).")
-      x[row_idx, ]
-    })))
-  }
-  blk <- chk[[group]][[group]]
-  if (is.null(blk) || nrow(blk) < row_idx) {
-    stop(sprintf("Unexpected check() layout for block '%s' (expected >= %d rows).",
-                 group, row_idx))
-  }
-  blk[row_idx, ]
 }
 
 
