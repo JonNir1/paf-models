@@ -98,6 +98,12 @@ log_lik_per_trial <- function(pars, dadm, model_obj, min_ll = log(1e-10)) {
 }
 
 
+#' Per-subject trial counts of a fitted model, named by subject.
+.trial_counts <- function(fitted_model) {
+  vapply(fitted_model[[1]]$data, function(d) length(attr(d, "expand")), integer(1))
+}
+
+
 #' Build the [samples x trials] log-likelihood matrix from a fitted EMC2 model.
 #'
 #' For each posterior sample i and trial n, evaluates
@@ -129,6 +135,10 @@ extract_log_lik_matrix <- function(fitted_model, max_samples = 2000L, cores = 1L
   alpha     <- lapply(alpha_raw, as.matrix)
   n_all     <- nrow(alpha[[1]])
 
+  subj_names <- names(data_list)
+  if (is.null(subj_names) || !setequal(subj_names, colnames(alpha[[1]])))
+    stop("Subject names of the model data and of the alpha draws do not match.")
+
   s_idx <- if (n_all > max_samples) {
     round(seq(1, n_all, length.out = max_samples))
   } else {
@@ -136,7 +146,7 @@ extract_log_lik_matrix <- function(fitted_model, max_samples = 2000L, cores = 1L
   }
   n_samples <- length(s_idx)
 
-  n_trials_per_subj <- vapply(data_list, function(d) length(attr(d, "expand")), integer(1))
+  n_trials_per_subj <- .trial_counts(fitted_model)
   n_trials_total    <- sum(n_trials_per_subj)
   col_ends          <- cumsum(n_trials_per_subj)
   col_starts        <- col_ends - n_trials_per_subj + 1L
@@ -148,8 +158,7 @@ extract_log_lik_matrix <- function(fitted_model, max_samples = 2000L, cores = 1L
     n_t    <- n_trials_per_subj[s]
     block  <- matrix(NA_real_, nrow = n_samples, ncol = n_t)
     for (ii in seq_len(n_samples)) {
-      p_vec        <- sapply(alpha, `[`, s_idx[ii], s)
-      names(p_vec) <- names(alpha)   # sapply appends .colname (subj ID); restore plain param names
+      p_vec        <- vapply(alpha, `[`, numeric(1), s_idx[ii], subj_names[s])
       pars_mat     <- get_pars_matrix(p_vec, dadm_s, model_obj)
       block[ii, ] <- log_lik_per_trial(pars_mat, dadm_s, model_obj)
     }
@@ -208,6 +217,10 @@ loo_summary_row <- function(model_name, loo_obj, waic_obj,
 #' @param loo_list  Named list of loo objects (one per model).
 #' @return data.frame, columns: model, elpd_diff, se_diff.
 make_loo_comparison_df <- function(loo_list) {
+  n_obs <- vapply(loo_list, function(x) nrow(x$pointwise), integer(1))
+  if (length(unique(n_obs)) > 1L)
+    stop(sprintf("Models cover different numbers of trials (%s); LOO comparison is invalid.",
+                 paste(names(n_obs), n_obs, sep = "=", collapse = ", ")))
   .tidy_loo_compare(loo::loo_compare(loo_list))
 }
 
@@ -292,6 +305,9 @@ create_goodness_of_fit_table <- function(
 #' @param cores       Parallelism over subjects; on Windows falls back to serial.
 #' @return data.frame, one row per model (columns from loo_summary_row()).
 create_loo_table <- function(model_list, max_samples = 2000L, cores = 1L) {
+  counts <- lapply(model_list, .trial_counts)
+  if (!all(vapply(counts, identical, logical(1), counts[[1]])))
+    stop("Models differ in subjects or per-subject trial counts; LOO comparison is invalid.")
   dir.create(LOO_DIR, recursive = TRUE, showWarnings = FALSE)
   rows <- lapply(names(model_list), function(mname) {
     message(sprintf("  [LOO] extracting log-lik matrix for %s ...", mname))

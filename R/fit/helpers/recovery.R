@@ -22,8 +22,10 @@ source_root("R/fit/helpers/fitting.R")
 #' is reconstructed as Sigma = diag(SD) %*% Cor %*% diag(SD) from the posterior
 #' means of the variance and correlation parameters.
 #'
-#' NOTE: EMC2 flattens the correlation matrix upper triangle in row-major order.
-#' This is verified against EMC2 v3.3.0 internals and, on a real fit, 3.4.1 and 3.5.0. If the reconstruction fails
+#' NOTE: flatten = TRUE returns the correlation matrix's lower triangle in
+#' column-major order, columns named "rowParam.colParam" (verified on real fits
+#' under EMC2 3.4.1 and 3.5.0). All blocks are aligned to the mu parameter names
+#' by name; a mismatch is an error. If the reconstruction fails
 #' (e.g. Sigma is not positive-definite), fall back to variance_proportion in
 #' make_random_effects() by passing Sigma = NULL.
 #'
@@ -54,12 +56,22 @@ extract_group_params <- function(model) {
   var_mat <- do.call(rbind, lapply(var_samples, as.matrix))  # (n_samples x n_pars)
   cor_mat <- do.call(rbind, lapply(cor_samples, as.matrix))  # (n_samples x n_pairs)
 
+  par_names <- names(mu_hat)
+  if (!setequal(colnames(var_mat), par_names))
+    stop("sigma2 parameter names differ from mu parameter names.")
+  var_mat <- var_mat[, par_names, drop = FALSE]
+
   n_pars  <- length(mu_hat)
   SD_mat  <- sqrt(var_mat)                                    # (n_samples x n_pars)
   # EMC2's flatten=TRUE returns the LOWER triangle in column-major order
   # (column names follow the pattern "rowParam.colParam", e.g. "v_PrevTar.v" = (2,1)).
   # We must use lower-triangle indices so that the SD pairs match the correlation columns.
   lt      <- which(lower.tri(diag(n_pars)), arr.ind = TRUE)   # lower-triangle indices
+
+  pair_names <- paste(par_names[lt[, 1]], par_names[lt[, 2]], sep = ".")
+  if (!setequal(colnames(cor_mat), pair_names))
+    stop("correlation column names do not match the lower-triangle pairs of the mu parameters.")
+  cor_mat <- cor_mat[, pair_names, drop = FALSE]
 
   # Per-sample covariance for each lower-triangle pair (vectorised, no R loop)
   cov_flat  <- cor_mat * SD_mat[, lt[, 1], drop = FALSE] *
