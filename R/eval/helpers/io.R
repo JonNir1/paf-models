@@ -10,6 +10,7 @@
 #'   - load_model()       : load the latest-dated .rds for a model name from a dir
 #'   - save_eval_table()  : write a data frame as paired .rds + .csv under EVAL_DIR
 #'   - newer_than_inputs(): mtime freshness check for cached eval tables
+#'   - eval_cache_fresh() : mtime check AND stored cache-key match
 #'
 #' Source chain: io.R -> utils.R (check_valid_string lives in utils.R).
 #' EVAL_DIR is expected to be in scope (provided by R/config.R via the caller).
@@ -91,9 +92,12 @@ load_model <- function(model_name, dir_path) {
 #' @param df   Data frame to persist.
 #' @param stem File stem (no extension), e.g. "convergence".
 #' @param dir  Output directory (defaults to EVAL_DIR from config.R).
+#' @param cache_key Optional; stored as attribute "cache_key" on the saved .rds
+#'   (see eval_cache_fresh()).
 #' @return Invisibly, the .rds path.
-save_eval_table <- function(df, stem, dir = EVAL_DIR) {
+save_eval_table <- function(df, stem, dir = EVAL_DIR, cache_key = NULL) {
   if (!dir.exists(dir)) dir.create(dir, recursive = TRUE)
+  if (!is.null(cache_key)) attr(df, "cache_key") <- cache_key
   rds_path <- file.path(dir, paste0(stem, ".rds"))
   csv_path <- file.path(dir, paste0(stem, ".csv"))
   saveRDS(df, rds_path)
@@ -118,4 +122,17 @@ newer_than_inputs <- function(cache_path, input_paths) {
   cache_mtime  <- file.info(cache_path)$mtime
   input_mtimes <- file.info(input_paths)$mtime
   isTRUE(all(cache_mtime > input_mtimes))   # a missing input (NA mtime) => recompute
+}
+
+
+#' Is the cached .rds table reusable: newer than its inputs AND built with the
+#' same settings?
+#'
+#' @param cache_path  Path to the cached .rds (saved via save_eval_table(cache_key=)).
+#' @param input_paths Input file paths for the mtime check.
+#' @param cache_key   Current settings (model names, thresholds, EMC2 version...).
+#' @return Logical: TRUE if the cache can be reused.
+eval_cache_fresh <- function(cache_path, input_paths, cache_key) {
+  if (!newer_than_inputs(cache_path, input_paths)) return(FALSE)
+  identical(attr(readRDS(cache_path), "cache_key"), cache_key)
 }
