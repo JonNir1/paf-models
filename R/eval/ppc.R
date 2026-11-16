@@ -62,6 +62,18 @@ message(sprintf("Observed data: %d trials, %d subjects",
 
 message("Running PPC evaluation...")
 
+# A failing metric is recorded here and reported after every metric has run.
+metric_failures <- character(0)
+.try_metric <- function(model_name, metric, expr) {
+  tryCatch(expr, error = function(e) {
+    message(sprintf("    %s ERROR: %s", metric, conditionMessage(e)))
+    metric_failures <<- c(metric_failures,
+                          sprintf("%s / %s: %s", model_name, metric, conditionMessage(e)))
+    NULL
+  })
+}
+has_rows <- function(df) !is.null(df) && nrow(df) > 0L
+
 dist_rows     <- list()
 choice_rows   <- list()
 qpf_rows      <- list()
@@ -77,23 +89,21 @@ for (mn in MODEL_NAMES) {
   ppc_list <- readRDS(rds_path)
   message(sprintf("    %d draws loaded", length(ppc_list)))
 
-  dist_rows[[mn]] <- tryCatch(
-    compute_dist_stats(ppc_list, obs_data, mn),
-    error = function(e) { message("    dist_stats ERROR: ", e$message); NULL }
-  )
-  choice_rows[[mn]] <- tryCatch(
-    compute_choice_proportions(ppc_list, obs_data, mn),
-    error = function(e) { message("    choice_proportions ERROR: ", e$message); NULL }
-  )
-  qpf_rows[[mn]] <- tryCatch(
-    compute_qpf_table(ppc_list, obs_data, mn),
-    error = function(e) { message("    qpf_table ERROR: ", e$message); NULL }
-  )
-  qpf_resp_rows[[mn]] <- tryCatch(
-    compute_qpf_table(ppc_list, obs_data, mn, by_response = TRUE),
-    error = function(e) { message("    qpf_by_response ERROR: ", e$message); NULL }
-  )
+  dist_rows[[mn]]     <- .try_metric(mn, "dist_stats",
+                                     compute_dist_stats(ppc_list, obs_data, mn))
+  choice_rows[[mn]]   <- .try_metric(mn, "choice_proportions",
+                                     compute_choice_proportions(ppc_list, obs_data, mn))
+  qpf_rows[[mn]]      <- .try_metric(mn, "qpf_table",
+                                     compute_qpf_table(ppc_list, obs_data, mn))
+  qpf_resp_rows[[mn]] <- .try_metric(mn, "qpf_by_response",
+                                     compute_qpf_table(ppc_list, obs_data, mn, by_response = TRUE))
   rm(ppc_list)   # free memory before next model
+}
+
+if (length(metric_failures) > 0L) {
+  stop(sprintf("PPC metric failure(s):
+  %s", paste(metric_failures, collapse = "
+  ")))
 }
 
 dist_rows     <- Filter(Negate(is.null), dist_rows)
@@ -145,7 +155,7 @@ save_ggplot_png(plot_ppc_dist_stats(dist_df),
                 file.path(PPC_EVAL_DIR, "ppc_dist_stats.png"))
 
 # B. Choice proportions
-if (nrow(choice_df) > 0L) {
+if (has_rows(choice_df)) {
   save_ggplot_png(plot_ppc_choice(choice_df, x_var = "cue_size"),
                   file.path(PPC_EVAL_DIR, "ppc_choice_cue.png"))
   save_ggplot_png(plot_ppc_choice(choice_df, x_var = "search_difficulty"),
@@ -153,7 +163,7 @@ if (nrow(choice_df) > 0L) {
 }
 
 # C. Marginal QPF
-if (nrow(qpf_df) > 0L) {
+if (has_rows(qpf_df)) {
   save_ggplot_png(plot_ppc_qpf(qpf_df, x_var = "cue_size"),
                   file.path(PPC_EVAL_DIR, "ppc_qpf_cue.png"),
                   width = 12, height = 10)
@@ -163,7 +173,7 @@ if (nrow(qpf_df) > 0L) {
 }
 
 # D. QPF by response type
-if (!is.null(qpf_resp_df) && nrow(qpf_resp_df) > 0L) {
+if (has_rows(qpf_resp_df)) {
   save_ggplot_png(plot_ppc_qpf_by_response(qpf_resp_df, x_var = "cue_size"),
                   file.path(PPC_EVAL_DIR, "ppc_qpf_resp_cue.png"),
                   width = 14, height = 10)
@@ -173,7 +183,7 @@ if (!is.null(qpf_resp_df) && nrow(qpf_resp_df) > 0L) {
 }
 
 # E. Defective CDFs (requires both qpf_resp_df and choice_df)
-if (!is.null(qpf_resp_df) && nrow(qpf_resp_df) > 0L && nrow(choice_df) > 0L) {
+if (has_rows(qpf_resp_df) && has_rows(choice_df)) {
   save_ggplot_png(plot_ppc_cdf(qpf_resp_df, choice_df, x_facet = "cue_size"),
                   file.path(PPC_EVAL_DIR, "ppc_cdf_cue.png"),
                   width = 14, height = 8)
