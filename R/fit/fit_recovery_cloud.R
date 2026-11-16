@@ -30,8 +30,10 @@
 #' Cloud sync: reads CP_CMD and DEST_PREFIX from the environment (set by
 #' scripts/run_recovery.sh). No-op if either is unset (safe for local use).
 #'
-#' Limitation: the model script is derived from the fit file name and must be
-#' R/fit/<name>.R (checked up front, before anything is computed or written).
+#' Limitation: the model script must live in R/fit/. It is found by its declared
+#' MODEL_NAME (the fit file's model name), whatever the script file is called;
+#' names must be unique within R/fit/. Checked up front, before anything is
+#' computed or written.
 #' =============================================================================
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
@@ -230,6 +232,9 @@ if (length(args) == 0L) {
   }
 
   result <- tryCatch({
+    # Fail fast, before loading the fit or data
+    model_script <- find_model_script(orig_name, file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "fit"))
+
     ext_path <- file.path(MODELS_FIT_DIR, extended_rds)
     log_msg(sprintf("Loading source (converged) model from: %s", ext_path),
             log_file, console_print = TRUE)
@@ -240,9 +245,6 @@ if (length(args) == 0L) {
     template_data <- load_data(min_rt               = MIN_SACCADE_CUTOFF,
                                max_rt               = MAX_SACCADE_CUTOFF,
                                allow_target_repeats = ALLOW_TARGET_REPEAT)
-
-    model_script <- file.path(Sys.getenv("PAF_REPO_ROOT", getwd()),
-                              "R", "fit", paste0(orig_name, ".R"))
 
     # Recovery convergence target (relaxed); --fit-samples overrides the floor.
     recovery_criteria <- default_convergence_criteria("recovery")
