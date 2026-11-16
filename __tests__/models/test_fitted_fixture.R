@@ -103,14 +103,15 @@ test_that("flattened correlations follow the column-major lower triangle extract
 # =============================================================================
 
 test_that("log_lik_per_trial sums to EMC2's subject log-likelihood; the LL matrix is [samples x trials]", {
-  model_obj <- FITTED[[1]]$model()
-  alpha     <- lapply(emc_get_pars(FITTED, selection = "alpha", return_mcmc = TRUE), as.matrix)
-  n_trials  <- vapply(FITTED[[1]]$data, function(d) length(attr(d, "expand")), integer(1))
+  model_obj   <- FITTED[[1]]$model()
+  pars_matrix <- .emc2_pars_matrix_fn()
+  alpha       <- lapply(emc_get_pars(FITTED, selection = "alpha", return_mcmc = TRUE), as.matrix)
+  n_trials    <- vapply(FITTED[[1]]$data, function(d) length(attr(d, "expand")), integer(1))
 
   emc2_ll <- function(i, s) {
     p_vec <- setNames(vapply(alpha, `[`, numeric(1), i, s), names(alpha))
     dadm  <- FITTED[[1]]$data[[s]]
-    pars  <- EMC2:::get_pars_matrix(p_vec, dadm, model_obj)
+    pars  <- pars_matrix(p_vec, dadm, model_obj)
     c(ours = sum(log_lik_per_trial(pars, dadm, model_obj)),
       emc2 = model_obj$log_likelihood(pars, dadm, model_obj))
   }

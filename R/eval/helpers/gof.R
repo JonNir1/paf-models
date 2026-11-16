@@ -1,14 +1,15 @@
 #' =============================================================================
 #' Goodness-of-Fit helpers: per-trial log-likelihood extraction, LOO / WAIC.
 #'
-#' EMC2 3.4.1 has no exported log_lik_matrix() function.  We work around this
-#' by reaching into unexported internals:
+#' EMC2 has no exported log_lik_matrix() function.  We work around this by
+#' reaching into unexported internals:
 #'
 #'   log_lik_per_trial()      -- copy of EMC2:::log_likelihood_race with the
 #'                               final sum() removed so per-trial values are
 #'                               returned instead of a per-subject total.
 #'   extract_log_lik_matrix() -- drives the above over all posterior samples ×
-#'                               subjects using EMC2:::get_pars_matrix to apply
+#'                               subjects using the EMC2 parameter-matrix
+#'                               internal (see .emc2_pars_matrix_fn()) to apply
 #'                               the full parameter transform chain.
 #'
 #' NOTE: both functions call EMC2 unexported internals (:::).  If EMC2 changes
@@ -37,7 +38,7 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 #' vector is returned instead of a scalar per-subject sum.
 #'
 #' @param pars      Parameter matrix `[nrow(dadm) x n_params]` on the
-#'                  *transformed* scale (output of EMC2:::get_pars_matrix).
+#'                  *transformed* scale (output of .emc2_pars_matrix_fn()).
 #'                  Do NOT pass a raw p_vector here.
 #' @param dadm      Augmented design matrix for ONE subject. Must contain
 #'                  columns: `winner` (logical), `rt` (numeric), `R` (factor),
@@ -81,6 +82,21 @@ log_lik_per_trial <- function(pars, dadm, model_obj, min_ll = log(1e-10)) {
 }
 
 
+#' Resolve EMC2's unexported parameter-matrix function.
+#'
+#' 3.5.0 renamed `get_pars_matrix` to `get_pars_matrix_oo` (same call shape:
+#' `(p_vector, dadm, model)`); 3.4.1 only has the old name.
+#'
+#' @return The function `(p_vector, dadm, model)` -> transformed parameter matrix.
+.emc2_pars_matrix_fn <- function() {
+  ns <- asNamespace("EMC2")
+  for (fn_name in c("get_pars_matrix_oo", "get_pars_matrix")) {
+    if (exists(fn_name, envir = ns, inherits = FALSE)) return(get(fn_name, envir = ns))
+  }
+  stop("EMC2 exposes neither get_pars_matrix_oo nor get_pars_matrix; update .emc2_pars_matrix_fn().")
+}
+
+
 #' Build the [samples x trials] log-likelihood matrix from a fitted EMC2 model.
 #'
 #' For each posterior sample i and trial n, evaluates
@@ -98,7 +114,7 @@ log_lik_per_trial <- function(pars, dadm, model_obj, min_ll = log(1e-10)) {
 #'         trials concatenated in the order subjects are stored in
 #'         `fitted_model[[1]]$data`.
 extract_log_lik_matrix <- function(fitted_model, max_samples = 2000L, cores = 1L) {
-  get_pars_matrix <- EMC2:::get_pars_matrix  # nolint: using unexported internal
+  get_pars_matrix <- .emc2_pars_matrix_fn()
 
   model_factory <- fitted_model[[1]][["model"]]
   model_obj     <- model_factory()
@@ -107,7 +123,8 @@ extract_log_lik_matrix <- function(fitted_model, max_samples = 2000L, cores = 1L
 
   # Alpha samples: get_pars returns list[par_name] of mcmc.list objects.
   # Collapse chains via as.matrix() -> list[par_name][total_samples x n_subj].
-  alpha_raw <- get_pars(fitted_model, selection = "alpha", return_mcmc = TRUE)
+  alpha_raw <- get_pars(fitted_model, selection = "alpha", stage = "sample", map = FALSE,
+                        return_mcmc = TRUE)
   alpha     <- lapply(alpha_raw, as.matrix)
   n_all     <- nrow(alpha[[1]])
 
