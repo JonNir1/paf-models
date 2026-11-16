@@ -102,7 +102,8 @@ Python data pipeline and exploratory notebooks (one dependency chain rooted at `
 Define a model as a thin script that returns an EMC2 object from `build_lba_model()` (the shared
 factory in `R/fit/helpers/build_model.R`). It only needs to supply what differs between variants -
 the `v` and `B` formulas plus any model-specific prior entries - and define `MODEL_NAME` and a
-`build_model(data, n_chains)` function. `__tests__/fixtures/test_model.R` is a minimal working
+`build_model(data, n_chains)` function, plus `STRUCTURAL_UNIDENTIFIABLE_PATTERN` (a regex for
+parameters the design cannot identify, or `NA_character_` if none; read by the recovery eval). `__tests__/fixtures/test_model.R` is a minimal working
 template; the retired `model1`–`model5` definitions on the `analysis1` branch are fuller examples.
 
 ---
