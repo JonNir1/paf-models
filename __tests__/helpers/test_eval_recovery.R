@@ -238,6 +238,15 @@ test_that("flag_identifiable applies each model's own pattern; NA = all identifi
 
   expect_error(flag_identifiable(pars, one, c(m1 = "^nope$")), "m1.*matches none")
   expect_error(flag_identifiable(pars, one, c(other = PAT)), "No unidentifiability pattern for model 'm1'")
+
+  # duplicated / missing names in patterns are ambiguous
+  expect_error(flag_identifiable(pars, one, c(m1 = PAT, m1 = NA_character_)), "duplicated.*m1")
+  expect_error(flag_identifiable(pars, one, c(PAT)), "name")
+  expect_error(flag_identifiable(pars, one, stats::setNames(PAT, NA_character_)), "name")
+  expect_error(flag_identifiable(pars, one, stats::setNames(PAT, "")), "name")
+
+  # a pattern matching every parameter of its model leaves no core
+  expect_error(flag_identifiable(pars, one, c(m1 = ".*")), "m1.*matches all of its parameters")
 })
 
 test_that("recovery_model_summary computes full and core means, per-model patterns", {
@@ -266,6 +275,8 @@ test_that("recovery_model_summary computes full and core means, per-model patter
   out3 <- recovery_model_summary(ss2, c(model4 = PAT, model_na = "^v$"))
   expect_equal(out3[out3$model == "model4", ], out2[out2$model == "model4", ])
   expect_equal(out3$rmse_core[out3$model == "model_na"], mean(c(0.9, 8.0)))   # hand computation on the 2 rows left
+
+  expect_error(recovery_model_summary(ss, c(model4 = ".*")), "model4.*matches all of its parameters")
 })
 
 test_that("model_unidentifiable_pattern reads the script's declaration in isolation and rejects bad ones", {
@@ -277,18 +288,49 @@ test_that("model_unidentifiable_pattern reads the script's declaration in isolat
   expect_false(exists("build_model", envir = environment(), inherits = FALSE))
 
   dir <- withr::local_tempdir()
-  write_script <- function(name, body) writeLines(body, file.path(dir, paste0(name, ".R")))
-  write_script("ok",     "STRUCTURAL_UNIDENTIFIABLE_PATTERN <- '^v_x$'")
+  write_script <- function(name, body) {   # every script gets a matching MODEL_NAME unless `body` brings its own
+    if (!any(grepl("MODEL_NAME", body, fixed = TRUE))) body <- c(sprintf("MODEL_NAME <- '%s'", name), body)
+    writeLines(body, file.path(dir, paste0(name, ".R")))
+  }
+  decl <- function(rhs) paste("STRUCTURAL_UNIDENTIFIABLE_PATTERN <-", rhs)
+  write_script("ok",     decl("'^v_x$'"))
+  write_script("eq",     c("MODEL_NAME = 'eq'", "STRUCTURAL_UNIDENTIFIABLE_PATTERN = paste0('^v', '_y$')"))
   write_script("none",   "MODEL_NAME <- 'none'")
-  write_script("num",    "STRUCTURAL_UNIDENTIFIABLE_PATTERN <- 1")
-  write_script("vec",    "STRUCTURAL_UNIDENTIFIABLE_PATTERN <- c('a', 'b')")
-  write_script("badre",  "STRUCTURAL_UNIDENTIFIABLE_PATTERN <- '(['")
+  write_script("num",    decl("1"))
+  write_script("vec",    decl("c('a', 'b')"))
+  write_script("badre",  decl("'(['"))
+  write_script("empty",  decl("''"))
+  write_script("twice",  c(decl("'a'"), decl("NA_character_")))
+  write_script("broken", c(decl("'a'"), "this is ( not R"))
+  write_script("rhsboom", decl("stop('rhs-boom')"))
+  write_script("rhsglobal", decl("some_global_helper()"))
+  writeLines(decl("'a'"), file.path(dir, "nomodel.R"))
+  write_script("mismatch", c("MODEL_NAME <- 'other'", decl("'a'")))
+  write_script("twiceName", c("MODEL_NAME <- 'twiceName'", "MODEL_NAME <- 'twiceName'", decl("'a'")))
   expect_equal(model_unidentifiable_pattern("ok", dir), "^v_x$")
+  expect_equal(model_unidentifiable_pattern("eq", dir), "^v_y$")
   expect_error(model_unidentifiable_pattern("absent", dir), "absent.*script not found")
-  expect_error(model_unidentifiable_pattern("none", dir),   "does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN")
-  expect_error(model_unidentifiable_pattern("num", dir),    "single character string")
-  expect_error(model_unidentifiable_pattern("vec", dir),    "single character string")
-  expect_error(model_unidentifiable_pattern("badre", dir),  "not a valid regex")
+  expect_error(model_unidentifiable_pattern("none", dir),   "none.*does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN")
+  expect_error(model_unidentifiable_pattern("num", dir),    "num.*single character string")
+  expect_error(model_unidentifiable_pattern("vec", dir),    "vec.*single character string")
+  expect_error(model_unidentifiable_pattern("empty", dir),  "empty.*must not be the empty string")
+  expect_error(model_unidentifiable_pattern("twice", dir),  "twice.*more than once")
+  expect_error(model_unidentifiable_pattern("broken", dir), "broken.*cannot be parsed")
+  expect_error(model_unidentifiable_pattern("rhsboom", dir), "rhsboom.*failed to evaluate.*rhs-boom")
+  expect_error(model_unidentifiable_pattern("rhsglobal", dir), "rhsglobal.*failed to evaluate")
+  expect_error(model_unidentifiable_pattern("nomodel", dir), "nomodel.*does not define MODEL_NAME")
+  expect_error(model_unidentifiable_pattern("mismatch", dir), "mismatch.*MODEL_NAME is \"other\"")
+  expect_error(model_unidentifiable_pattern("twiceName", dir), "twiceName.*MODEL_NAME is assigned more than once")
+  expect_no_warning(expect_error(model_unidentifiable_pattern("badre", dir), "badre.*not a valid regex"))
+
+  # nothing in the script is executed: side effects, failing calls and config overrides are inert
+  prior_value <- globalenv()$MAX_RHAT_MU
+  withr::defer(if (is.null(prior_value)) rm("MAX_RHAT_MU", envir = globalenv()) else assign("MAX_RHAT_MU", prior_value, envir = globalenv()))
+  assign("MAX_RHAT_MU", "sentinel", envir = globalenv())
+  write_script("inert", c("stop('boom')", "source('does_not_exist.R')", "MAX_RHAT_MU <- 99",
+                          decl("'^v_inert$'")))
+  expect_equal(model_unidentifiable_pattern("inert", dir), "^v_inert$")
+  expect_identical(get("MAX_RHAT_MU", envir = globalenv()), "sentinel")
 })
 
 test_that("every model script defining build_model declares a valid STRUCTURAL_UNIDENTIFIABLE_PATTERN", {
@@ -307,7 +349,8 @@ test_that("every model script defining build_model declares a valid STRUCTURAL_U
   dir <- withr::local_tempdir()
   writeLines("MODEL_NAME <- 'forgot'
 build_model <- function(data, n_chains) NULL", file.path(dir, "forgot.R"))
-  writeLines("STRUCTURAL_UNIDENTIFIABLE_PATTERN <- NA_character_
+  writeLines("MODEL_NAME <- 'fine'
+STRUCTURAL_UNIDENTIFIABLE_PATTERN <- NA_character_
 build_model <- function(data, n_chains) NULL",
              file.path(dir, "fine.R"))
   found <- undeclared(dir)

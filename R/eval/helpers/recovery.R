@@ -286,34 +286,64 @@ add_coverage95 <- function(subj_stats, points) {
 
 #' Read a model's structural-unidentifiability declaration from its script.
 #'
-#' Sources `<script_dir>/<model_name>.R` into a throwaway environment (so the
-#' caller's `build_model`/`MODEL_NAME` are untouched) and returns its
-#' `STRUCTURAL_UNIDENTIFIABLE_PATTERN`: a regex for the parameters the design
-#' cannot identify, or NA_character_ if every parameter is identifiable. A
-#' missing script, missing declaration, non-scalar-character value or invalid
-#' regex is an error; there is no default pattern.
+#' Parses `<script_dir>/<model_name>.R` WITHOUT executing it, and evaluates only
+#' the right-hand side of its top-level `STRUCTURAL_UNIDENTIFIABLE_PATTERN`
+#' assignment (`<-` or `=`) in a fresh environment whose parent is `baseenv()`.
+#' The right-hand side must therefore be self-contained (a literal or base-R
+#' expression); nothing else in the script runs, so the caller's globals,
+#' config and mocks are untouched. The script's top-level `MODEL_NAME` must
+#' equal `model_name` (the eval and the recovery CLI locate scripts by name).
+#' Errors: missing script, unparsable script, missing or repeated declaration,
+#' failing right-hand side, missing or mismatching `MODEL_NAME`, a value that is
+#' not a length-1 character, the empty string (matches every parameter), or an
+#' invalid regex. There is no default pattern.
 #'
 #' @param model_name Model name (script basename, no extension).
 #' @param script_dir Directory holding the model scripts (default MODEL_SCRIPT_DIR).
-#' @return Length-1 character: a valid regex, or NA_character_.
+#' @return Length-1 character: a valid non-empty regex, or NA_character_.
 model_unidentifiable_pattern <- function(model_name, script_dir = MODEL_SCRIPT_DIR) {
   path <- file.path(script_dir, paste0(model_name, ".R"))
   fail <- function(why) stop(sprintf("Model '%s' (%s): %s", model_name, path, why), call. = FALSE)
   if (!file.exists(path)) fail("model script not found")
 
-  env <- new.env(parent = globalenv())
-  source(path, local = env)
-  if (!exists("STRUCTURAL_UNIDENTIFIABLE_PATTERN", envir = env, inherits = FALSE)) {
-    fail("script does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN (a regex string, or NA_character_ if none)")
+  exprs <- tryCatch(parse(path, keep.source = FALSE),
+                    error = function(e) fail(sprintf("script cannot be parsed (%s)", conditionMessage(e))))
+  # list(value=) of the single top-level `name <- rhs` / `name = rhs`; NULL if absent.
+  declared <- function(name) {
+    rhs <- list()
+    for (ex in exprs) {
+      if (is.call(ex) && (identical(ex[[1]], quote(`<-`)) || identical(ex[[1]], quote(`=`))) &&
+          identical(ex[[2]], as.name(name))) rhs <- c(rhs, list(ex[[3]]))
+    }
+    if (length(rhs) > 1L) fail(sprintf("%s is assigned more than once at top level (ambiguous declaration)", name))
+    if (length(rhs) == 0L) return(NULL)
+    list(value = tryCatch(eval(rhs[[1]], new.env(parent = baseenv())),
+                          error = function(e) fail(sprintf("right-hand side of %s failed to evaluate (%s); it must be self-contained",
+                                                           name, conditionMessage(e)))))
   }
-  pattern <- env$STRUCTURAL_UNIDENTIFIABLE_PATTERN
+
+  pattern <- declared("STRUCTURAL_UNIDENTIFIABLE_PATTERN")
+  if (is.null(pattern)) {
+    fail("script does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN as a top-level assignment (a regex string, or NA_character_ if none)")
+  }
+  pattern <- pattern$value
   if (!is.character(pattern) || length(pattern) != 1L) {
     fail("STRUCTURAL_UNIDENTIFIABLE_PATTERN must be a single character string or NA_character_")
   }
+  if (!is.na(pattern) && !nzchar(pattern)) {
+    fail("STRUCTURAL_UNIDENTIFIABLE_PATTERN must not be the empty string (it matches every parameter); use NA_character_ for none")
+  }
   if (!is.na(pattern)) {
-    tryCatch(grepl(pattern, ""), error = function(e) {
+    suppressWarnings(tryCatch(grepl(pattern, ""), error = function(e) {
       fail(sprintf("STRUCTURAL_UNIDENTIFIABLE_PATTERN is not a valid regex (%s)", conditionMessage(e)))
-    })
+    }))
+  }
+
+  script_name <- declared("MODEL_NAME")
+  if (is.null(script_name)) fail("script does not define MODEL_NAME as a top-level assignment")
+  if (!identical(script_name$value, model_name)) {
+    fail(sprintf("MODEL_NAME is %s but the script file is named '%s'",
+                 deparse(script_name$value), model_name))
   }
   pattern
 }
@@ -323,7 +353,8 @@ model_unidentifiable_pattern <- function(model_name, script_dir = MODEL_SCRIPT_D
 #'
 #' Each model is flagged with ITS OWN pattern. A model whose pattern is NA has
 #' every parameter identifiable; a non-NA pattern that matches none of that
-#' model's parameters is an error (stale or mistyped). Pure / vectorised.
+#' model's parameters (stale or mistyped) or all of them (no core left) is an
+#' error, as are duplicated or missing names in `patterns`. Pure / vectorised.
 #'
 #' @param parameter Character vector of parameter names.
 #' @param model     Character vector (same length) of each parameter's model.
@@ -331,14 +362,27 @@ model_unidentifiable_pattern <- function(model_name, script_dir = MODEL_SCRIPT_D
 #'   as from model_unidentifiable_pattern().
 #' @return Logical vector (TRUE = identifiable core).
 flag_identifiable <- function(parameter, model, patterns) {
+  pattern_models <- names(patterns)
+  if (is.null(pattern_models) || anyNA(pattern_models) || any(!nzchar(pattern_models))) {
+    stop("'patterns' must have a non-empty, non-NA name (the model) for every entry")
+  }
+  if (anyDuplicated(pattern_models)) {
+    stop(sprintf("'patterns' has duplicated model names: %s",
+                 paste(unique(pattern_models[duplicated(pattern_models)]), collapse = ", ")))
+  }
   flag <- rep(TRUE, length(parameter))
   for (m in unique(model)) {
-    if (!m %in% names(patterns)) stop(sprintf("No unidentifiability pattern for model '%s'", m))
+    if (!m %in% pattern_models) stop(sprintf("No unidentifiability pattern for model '%s'", m))
     pattern <- patterns[[m]]
     if (is.na(pattern)) next
-    hit <- model == m & grepl(pattern, parameter)
+    own <- model == m
+    hit <- own & grepl(pattern, parameter)
     if (!any(hit)) {
       stop(sprintf("Model '%s': STRUCTURAL_UNIDENTIFIABLE_PATTERN '%s' matches none of its parameters (stale or mistyped?)",
+                   m, pattern))
+    }
+    if (all(hit[own])) {
+      stop(sprintf("Model '%s': STRUCTURAL_UNIDENTIFIABLE_PATTERN '%s' matches all of its parameters (no identifiable core left)",
                    m, pattern))
     }
     flag[hit] <- FALSE
