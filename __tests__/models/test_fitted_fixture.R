@@ -102,28 +102,123 @@ test_that("flattened correlations follow the column-major lower triangle extract
 # Per-trial log-likelihood (the LOO / WAIC basis) vs EMC2's own likelihood
 # =============================================================================
 
-test_that("log_lik_per_trial sums to EMC2's subject log-likelihood; the LL matrix is [samples x trials]", {
-  model_obj   <- FITTED[[1]]$model()
-  pars_matrix <- .emc2_pars_matrix_fn()
-  alpha       <- lapply(emc_get_pars(FITTED, selection = "alpha", return_mcmc = TRUE), as.matrix)
-  n_trials    <- vapply(FITTED[[1]]$data, function(d) length(attr(d, "expand")), integer(1))
+# A fit saved under EMC2 3.4.1 must work under the installed version as-is: update2version() would
+# truncate such an object's trial index, so the pipeline never migrates fits.
+LEGACY <- readRDS(file.path(FIXTURES_DIR, "test_model_fitted_3.4.1.rds"))
 
-  emc2_ll <- function(i, s) {
-    p_vec <- setNames(vapply(alpha, `[`, numeric(1), i, s), names(alpha))
-    dadm  <- FITTED[[1]]$data[[s]]
-    pars  <- pars_matrix(p_vec, dadm, model_obj)
-    c(ours = sum(log_lik_per_trial(pars, dadm, model_obj)),
-      emc2 = model_obj$log_likelihood(pars, dadm, model_obj))
-  }
-  for (i in c(1L, nrow(alpha[[1]]))) for (s in seq_along(SUBJ)) {
-    ll <- emc2_ll(i, s)
-    expect_equal(ll[["ours"]], ll[["emc2"]], label = sprintf("sample %d, subject %d", i, s))
-  }
+test_that("log_lik_per_trial sums to EMC2's subject log-likelihood; the LL matrix is [samples x trials]; 3.4.1 fits need no migration", {
+  expect_identical(attr(LEGACY, "emc2_version"), "3.4.1")
+  expect_equal(.trial_counts(LEGACY), .trial_counts(FITTED))   # trial index intact
 
-  ll_mat <- extract_log_lik_matrix(FITTED, max_samples = 4L)
-  expect_equal(dim(ll_mat), c(4L, sum(n_trials)))
-  expect_equal(attr(ll_mat, "chain_id"), rep(1:2, each = 2L))
-  expect_true(all(is.finite(ll_mat)))
-  first_subj <- seq_len(n_trials[[1]])
-  expect_equal(sum(ll_mat[1, first_subj]), emc2_ll(1L, 1L)[["emc2"]])
+  for (fit_name in c("current", "legacy_3.4.1")) {
+    fit         <- list(current = FITTED, legacy_3.4.1 = LEGACY)[[fit_name]]
+    model_obj   <- fit[[1]]$model()
+    pars_matrix <- .emc2_pars_matrix_fn()
+    alpha       <- lapply(emc_get_pars(fit, selection = "alpha", return_mcmc = TRUE), as.matrix)
+    n_trials    <- vapply(fit[[1]]$data, function(d) length(attr(d, "expand")), integer(1))
+
+    emc2_ll <- function(i, s) {
+      p_vec <- setNames(vapply(alpha, `[`, numeric(1), i, s), names(alpha))
+      dadm  <- fit[[1]]$data[[s]]
+      pars  <- pars_matrix(p_vec, dadm, model_obj)
+      c(ours = sum(log_lik_per_trial(pars, dadm, model_obj)),
+        emc2 = model_obj$log_likelihood(pars, dadm, model_obj))
+    }
+    for (i in c(1L, nrow(alpha[[1]]))) for (s in seq_along(SUBJ)) {
+      ll <- emc2_ll(i, s)
+      expect_equal(ll[["ours"]], ll[["emc2"]], label = sprintf("%s: sample %d, subject %d", fit_name, i, s))
+    }
+
+    ll_mat <- extract_log_lik_matrix(fit, max_samples = 4L)
+    expect_equal(dim(ll_mat), c(4L, sum(n_trials)), label = fit_name)
+    expect_equal(attr(ll_mat, "chain_id"), rep(1:2, each = 2L), label = fit_name)
+    expect_true(all(is.finite(ll_mat)), label = fit_name)
+    first_subj <- seq_len(n_trials[[1]])
+    expect_equal(sum(ll_mat[1, first_subj]), emc2_ll(1L, 1L)[["emc2"]], label = fit_name)
+  }
+})
+
+
+# =============================================================================
+# eval/gof.R and eval/recovery.R end to end on real EMC2 objects
+# =============================================================================
+
+test_that("create_goodness_of_fit_table: conditional and joint ICs are both reported and internally consistent", {
+  ic_cols <- c("EffectiveN", "DIC", "wDIC", "BPIC", "wBPIC", "mean_LL", "meanD", "Dmean", "minD")
+  tbl <- create_goodness_of_fit_table(list(first = FITTED, second = FITTED), cores_for_props = 1L)
+
+  expect_equal(tbl$model, c("first", "second"))
+  expect_equal(tbl$num_params, rep(length(PARS), 2L))
+  expect_true(all(c(paste0(ic_cols, "_conditional"), paste0(ic_cols, "_joint")) %in% names(tbl)))
+  for (type in c("conditional", "joint")) {
+    col <- function(x) tbl[[paste0(x, "_", type)]]
+    expect_true(all(is.finite(unlist(tbl[paste0(ic_cols, "_", type)]))), label = type)
+    expect_equal(col("DIC"),  col("meanD") + col("EffectiveN"), label = type)
+    expect_equal(col("BPIC"), col("meanD") + 2 * col("EffectiveN"), label = type)
+    expect_equal(col("mean_LL"), col("meanD") / -2, label = type)
+    expect_true(all(col("minD") <= col("Dmean")), label = type)
+    expect_equal(sum(col("wDIC")), 1, label = type)
+  }
+  # The joint IC adds the group-level density, so the two types must not be copies of each other.
+  expect_false(isTRUE(all.equal(tbl$DIC_conditional, tbl$DIC_joint)))
+  expect_false(isTRUE(all.equal(tbl$EffectiveN_conditional, tbl$EffectiveN_joint)))
+})
+
+test_that("create_loo_table: balanced chains, r_eff passed to loo, finite summary, and incomparable trial sets rejected", {
+  loo_dir <- withr::local_tempdir()
+  local_mocks(LOO_DIR = loo_dir)
+  tbl <- suppressWarnings(quietly(suppressMessages(
+    create_loo_table(list(first = FITTED, second = FITTED), max_samples = 41L))))   # odd: floor(41 / 2) per chain
+
+  expect_equal(tbl$model, c("first", "second"))
+  expect_true(all(is.finite(unlist(tbl[setdiff(names(tbl), c("model", "k_flag"))]))))
+  expect_type(tbl$k_flag, "logical")
+  expect_equal(tbl$elpd_loo, rep(tbl$elpd_loo[1], 2L))                  # identical fits => identical results
+  expect_lt(abs(tbl$elpd_loo[1] - tbl$elpd_waic[1]), tbl$se_elpd_loo[1])   # WAIC and LOO agree loosely
+
+  ll <- extract_log_lik_matrix(FITTED, max_samples = 41L)
+  expect_equal(unname(table(attr(ll, "chain_id"))), unname(table(rep(1:2, each = 20L))))   # 20 draws per chain
+  expect_equal(nrow(ll), 40L)
+
+  saved <- readRDS(file.path(loo_dir, "first_loo.rds"))
+  with_reff <- suppressWarnings(loo::loo(ll, r_eff = trial_relative_eff(ll)))
+  no_reff   <- suppressWarnings(loo::loo(ll, r_eff = NA))
+  expect_equal(saved$diagnostics$n_eff, with_reff$diagnostics$n_eff)
+  expect_false(isTRUE(all.equal(saved$diagnostics$n_eff, no_reff$diagnostics$n_eff)))
+
+  one_subject <- lapply(FITTED, function(chain) { chain$data <- chain$data[1]; chain })
+  expect_error(create_loo_table(list(first = FITTED, other = one_subject)), "trial counts")
+  short <- suppressWarnings(loo::loo(ll[, seq_len(ncol(ll) / 2)], r_eff = NA))
+  expect_error(make_loo_comparison_df(list(first = saved, short = short)), "different numbers of trials")
+  expect_equal(make_loo_comparison_df(list(first = saved, second = saved))$elpd_diff, c(0, 0))
+})
+
+test_that("recovery_emc2_rows: order-invariant in true_alpha, coverage and RMSE match an independent computation, no device left open", {
+  est   <- alpha_posterior_means(FITTED)
+  truth <- est
+  truth[2, ]          <- truth[2, ] + 50                       # subject 2 far outside every interval
+  truth[1, c(1, 3)]   <- truth[1, c(1, 3)] + 50                # subject 1 outside for two parameters
+  extra <- cbind(truth, a_constant = 0)
+  shuffled <- extra[rev(rownames(extra)), sample(colnames(extra))]
+
+  devices_before <- grDevices::dev.list()
+  rows     <- recovery_emc2_rows(FITTED, truth, "m", 1L)
+  rows_shf <- recovery_emc2_rows(FITTED, shuffled, "m", 1L)
+  expect_identical(grDevices::dev.list(), devices_before)
+  expect_equal(rows_shf, rows)
+  expect_equal(rows$stats$parameter, PARS)
+  expect_equal(rows$points$subject, rep(SUBJ, times = length(PARS)))
+
+  alpha <- emc_get_pars(FITTED, selection = "alpha", stage = "sample", map = FALSE, return_mcmc = TRUE)
+  for (p in PARS) {
+    draws  <- as.matrix(alpha[[p]])[, SUBJ]
+    bounds <- apply(draws, 2, quantile, probs = c(0.025, 0.975))
+    inside <- bounds[1, ] < truth[SUBJ, p] & truth[SUBJ, p] < bounds[2, ]
+    got    <- rows$points[rows$points$parameter == p, ]
+    expect_equal(got$inside, unname(inside), label = p)
+    expect_equal(rows$stats$coverage[rows$stats$parameter == p], 100 * mean(inside), label = p)
+    expect_equal(rows$stats$rmse[rows$stats$parameter == p],
+                 sqrt(mean((apply(draws, 2, median) - truth[SUBJ, p])^2)), label = p)
+  }
+  expect_true(any(rows$points$inside) && !all(rows$points$inside))   # the check is not vacuous
 })
