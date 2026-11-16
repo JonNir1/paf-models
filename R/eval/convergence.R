@@ -36,6 +36,7 @@ conv_stem <- "convergence"
 conv_rds  <- file.path(EVAL_DIR, paste0(conv_stem, ".rds"))
 
 conv_key <- list(models = MODEL_NAMES,
+                 files = basename(MODEL_PATHS),
                  thresholds = c(MAX_RHAT_MU, MIN_ESS_MU, MAX_RHAT_ALPHA, MIN_ESS_ALPHA),
                  emc2 = emc_version())
 

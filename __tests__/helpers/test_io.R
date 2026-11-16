@@ -104,7 +104,7 @@ test_that("newer_than_inputs: missing cache, equal or older mtime -> recompute",
 test_that("eval_cache_fresh: reused only when newer than every input AND built with identical settings", {
   dir   <- withr::local_tempdir()
   input <- file.path(dir, "fit.rds"); saveRDS(1, input)
-  key   <- list(models = c("a", "b"), thresholds = c(1.05, 500, 1.1, 400), emc2 = "3.5.0")
+  key   <- list(models = c("a", "b"), files = c("250101_a.rds", "250102_b.rds"), thresholds = c(1.05, 500, 1.1, 400), emc2 = "3.5.0")
   cache <- function(stem, k) suppressMessages(save_eval_table(data.frame(x = 1), stem, dir, cache_key = k))
   age   <- function(path, secs) Sys.setFileTime(path, Sys.time() + secs)
   age(input, -20)
@@ -114,7 +114,9 @@ test_that("eval_cache_fresh: reused only when newer than every input AND built w
 
   for (changed in list(modifyList(key, list(models = "a")),
                        modifyList(key, list(thresholds = c(1.1, 500, 1.1, 400))),
-                       modifyList(key, list(emc2 = "3.4.1")))) {
+                       modifyList(key, list(emc2 = "3.4.1")),
+                       # newest fit of "b" deleted: an older file becomes the latest
+                       modifyList(key, list(files = c("250101_a.rds", "241231_b.rds"))))) {
     expect_false(eval_cache_fresh(fresh, input, changed))
   }
 
