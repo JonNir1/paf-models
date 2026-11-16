@@ -2,7 +2,7 @@
 #' Parameter Recovery - Cloud Runner (step 2.5)
 #'
 #' Runs one recovery simulation for one model on a cloud VM. For each call:
-#'   1. Load a previously-extended model (.rds from fit_extend/)
+#'   1. Load a previously-extended model (.rds from outputs/models/fit/)
 #'   2. Extract group-level posterior (mu, Sigma) via extract_group_params()
 #'   3. Draw fresh subject parameters + simulate data via simulate_recovery_data()
 #'   4. Refit the same model from scratch on the simulated data (same priors)
@@ -29,6 +29,9 @@
 #'
 #' Cloud sync: reads CP_CMD and DEST_PREFIX from the environment (set by
 #' scripts/run_recovery.sh). No-op if either is unset (safe for local use).
+#'
+#' Limitation: the model script is derived from the fit file name and must be
+#' R/fit/<name>.R (checked up front, before anything is computed or written).
 #' =============================================================================
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
@@ -46,7 +49,7 @@ source_root("R/eval/helpers/io.R")        # model_name_from_rds
 #' Inputs and outputs (log file, dirs) are explicit parameters so this is
 #' equally usable from the CLI runner and from smoke tests.
 #'
-#' @param extended_model       Loaded EMC2 model object (output of fit_extend).
+#' @param extended_model       Loaded EMC2 model object (output of fit_to_convergence).
 #' @param template_data        Filtered design-matrix data frame (trial structure
 #'                              for make_data). May be a subset for fast smoke tests.
 #' @param model_script_path    Absolute path to the model definition script

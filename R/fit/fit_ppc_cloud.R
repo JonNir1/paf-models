@@ -5,7 +5,7 @@
 #' No MCMC refitting -- this is pure simulation from the posterior.
 #'
 #' For each call:
-#'   1. Load a previously-extended model (.rds from fit_extend/)
+#'   1. Load a previously-extended model (.rds from outputs/models/fit/)
 #'   2. Sample T sets of subject parameters directly from the posterior via
 #'      sample_posterior_alphas() -- no MVN approximation
 #'   3. For each draw, simulate a full dataset via make_data()
@@ -38,7 +38,7 @@ source_root("R/eval/eval_config.R")       # PPC_N_DRAWS, PPC_MODELS_DIR
 #' Given an already-loaded fitted model and template data, draws n_draws
 #' posterior predictive datasets and returns them as a list.
 #'
-#' @param extended_model  Loaded EMC2 model object (output of fit_extend).
+#' @param extended_model  Loaded EMC2 model object (output of fit_to_convergence).
 #' @param template_data   Filtered design-matrix data frame providing trial
 #'                         structure for make_data(). May be a subset for tests.
 #' @param ppc_name        Base name for the output .rds file (without date prefix).

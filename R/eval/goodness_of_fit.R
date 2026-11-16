@@ -9,7 +9,7 @@
 #'                  reported (_conditional, _joint). mean_LL_joint = meanD_joint / -2
 #'                  includes the group-level density, so it is NOT a data
 #'                  log-likelihood (kept only as the historical mean_LL definition).
-#'   PSIS-LOO-CV -- primary decision criterion; slow, mtime-cached.
+#'   PSIS-LOO-CV -- primary decision criterion; slow, cached (mtime + settings key).
 #'   WAIC        -- confirmatory; computed alongside LOO. The per-model LOO/WAIC table
 #'                  is written first; the pairwise comparison (which requires the
 #'                  same subjects and trial counts) follows and may fail on its own.

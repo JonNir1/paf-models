@@ -173,6 +173,8 @@ sample_posterior_alphas <- function(model, n_draws, seed = NULL) {
 #'   - make_random_effects() draws n_subj alpha_i ~ MVN(mu_hat, Sigma_hat)
 #'   - make_data() replaces real RTs/responses with model-generated values,
 #'     preserving the exact trial structure of the empirical data.
+#'   - Simulated RTs are deliberately NOT truncated to the observed-RT window
+#'     (MIN/MAX_SACCADE_CUTOFF); the same holds for the PPC simulations.
 #'
 #' @param model        Fitted EMC2 model (used only to extract the design).
 #' @param group_params List returned by extract_group_params(): $mu and $Sigma.
