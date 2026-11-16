@@ -19,7 +19,8 @@
 #'   source("R/eval/recovery.R")
 #' Non-interactive, tolerating missing pairs:
 #'   Rscript -e "ALLOW_PARTIAL_RECOVERY <- TRUE; source('R/eval/recovery.R')"
-#' Model scripts (for their STRUCTURAL_UNIDENTIFIABLE_PATTERN) are read from
+#' Model scripts are parsed, not executed, for their STRUCTURAL_UNIDENTIFIABLE_PATTERN
+#' (top-level assignment, self-contained RHS; MODEL_NAME must equal the file name) in
 #' MODEL_SCRIPT_DIR (default R/fit); pre-set it to override. Never downgraded
 #' by ALLOW_PARTIAL_RECOVERY.
 #' =============================================================================
