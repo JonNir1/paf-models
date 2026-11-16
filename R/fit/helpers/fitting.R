@@ -82,11 +82,30 @@ save_model <- function(model, name, dir_path, date_prefix = NULL) {
 #' EMC2 labels every stored iteration with its stage in
 #' model[[chain]]$samples$stage (a character vector); the convergence floor
 #' (`num_samples`) is defined on the sample stage only, NOT on burn/adapt.
-#' Returns 0 for a freshly-built make_emc() object (no samples yet).
+#' Returns 0 for a freshly-built make_emc() object (no samples yet) and for
+#' NULL / empty input; any other malformed input errors instead of reading as 0.
 .sample_iters <- function(model) {
-  st <- tryCatch(model[[1L]]$samples$stage, error = function(e) NULL)
+  if (length(model) == 0L) return(0L)
+  st <- model[[1L]]$samples$stage
   if (is.null(st)) return(0L)
   as.integer(sum(st == "sample"))
+}
+
+
+#' Stop unless `model` is a fitted EMC2 object with sample-stage iterations.
+#' Guards the resume entry so a malformed or unfitted object is never treated as
+#' fresh and re-warmed over the original file.
+#' @param model An object read back from a saved fit.
+#' @param source_desc Where it came from (for the error message).
+.validate_resume_model <- function(model, source_desc = "model") {
+  is_emc <- is.list(model) && length(model) > 0L && is.list(model[[1L]]) &&
+    is.character(model[[1L]]$samples$stage)
+  if (!is_emc)
+    stop(sprintf("Cannot resume: %s is not an EMC2 object with stored samples.", source_desc))
+  if (.sample_iters(model) == 0L)
+    stop(sprintf("Cannot resume: %s has no sample-stage iterations (use --model-script for a fresh fit).",
+                 source_desc))
+  invisible(model)
 }
 
 

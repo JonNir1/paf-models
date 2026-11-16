@@ -122,6 +122,7 @@ result <- tryCatch({
     in_path <- if (file.exists(resume_rds)) resume_rds else file.path(MODELS_FIT_DIR, resume_rds)
     log_msg(sprintf("Resuming model from: %s", in_path), log_file, console_print = TRUE)
     emc <- readRDS(in_path)
+    .validate_resume_model(emc, in_path)
   }
 
   fit_to_convergence(
