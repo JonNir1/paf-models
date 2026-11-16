@@ -83,7 +83,7 @@ message(sprintf("Loaded %d / %d pairs.", length(pairs), length(MODEL_NAMES) * N_
 mu_true_by_model   <- list()
 prior_sds_by_model <- list()
 for (mn in MODEL_NAMES) {
-  ext <- latest_dated_file(MODELS_FIT_DIR, sprintf("^[0-9]{6}_%s\\.rds$", mn))
+  ext <- latest_dated_file(MODELS_FIT_DIR, model_rds_pattern(mn))
   if (is.na(ext)) {
     message(sprintf("  no fit for %s; skipping", mn))
     problems <- c(problems, sprintf("%s: no source fit in %s", mn, MODELS_FIT_DIR))
