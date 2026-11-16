@@ -108,6 +108,19 @@ test_that("saves after warm-up, every save_every tries and at the end, hooking (
   for (args in hook$calls()) expect_identical(args, list(save_path, log_file))
   expect_identical(res$saved_path, save_path)
   expect_equal(.sample_iters(readRDS(save_path)), res$n_samples)
+
+  # The mocks return attribute-free objects (as EMC2 does): a fresh model gets
+  # only the current version; a resumed one keeps its prior versions.
+  expect_identical(attr(readRDS(save_path), "emc2_version_history"), "9.9.9")
+  expect_identical(attr(readRDS(save_path), "emc2_version"), "9.9.9")
+
+  legacy  <- structure(mock_emc(40L), emc2_version = "3.4.1")
+  history <- structure(mock_emc(40L), emc2_version_history = c("3.3.0", "3.4.1"))
+  run_fit(legacy, max_tries = 2L, save_every = 1L, save_path = save_path)
+  expect_identical(attr(readRDS(save_path), "emc2_version_history"), c("3.4.1", "9.9.9"))
+  run_fit(history, max_tries = 2L, save_every = 1L, save_path = save_path)
+  expect_identical(attr(readRDS(save_path), "emc2_version_history"), c("3.3.0", "3.4.1", "9.9.9"))
+  expect_identical(attr(readRDS(save_path), "emc2_version"), "9.9.9")
 })
 
 test_that("save_path = NULL writes nothing and never calls the hook", {

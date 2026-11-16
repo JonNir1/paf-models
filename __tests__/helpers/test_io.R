@@ -69,7 +69,10 @@ test_that("save_model -> discover_model_names -> load_model round-trips a model"
   save_model(obj, "my_model.v2", dir)
   name <- discover_model_names(dir)
   expect_equal(name, "my_model.v2")
-  expect_equal(suppressMessages(load_model(name, dir)), stamp_emc2_version(obj))
+  loaded <- suppressMessages(load_model(name, dir))
+  expect_equal(loaded[names(obj)], obj)
+  expect_identical(attr(loaded, "emc2_version"), "9.9.9")
+  expect_identical(attr(loaded, "emc2_version_history"), "9.9.9")
 })
 
 test_that("save_eval_table: writes matching .rds and .csv, creating the directory", {

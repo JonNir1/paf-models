@@ -359,6 +359,10 @@ fit_to_convergence <- function(emc,
   .validate_convergence_criteria(convergence_criteria)
   num_samples  <- convergence_criteria$num_samples
   n_samp_start <- .sample_iters(emc)
+  # EMC2 drops custom attributes when fitting, so remember the versions the
+  # incoming object was saved under and restore them before every stamp.
+  prior_versions <- attr(emc, "emc2_version_history")
+  if (is.null(prior_versions)) prior_versions <- attr(emc, "emc2_version")
   .validate_fit_args(n_samp_start, num_samples, max_tries, batch_size,
                      save_every, save_path, post_save_hook)
 
@@ -382,6 +386,7 @@ fit_to_convergence <- function(emc,
     if (is.null(save_path)) return(invisible(NULL))
     dir_path <- dirname(save_path)
     if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
+    attr(model, "emc2_version_history") <- prior_versions
     saveRDS(stamp_emc2_version(model), save_path)
     log_msg(sprintf("%s: saved %s", tag, save_path), log_file, console_print = TRUE)
     if (!is.null(post_save_hook)) post_save_hook(save_path, log_file)
