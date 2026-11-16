@@ -29,6 +29,10 @@ if (!dir.exists(RECOVERY_OUT_DIR)) dir.create(RECOVERY_OUT_DIR, recursive = TRUE
 MODEL_NAMES <- discover_model_names()
 N_SIMS      <- 3L
 
+# Set ALLOW_PARTIAL_RECOVERY <- TRUE before sourcing to proceed with missing or
+# unreadable recovery pairs / source fits; by default they are an error.
+if (!exists("ALLOW_PARTIAL_RECOVERY")) ALLOW_PARTIAL_RECOVERY <- FALSE
+
 
 # =============================================================================
 #  Load the latest converged recovery fit + true_alpha for a sim.
@@ -53,11 +57,15 @@ load_recovery_pair <- function(model_name, sim_index, dir = MODELS_RECOVERY_DIR)
 # =============================================================================
 
 message("Loading recovery fits...")
-pairs <- list()
+pairs   <- list()
+missing <- character(0)
 for (mn in MODEL_NAMES) for (si in seq_len(N_SIMS)) {
   key <- sprintf("%s_sim%d", mn, si)
-  pairs[[key]] <- tryCatch(load_recovery_pair(mn, si),
-                           error = function(e) { message("  MISSING: ", e$message); NULL })
+  pairs[[key]] <- tryCatch(load_recovery_pair(mn, si), error = function(e) {
+    message("  MISSING: ", conditionMessage(e))
+    missing <<- c(missing, sprintf("%s: %s", key, conditionMessage(e)))
+    NULL
+  })
 }
 pairs <- Filter(Negate(is.null), pairs)
 message(sprintf("Loaded %d / %d pairs.", length(pairs), length(MODEL_NAMES) * N_SIMS))
@@ -67,10 +75,21 @@ mu_true_by_model   <- list()
 prior_sds_by_model <- list()
 for (mn in MODEL_NAMES) {
   ext <- latest_dated_file(MODELS_FIT_DIR, sprintf("^[0-9]{6}_%s\\.rds$", mn))
-  if (is.na(ext)) { message(sprintf("  no fit for %s; skipping", mn)); next }
+  if (is.na(ext)) {
+    message(sprintf("  no fit for %s; skipping", mn))
+    missing <- c(missing, sprintf("%s: no source fit in %s", mn, MODELS_FIT_DIR))
+    next
+  }
   em <- readRDS(ext)
   mu_true_by_model[[mn]]   <- extract_group_params(em)$mu
   prior_sds_by_model[[mn]] <- get_prior_sds(em)
+}
+
+if (length(missing) > 0L && !ALLOW_PARTIAL_RECOVERY) {
+  stop(sprintf("Incomplete recovery set (%d problem(s)); set ALLOW_PARTIAL_RECOVERY <- TRUE to proceed:
+  %s",
+               length(missing), paste(missing, collapse = "
+  ")))
 }
 
 
