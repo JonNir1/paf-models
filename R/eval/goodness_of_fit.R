@@ -65,6 +65,7 @@ loo_cache  <- file.path(LOO_DIR, "loo_table.rds")
 loo_key <- list(models = MODEL_NAMES,
                 max_samples = formals(create_loo_table)$max_samples,
                 pareto = c(PARETO_K_THRESHOLD, PARETO_K_BAD_FRAC),
+                r_eff = "per-chain stride",
                 emc2 = emc_version())
 
 if (eval_cache_fresh(loo_cache, MODEL_PATHS, loo_key)) {

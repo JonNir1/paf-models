@@ -120,8 +120,9 @@ test_that("log_lik_per_trial sums to EMC2's subject log-likelihood; the LL matri
     expect_equal(ll[["ours"]], ll[["emc2"]], label = sprintf("sample %d, subject %d", i, s))
   }
 
-  ll_mat <- extract_log_lik_matrix(FITTED, max_samples = 3L)
-  expect_equal(dim(ll_mat), c(3L, sum(n_trials)))
+  ll_mat <- extract_log_lik_matrix(FITTED, max_samples = 4L)
+  expect_equal(dim(ll_mat), c(4L, sum(n_trials)))
+  expect_equal(attr(ll_mat, "chain_id"), rep(1:2, each = 2L))
   expect_true(all(is.finite(ll_mat)))
   first_subj <- seq_len(n_trials[[1]])
   expect_equal(sum(ll_mat[1, first_subj]), emc2_ll(1L, 1L)[["emc2"]])

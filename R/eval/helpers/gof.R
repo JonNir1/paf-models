@@ -113,13 +113,16 @@ log_lik_per_trial <- function(pars, dadm, model_obj, min_ll = log(1e-10)) {
 #' practice in cognitive modelling.
 #'
 #' @param fitted_model  An `emc` object (output of EMC2::run_emc / load_model).
-#' @param max_samples   Thin posterior samples to at most this many (avoids
-#'                      very large matrices; default 2000).
+#' @param max_samples   Keep at most this many posterior samples in total (avoids
+#'                      very large matrices; default 2000), as floor(max_samples /
+#'                      n_chains) evenly spaced draws WITHIN each chain (all draws
+#'                      when a chain has fewer), so every chain contributes equally.
 #' @param cores         Passed to `parallel::mclapply` over subjects.
 #'                      On Windows falls back to serial (no fork support).
 #' @return Numeric matrix `[n_samples x n_trials_total]`; columns run over
 #'         trials concatenated in the order subjects are stored in
-#'         `fitted_model[[1]]$data`.
+#'         `fitted_model[[1]]$data`. Attribute `chain_id` (integer, one per row)
+#'         gives each retained draw's chain, for loo::relative_eff().
 extract_log_lik_matrix <- function(fitted_model, max_samples = 2000L, cores = 1L) {
   get_pars_matrix <- .emc2_pars_matrix_fn()
 
@@ -133,17 +136,24 @@ extract_log_lik_matrix <- function(fitted_model, max_samples = 2000L, cores = 1L
   alpha_raw <- emc_get_pars(fitted_model, selection = "alpha", stage = "sample", map = FALSE,
                             return_mcmc = TRUE)
   alpha     <- lapply(alpha_raw, as.matrix)
-  n_all     <- nrow(alpha[[1]])
+  chain_n   <- vapply(alpha_raw[[1]], nrow, integer(1))
+  if (length(unique(chain_n)) != 1L)
+    stop("Chains of the alpha draws do not have equal numbers of samples.")
+  n_chains    <- length(chain_n)
+  n_per_chain <- chain_n[[1]]
 
   subj_names <- names(data_list)
   if (is.null(subj_names) || !setequal(subj_names, colnames(alpha[[1]])))
     stop("Subject names of the model data and of the alpha draws do not match.")
 
-  s_idx <- if (n_all > max_samples) {
-    round(seq(1, n_all, length.out = max_samples))
+  keep_per_chain <- max(1L, max_samples %/% n_chains)
+  within_idx <- if (n_per_chain > keep_per_chain) {
+    round(seq(1, n_per_chain, length.out = keep_per_chain))
   } else {
-    seq_len(n_all)
+    seq_len(n_per_chain)
   }
+  s_idx     <- as.vector(outer(within_idx, (seq_len(n_chains) - 1L) * n_per_chain, `+`))
+  chain_id  <- rep(seq_len(n_chains), each = length(within_idx))
   n_samples <- length(s_idx)
 
   n_trials_per_subj <- .trial_counts(fitted_model)
@@ -169,7 +179,26 @@ extract_log_lik_matrix <- function(fitted_model, max_samples = 2000L, cores = 1L
     ll_matrix[, col_starts[s]:col_ends[s]] <- subj_blocks[[s]]
   }
 
+  attr(ll_matrix, "chain_id") <- chain_id
   ll_matrix
+}
+
+
+#' Relative MCMC efficiency of each trial's likelihood, for loo::loo(r_eff=).
+#'
+#' loo::relative_eff() takes likelihood values and needs the same number of
+#' draws per chain. ESS is scale-invariant, so each column is scaled by its
+#' maximum before exp() to avoid underflow of very negative log-likelihoods.
+#'
+#' @param ll_mat Matrix from extract_log_lik_matrix() (with `chain_id` attribute).
+#' @param cores  Passed to loo::relative_eff().
+#' @return Numeric vector, one value per trial.
+trial_relative_eff <- function(ll_mat, cores = 1L) {
+  chain_id <- attr(ll_mat, "chain_id")
+  if (is.null(chain_id)) stop("ll_mat has no 'chain_id' attribute.")
+  col_max <- apply(ll_mat, 2, max)
+  lik     <- exp(sweep(ll_mat, 2, col_max))
+  loo::relative_eff(lik, chain_id = chain_id, cores = cores)
 }
 
 
@@ -293,7 +322,8 @@ create_goodness_of_fit_table <- function(
 
 #' LOO / WAIC summary table for a list of fitted models.
 #'
-#' Calls extract_log_lik_matrix() + loo::loo() + loo::waic() per model.
+#' Calls extract_log_lik_matrix() + loo::loo() (with r_eff from the chain
+#' structure) + loo::waic() per model.
 #' Caches per-model loo objects to LOO_DIR/<model_name>_loo.rds for use by
 #' make_loo_comparison_df() and plot_pareto_k().
 #'
@@ -301,7 +331,8 @@ create_goodness_of_fit_table <- function(
 #' (provided by eval_config.R via the caller).
 #'
 #' @param model_list  Named list of fitted EMC2 model objects.
-#' @param max_samples Thin posterior to at most this many samples (default 2000).
+#' @param max_samples Keep at most this many posterior samples, evenly strided
+#'                    within each chain (default 2000).
 #' @param cores       Parallelism over subjects; on Windows falls back to serial.
 #' @return data.frame, one row per model (columns from loo_summary_row()).
 create_loo_table <- function(model_list, max_samples = 2000L, cores = 1L) {
@@ -313,7 +344,7 @@ create_loo_table <- function(model_list, max_samples = 2000L, cores = 1L) {
     message(sprintf("  [LOO] extracting log-lik matrix for %s ...", mname))
     ll_mat   <- extract_log_lik_matrix(model_list[[mname]], max_samples, cores)
     message(sprintf("  [LOO] running loo::loo() for %s ...", mname))
-    loo_obj  <- loo::loo(ll_mat, cores = cores)
+    loo_obj  <- loo::loo(ll_mat, r_eff = trial_relative_eff(ll_mat, cores), cores = cores)
     waic_obj <- loo::waic(ll_mat)
     saveRDS(loo_obj, file.path(LOO_DIR, paste0(mname, "_loo.rds")))
     loo_summary_row(mname, loo_obj, waic_obj,
