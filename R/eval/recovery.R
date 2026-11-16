@@ -17,6 +17,8 @@
 #'
 #' Run from the repo root after downloading the recovery .rds from S3:
 #'   source("R/eval/recovery.R")
+#' Non-interactive, tolerating missing pairs:
+#'   Rscript -e "ALLOW_PARTIAL_RECOVERY <- TRUE; source('R/eval/recovery.R')"
 #' =============================================================================
 
 library(EMC2)

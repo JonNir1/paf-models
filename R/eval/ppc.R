@@ -19,6 +19,8 @@
 #'
 #' Run from the repo root after downloading the ppc .rds files from S3:
 #'   source("R/eval/ppc.R")
+#' Non-interactive, tolerating missing ppc fits:
+#'   Rscript -e "ALLOW_PARTIAL_PPC <- TRUE; source('R/eval/ppc.R')"
 #' =============================================================================
 
 library(EMC2)

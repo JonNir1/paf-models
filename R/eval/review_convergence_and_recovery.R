@@ -13,7 +13,7 @@
 #'   source("R/eval/convergence.R")   # writes convergence.{rds,csv}
 #'   source("R/eval/recovery.R")      # writes parameter_recovery/*.csv
 #'
-#' Run from the repo root:  source("R/eval/review_convergence_recovery.R")
+#' Run from the repo root:  source("R/eval/review_convergence_and_recovery.R")
 #' =============================================================================
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
@@ -79,4 +79,4 @@ print(review)
 
 save_ggplot_png(plot_convergence_summary(conv_table),
                 file.path(EVAL_DIR, "convergence_summary.png"))
-message("\n===== review_convergence_recovery.R complete =====")
+message("\n===== review_convergence_and_recovery.R complete =====")
