@@ -6,7 +6,7 @@
 #' Writes outputs/evaluation/convergence.{rds,csv}.
 #'
 #' Goodness-of-fit / model comparison (DIC, BPIC, ...) is NOT here -- see
-#' R/eval/model_comparison.R (step-3 scaffolding).
+#' R/eval/goodness_of_fit.R.
 #'
 #' Run from the repo root:  source("R/eval/convergence.R")
 #' =============================================================================

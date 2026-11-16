@@ -2,7 +2,7 @@
 #' Evaluation I/O Helpers
 #' =========================
 #' Small cross-cutting helpers shared by the evaluation drivers
-#' (`R/eval/convergence.R`, `R/eval/model_comparison.R`, ...):
+#' (`R/eval/convergence.R`, `R/eval/goodness_of_fit.R`, ...):
 #'   - latest_dated_file(): newest `YYMMDD_*` file matching a regex in a dir
 #'   - model_rds_pattern(): exact-name regex for a model's fit files
 #'   - model_name_from_rds(): bare model name from a fit file name

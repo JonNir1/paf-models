@@ -4,7 +4,7 @@
 #' Sourced by every script under R/eval/. Pulls in the project-level R/config.R
 #' first for RNG, paths, and data filters.
 #'
-#' Currently minimal -- placeholder for step 3 (LOO/WAIC/BPIC) thresholds.
+#' Holds the PPC (step 4) and LOO/WAIC (step 3) settings and thresholds.
 #' =============================================================================
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
@@ -69,7 +69,7 @@ STRUCTURAL_UNIDENTIFIABLE_PATTERN <-
 # --- Step 4: PPC config ---
 PPC_EVAL_DIR <- file.path(EVAL_DIR, "ppc")
 PPC_N_DRAWS  <- 500L    # posterior predictive draws per model
-PPC_AD_ALPHA <- 0.05    # FDR-adjusted significance threshold for Anderson-Darling test
+PPC_KS_ALPHA <- 0.05    # FDR-adjusted significance threshold for the per-subject KS test
 PPC_MODELS_DIR <- file.path(MODELS_DIR, "fit_ppc")  # where fit_ppc_cloud.R writes .rds files
 
 

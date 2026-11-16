@@ -2,9 +2,9 @@
 #' Posterior Predictive Check Analysis (step 4) -- driver
 #'
 #' Loads the posterior predictive simulation outputs produced by fit_ppc_cloud.R
-#' (4 models, each with T=PPC_N_DRAWS simulated datasets) and produces:
+#' (each active model with T=PPC_N_DRAWS simulated datasets) and produces:
 #'
-#'   A. Distribution fit      -- per-subject KS + Anderson-Darling + BH FDR
+#'   A. Distribution fit      -- per-subject KS + BH FDR
 #'   B. Choice proportions    -- T / D / E fractions: predicted vs observed
 #'      by cue_size and search_difficulty
 #'   C. Marginal QPF          -- 10/25/50/75/90th-percentile RT by condition:
@@ -138,7 +138,7 @@ if (!is.null(qpf_resp_df)) {
 
 message("Saved PPC tables to ", PPC_EVAL_DIR)
 
-# Per-model AD FDR summary
+# Per-model KS FDR summary
 fdr_summary <- aggregate(fdr_pass ~ model, dist_df,
                          FUN = function(x) mean(x, na.rm = TRUE))
 names(fdr_summary)[2] <- "frac_fdr_pass"

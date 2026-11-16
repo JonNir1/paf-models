@@ -13,7 +13,7 @@
 #' on $mu and $alpha; $sigma2/$correlation are descriptive.
 #'
 #' Goodness-of-fit / model comparison (DIC, BPIC, ...) lives separately in
-#' R/eval/model_comparison.R (step-3 scaffolding), NOT here.
+#' R/eval/goodness_of_fit.R and helpers/gof.R, NOT here.
 #'
 #' Source chain: convergence.R -> utils.R, emc2_api.R.
 #' Convergence thresholds (MAX_RHAT_MU, ...) come from R/config.R via the caller.

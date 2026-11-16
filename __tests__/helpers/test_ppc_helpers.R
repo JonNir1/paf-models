@@ -9,7 +9,7 @@ library(testthat)
 library(dplyr)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
-# eval_config.R is needed for PPC_AD_ALPHA; source directly to avoid EMC2 load
+# eval_config.R is needed for PPC_KS_ALPHA; source directly to avoid EMC2 load
 source(file.path(ROOT, "R", "eval", "eval_config.R"))
 source(file.path(ROOT, "R", "eval", "helpers", "ppc.R"))
 
@@ -78,7 +78,7 @@ test_that("compute_dist_stats: one row per subject, BH-adjusted within model", {
   expect_true(all(out$model == "model1"))
   expect_true(all(out$ks_d >= 0))
   expect_equal(out$ks_p_fdr, p.adjust(out$ks_p, method = "BH"))
-  expect_equal(out$fdr_pass, out$ks_p_fdr >= PPC_AD_ALPHA)
+  expect_equal(out$fdr_pass, out$ks_p_fdr >= PPC_KS_ALPHA)
 })
 
 test_that("compute_dist_stats: a subject with < 2 observations gets NA stats and fails", {
