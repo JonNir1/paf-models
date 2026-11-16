@@ -101,8 +101,7 @@ run_ppc_simulation <- function(extended_model, template_data,
       }
     )
     if (isFALSE(sim_i)) {
-      n_failed <- n_failed + 1L
-      sim_list[[i]] <- NULL
+      n_failed <- n_failed + 1L   # slot i stays NULL: draw i always sits at index i
     } else {
       sim_list[[i]] <- sim_i
     }
