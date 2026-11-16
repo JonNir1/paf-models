@@ -34,8 +34,17 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 # Returns character vector: "T" = target, "D" = difficult distractor, "E" = easy.
 .response_type <- function(data) {
   clean_S <- gsub(",", "", as.character(data$S))
-  loc_idx <- as.integer(data$R)
+  loc_idx <- as.integer(as.character(data$R))   # label, not factor code
   substr(clean_S, loc_idx, loc_idx)
+}
+
+# Rows of `df` in the condition cell `cond` (one row of experiment x cue_size x
+# search_difficulty). Compared on labels, so identical labels match even when the
+# factors' level sets differ (e.g. an unused NONE cue level in the simulations).
+.in_cell <- function(df, cond) {
+  as.character(df$experiment)          == as.character(cond$experiment) &
+    as.character(df$cue_size)          == as.character(cond$cue_size) &
+    as.character(df$search_difficulty) == as.character(cond$search_difficulty)
 }
 
 # Shared model colour map for multi-model plots: assigns palette colours to
@@ -119,17 +128,13 @@ compute_choice_proportions <- function(ppc_list, obs_data, model_name) {
 
   rows <- lapply(seq_len(nrow(conditions)), function(r) {
     cond <- conditions[r, , drop = FALSE]
-    obs_sel <- obs_data$experiment        == cond$experiment &
-               obs_data$cue_size          == cond$cue_size &
-               obs_data$search_difficulty == cond$search_difficulty
+    obs_sel <- .in_cell(obs_data, cond)
 
     lapply(resp_types, function(rt) {
       obs_prop <- mean(obs_data$response_type[obs_sel] == rt)
 
       draw_vals <- vapply(ppc_list, function(d) {
-        sim_sel <- d$experiment        == cond$experiment &
-                   d$cue_size          == cond$cue_size &
-                   d$search_difficulty == cond$search_difficulty
+        sim_sel <- .in_cell(d, cond)
         if (sum(sim_sel) == 0L) return(NA_real_)
         d$response_type <- .response_type(d)
         mean(d$response_type[sim_sel] == rt)
@@ -199,9 +204,7 @@ compute_qpf_table <- function(ppc_list, obs_data, model_name,
 
   rows <- lapply(seq_len(nrow(conditions)), function(r) {
     cond     <- conditions[r, , drop = FALSE]
-    cond_sel <- obs_data$experiment        == cond$experiment &
-                obs_data$cue_size          == cond$cue_size &
-                obs_data$search_difficulty == cond$search_difficulty
+    cond_sel <- .in_cell(obs_data, cond)
 
     rt_results <- lapply(rt_loop, function(rt) {
       obs_sel <- if (is.null(rt)) cond_sel else cond_sel & obs_data$response_type == rt
@@ -214,9 +217,7 @@ compute_qpf_table <- function(ppc_list, obs_data, model_name,
         obs_q <- quantile(obs_data$rt[obs_sel], p)
 
         draw_vals <- vapply(ppc_list, function(d) {
-          sim_sel <- d$experiment        == cond$experiment &
-                     d$cue_size          == cond$cue_size &
-                     d$search_difficulty == cond$search_difficulty
+          sim_sel <- .in_cell(d, cond)
           if (!is.null(rt)) sim_sel <- sim_sel & d$response_type == rt
           if (sum(sim_sel) < 2L) return(NA_real_)
           quantile(d$rt[sim_sel], p)
