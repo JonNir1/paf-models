@@ -145,9 +145,20 @@ test_that("log_lik_per_trial sums to EMC2's subject log-likelihood; the LL matri
 
 test_that("create_goodness_of_fit_table: conditional and joint ICs are both reported and internally consistent", {
   ic_cols <- c("EffectiveN", "DIC", "wDIC", "BPIC", "wBPIC", "mean_LL", "meanD", "Dmean", "minD")
-  tbl <- create_goodness_of_fit_table(list(first = FITTED, second = FITTED))
+  # Two different fits (same data and model, other draws); "first" also carries stale
+  # cached ICs that compare() would reuse for any type unless they are stripped.
+  stale <- FITTED
+  attr(stale, "ICs") <- c(DIC = 1, BPIC = 1, EffectiveN = 1, meanD = 1, Dmean = 1, minD = 1)
+  tbl <- create_goodness_of_fit_table(list(first = stale, second = LEGACY))
 
   expect_equal(tbl$model, c("first", "second"))
+  for (i in 1:2) {   # a swapped or misaligned row would differ from the single-model computation
+    single <- create_goodness_of_fit_table(setNames(list(list(FITTED, LEGACY)[[i]]), c("first", "second")[i]))
+    shared <- setdiff(names(tbl), c("model", "wDIC_conditional", "wBPIC_conditional",
+                                    "wDIC_joint", "wBPIC_joint"))
+    expect_equal(unlist(tbl[i, shared]), unlist(single[1, shared]), label = tbl$model[i])
+  }
+  expect_false(isTRUE(all.equal(tbl$DIC_conditional[1], tbl$DIC_conditional[2])))
   expect_equal(tbl$num_params, rep(length(PARS), 2L))
   expect_true(all(c(paste0(ic_cols, "_conditional"), paste0(ic_cols, "_joint")) %in% names(tbl)))
   for (type in c("conditional", "joint")) {
@@ -168,12 +179,17 @@ test_that("create_loo_table: balanced chains, r_eff passed to loo, finite summar
   loo_dir <- withr::local_tempdir()
   local_mocks(LOO_DIR = loo_dir)
   tbl <- suppressWarnings(quietly(suppressMessages(
-    create_loo_table(list(first = FITTED, second = FITTED), max_samples = 41L))))   # odd: floor(41 / 2) per chain
+    create_loo_table(list(first = FITTED, second = LEGACY), max_samples = 41L))))   # odd: floor(41 / 2) per chain
+  for (i in 1:2) {   # each row equals the single-model computation, so a swap would fail
+    single <- suppressWarnings(quietly(suppressMessages(
+      create_loo_table(setNames(list(list(FITTED, LEGACY)[[i]]), c("first", "second")[i]), max_samples = 41L))))
+    expect_equal(tbl$elpd_loo[i], single$elpd_loo, label = tbl$model[i])
+  }
+  expect_false(isTRUE(all.equal(tbl$elpd_loo[1], tbl$elpd_loo[2])))
 
   expect_equal(tbl$model, c("first", "second"))
   expect_true(all(is.finite(unlist(tbl[setdiff(names(tbl), c("model", "k_flag"))]))))
   expect_type(tbl$k_flag, "logical")
-  expect_equal(tbl$elpd_loo, rep(tbl$elpd_loo[1], 2L))                  # identical fits => identical results
   expect_lt(abs(tbl$elpd_loo[1] - tbl$elpd_waic[1]), tbl$se_elpd_loo[1])   # WAIC and LOO agree loosely
 
   ll <- extract_log_lik_matrix(FITTED, max_samples = 41L)
