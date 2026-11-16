@@ -31,8 +31,10 @@ source_root("R/helpers/data.R")          # load_data
 
 if (!dir.exists(PPC_EVAL_DIR)) dir.create(PPC_EVAL_DIR, recursive = TRUE)
 
-# Active set = every fitted model; the loop below skips any without a PPC .rds.
+# Active set = every fitted model. A model without a PPC .rds is an error unless
+# ALLOW_PARTIAL_PPC <- TRUE is set before sourcing (then it is skipped).
 MODEL_NAMES <- discover_model_names()
+if (!exists("ALLOW_PARTIAL_PPC")) ALLOW_PARTIAL_PPC <- FALSE
 
 
 # =============================================================================
@@ -64,6 +66,7 @@ message("Running PPC evaluation...")
 
 # A failing metric is recorded here and reported after every metric has run.
 metric_failures <- character(0)
+missing_ppc     <- character(0)
 .try_metric <- function(model_name, metric, expr) {
   tryCatch(expr, error = function(e) {
     message(sprintf("    %s ERROR: %s", metric, conditionMessage(e)))
@@ -83,6 +86,7 @@ for (mn in MODEL_NAMES) {
   rds_path <- .latest_ppc(mn)
   if (is.na(rds_path)) {
     message(sprintf("  MISSING: no ppc .rds found for %s in %s", mn, PPC_MODELS_DIR))
+    missing_ppc <- c(missing_ppc, mn)
     next
   }
   message(sprintf("  Loading PPC sims for %s: %s", mn, basename(rds_path)))
@@ -101,9 +105,14 @@ for (mn in MODEL_NAMES) {
 }
 
 if (length(metric_failures) > 0L) {
-  stop(sprintf("PPC metric failure(s):
+  stop(sprintf("PPC metric failure(s), as <model> / <metric>: <message>:
   %s", paste(metric_failures, collapse = "
   ")))
+}
+
+if (length(missing_ppc) > 0L && !ALLOW_PARTIAL_PPC) {
+  stop(sprintf("No ppc .rds in %s for: %s; set ALLOW_PARTIAL_PPC <- TRUE to proceed without them.",
+               PPC_MODELS_DIR, paste(missing_ppc, collapse = ", ")))
 }
 
 dist_rows     <- Filter(Negate(is.null), dist_rows)

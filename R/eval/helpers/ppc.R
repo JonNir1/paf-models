@@ -77,9 +77,10 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 #'   ks_p_fdr, fdr_pass.
 compute_dist_stats <- function(ppc_list, obs_data, model_name) {
   subjects <- unique(obs_data$subjects)
+  # Subjects are matched on labels, so factor vs numeric or differing level sets agree.
   rows <- lapply(subjects, function(subj) {
-    obs_rt  <- obs_data$rt[obs_data$subjects == subj]
-    pred_rt <- unlist(lapply(ppc_list, function(d) d$rt[d$subjects == subj]))
+    obs_rt  <- obs_data$rt[as.character(obs_data$subjects) == as.character(subj)]
+    pred_rt <- unlist(lapply(ppc_list, function(d) d$rt[as.character(d$subjects) == as.character(subj)]))
     if (length(obs_rt) < 2L || length(pred_rt) < 2L) {
       return(data.frame(model = model_name, subject = subj,
                         ks_d = NA_real_, ks_p = NA_real_,

@@ -257,6 +257,10 @@ recovery_emc2_rows <- function(fit, true_alpha, model_name, sim) {
   }))
   points <- do.call(rbind, lapply(pars, function(p) {
     q <- rec[[p]]$quantiles
+    if (!identical(rownames(q), rownames(est_mat))) {
+      stop("recovery_emc2_rows: EMC2::recovery() rows for '", p,
+           "' are not in the fit's subject order (", paste(rownames(q), collapse = ", "), ").")
+    }
     data.frame(model = model_name, sim = sim, parameter = p,
                subject = rownames(est_mat),
                inside = q[, 1] < q[, "true"] & q[, "true"] < q[, 3],

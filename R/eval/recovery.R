@@ -63,12 +63,16 @@ load_recovery_pair <- function(model_name, sim_index, dir = MODELS_RECOVERY_DIR)
 
 message("Loading recovery fits...")
 pairs   <- list()
-missing <- character(0)
+problems <- character(0)
 for (mn in MODEL_NAMES) for (si in seq_len(N_SIMS)) {
   key <- sprintf("%s_sim%d", mn, si)
   pairs[[key]] <- tryCatch(load_recovery_pair(mn, si), error = function(e) {
+    # An ambiguous latest file is a data problem, never a skippable missing pair.
+    if (grepl("^Ambiguous latest file", conditionMessage(e))) {
+      stop(sprintf("%s: %s", key, conditionMessage(e)), call. = FALSE)
+    }
     message("  MISSING: ", conditionMessage(e))
-    missing <<- c(missing, sprintf("%s: %s", key, conditionMessage(e)))
+    problems <<- c(problems, sprintf("%s: %s", key, conditionMessage(e)))
     NULL
   })
 }
@@ -82,7 +86,7 @@ for (mn in MODEL_NAMES) {
   ext <- latest_dated_file(MODELS_FIT_DIR, sprintf("^[0-9]{6}_%s\\.rds$", mn))
   if (is.na(ext)) {
     message(sprintf("  no fit for %s; skipping", mn))
-    missing <- c(missing, sprintf("%s: no source fit in %s", mn, MODELS_FIT_DIR))
+    problems <- c(problems, sprintf("%s: no source fit in %s", mn, MODELS_FIT_DIR))
     next
   }
   em <- readRDS(ext)
@@ -90,10 +94,10 @@ for (mn in MODEL_NAMES) {
   prior_sds_by_model[[mn]] <- get_prior_sds(em)
 }
 
-if (length(missing) > 0L && !ALLOW_PARTIAL_RECOVERY) {
+if (length(problems) > 0L && !ALLOW_PARTIAL_RECOVERY) {
   stop(sprintf("Incomplete recovery set (%d problem(s)); set ALLOW_PARTIAL_RECOVERY <- TRUE to proceed:
   %s",
-               length(missing), paste(missing, collapse = "
+               length(problems), paste(problems, collapse = "
   ")))
 }
 

@@ -208,6 +208,11 @@ test_that("choice proportions and QPF tables depend on labels only, not factor l
     got      <- compute_choice_proportions(lapply(sims, encode_sim), encode_obs(obs), "m")
     expect_equal(plain(got), plain(expected), ignore_attr = TRUE)
   }
+  # Subjects too: the observed ones as an ordered-level factor, the draws numeric or a reduced-level factor.
+  obs_f <- transform(obs, subjects = factor(subjects, levels = 3:0))
+  expect_equal(compute_dist_stats(ppc, obs_f, "m")[, -2], compute_dist_stats(ppc, obs, "m")[, -2])
+  expect_equal(compute_dist_stats(lapply(ppc, function(d) transform(d, subjects = factor(subjects))), obs, "m"),
+               compute_dist_stats(ppc, obs, "m"))
   expect_equal(.response_type(encode_sim(ppc[[1]])), .response_type(ppc[[1]]))
   expect_equal(.response_type(encode_obs(obs)), .response_type(obs))
 })
