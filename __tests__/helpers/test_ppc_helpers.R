@@ -165,3 +165,49 @@ test_that("compute_qpf_table(by_response = TRUE): skips cells below min_n", {
   expect_gt(nrow(out), 0L)
   expect_true(all(out$response_type == "T"))
 })
+
+
+# =============================================================================
+# Label-based matching: factor level sets / codes must not change the result
+# =============================================================================
+
+test_that("choice proportions and QPF tables depend on labels only, not factor level sets, order or codes", {
+  set.seed(31L)
+  obs <- .mk_obs_mixed(n_subj = 3L, n_per_type = 20L)
+  obs$cue_size          <- rep(c("NONE", "SMALL"), length.out = nrow(obs))
+  obs$search_difficulty <- rep(c("EASY", "MIXED"), each = 2L, length.out = nrow(obs))
+  ppc <- .mk_ppc(obs, T = 6L)
+  ppc_no_e <- lapply(ppc, function(d) { d$R[d$R == 3L] <- 2L; d })   # draws that never saccade to an E
+
+  # Same labels, different encodings: observed carries the full ordered level sets, the draws
+  # carry reversed / reduced / unordered ones, so integer codes and level sets disagree.
+  encode_obs <- function(d) {
+    d$cue_size          <- factor(d$cue_size, levels = c("NONE", "SMALL", "MEDIUM", "LARGE"), ordered = TRUE)
+    d$search_difficulty <- factor(d$search_difficulty, levels = c("EASY", "MIXED", "DIFFICULT"), ordered = TRUE)
+    d$R                 <- factor(d$R, levels = as.character(1:4))
+    d$experiment        <- factor(d$experiment, levels = c("exp_1", "exp_2"))
+    d
+  }
+  encode_sim <- function(d) {
+    d$cue_size          <- factor(d$cue_size, levels = c("SMALL", "NONE"))
+    d$search_difficulty <- factor(d$search_difficulty, levels = c("MIXED", "EASY"))
+    d$R                 <- factor(d$R, levels = rev(sort(unique(as.character(d$R)))))
+    d$experiment        <- factor(d$experiment)
+    d
+  }
+  plain <- function(df) { df[] <- lapply(df, function(x) if (is.factor(x)) as.character(x) else x); df }
+
+  for (sims in list(ppc, ppc_no_e)) {
+    for (by_response in c(FALSE, TRUE)) {
+      expected <- compute_qpf_table(sims, obs, "m", by_response = by_response)
+      got <- compute_qpf_table(lapply(sims, encode_sim), encode_obs(obs), "m", by_response = by_response)
+      expect_gt(nrow(expected), 0L)
+      expect_equal(plain(got), plain(expected), ignore_attr = TRUE)
+    }
+    expected <- compute_choice_proportions(sims, obs, "m")
+    got      <- compute_choice_proportions(lapply(sims, encode_sim), encode_obs(obs), "m")
+    expect_equal(plain(got), plain(expected), ignore_attr = TRUE)
+  }
+  expect_equal(.response_type(encode_sim(ppc[[1]])), .response_type(ppc[[1]]))
+  expect_equal(.response_type(encode_obs(obs)), .response_type(obs))
+})

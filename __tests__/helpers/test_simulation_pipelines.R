@@ -156,6 +156,29 @@ test_that("run_ppc_simulation drops failed draws and checkpoints every save_ever
   expect_match(basename(paths[[1L]]), "^[0-9]{6}_m_ppc_x\\.rds$")
   expect_identical(readRDS(paths[[1L]]), out)
   expect_equal(sampler$calls()[[1L]]$seed, 7L)
+
+  # Failures at the first/middle/last draw and back to back: draw i keeps slot i, every checkpoint
+  # holds exactly the successful draws among 1..i, and the log counts the failures.
+  n_draws <- 7L
+  patterns <- list(first = 1L, middle = 4L, last = 7L, consecutive = 3:4, ends = c(1L, 7L), nearly_all = 1:6)
+  for (nm in names(patterns)) {
+    fail      <- patterns[[nm]]
+    dir       <- withr::local_tempdir()
+    ids       <- function(draws) vapply(draws, function(d) d$draw, numeric(1))
+    snapshots <- list()
+    local_ppc_mocks(fail = fail)
+    out <- run_ppc(dir, n_draws = n_draws, save_every = 3L,
+                   post_save_hook = function(path, log) snapshots[[length(snapshots) + 1L]] <<- ids(readRDS(path)))
+
+    expect_equal(ids(out), setdiff(1:n_draws, fail), info = nm)
+    expect_length(snapshots, 3L)                     # after draws 3, 6 and the final 7
+    for (k in seq_along(snapshots)) {
+      upto <- c(3L, 6L, 7L)[[k]]
+      expect_equal(snapshots[[k]], setdiff(seq_len(upto), fail), info = sprintf("%s, checkpoint at draw %d", nm, upto))
+    }
+    expect_match(paste(readLines(file.path(dir, "ppc.log")), collapse = "\n"),
+                 sprintf("7 / 7 draws complete \\(%d failed\\)", length(fail)), info = nm)
+  }
 })
 
 test_that("run_ppc_simulation with save_every = 0 saves once at the end", {
