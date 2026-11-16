@@ -243,3 +243,16 @@ test_that("recovery_emc2_rows: order-invariant in true_alpha, coverage and RMSE 
   }
   expect_true(any(rows$points$inside) && !all(rows$points$inside))   # the check is not vacuous
 })
+
+
+test_that("the fixture's declared unidentifiability pattern is consistent with its real EMC2 parameter names", {
+  fixtures <- file.path(ROOT, "__tests__", "fixtures")
+  declared <- model_unidentifiable_pattern("test_model", fixtures)
+  expect_true(all(flag_identifiable(PARS, rep("test_model", length(PARS)), c(test_model = declared))))
+
+  # anchoring: the v_ pattern must not also catch the sv_ parameters of the same factor
+  anchored <- flag_identifiable(PARS, rep("m", length(PARS)), c(m = "^v_StimulusAtLoc[DE]$"))
+  expect_equal(PARS[!anchored], c("v_StimulusAtLocD", "v_StimulusAtLocE"))
+  expect_error(flag_identifiable(PARS, rep("m", length(PARS)), c(m = "^v_StimulusAtLoc[DE]:SearchDifficulty")),
+               "matches none")   # a pattern for a block this model does not have is stale
+})

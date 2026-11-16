@@ -228,6 +228,14 @@ test_that("flag_identifiable applies each model's own pattern; NA = all identifi
                            c(m1 = PAT, m2 = "^B$"))
   expect_equal(two, c(TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE))
 
+  # interleaved rows with shared names: each row follows its own model only, order kept
+  mix_par <- c("B", "v", "B", "v")
+  mix_mod <- c("m2", "m1", "m1", "m2")
+  expect_equal(flag_identifiable(mix_par, mix_mod, c(m1 = "^v$", m2 = NA_character_)),
+               c(TRUE, FALSE, TRUE, TRUE))
+  expect_equal(flag_identifiable(mix_par, mix_mod, c(m1 = NA_character_, m2 = "^B$")),
+               c(FALSE, TRUE, TRUE, TRUE))
+
   expect_error(flag_identifiable(pars, one, c(m1 = "^nope$")), "m1.*matches none")
   expect_error(flag_identifiable(pars, one, c(other = PAT)), "No unidentifiability pattern for model 'm1'")
 })
@@ -250,6 +258,14 @@ test_that("recovery_model_summary computes full and core means, per-model patter
   ss2 <- rbind(ss, transform(ss, model = "model_na"))
   out2 <- recovery_model_summary(ss2, c(model4 = PAT, model_na = NA_character_))
   expect_equal(out2$n_core[match(c("model4", "model_na"), out2$model)], c(1, 3))   # model4 flagged, model_na untouched
+  na_row <- out2[out2$model == "model_na", ]
+  expect_equal(na_row$rmse_core, na_row$rmse_all)   # NA pattern: core == full exactly
+  expect_equal(na_row$r_core, na_row$r_all)
+
+  # changing model_na's pattern leaves model4's stats untouched, and vice versa
+  out3 <- recovery_model_summary(ss2, c(model4 = PAT, model_na = "^v$"))
+  expect_equal(out3[out3$model == "model4", ], out2[out2$model == "model4", ])
+  expect_equal(out3$rmse_core[out3$model == "model_na"], mean(c(0.9, 8.0)))   # hand computation on the 2 rows left
 })
 
 test_that("model_unidentifiable_pattern reads the script's declaration in isolation and rejects bad ones", {
@@ -273,4 +289,28 @@ test_that("model_unidentifiable_pattern reads the script's declaration in isolat
   expect_error(model_unidentifiable_pattern("num", dir),    "single character string")
   expect_error(model_unidentifiable_pattern("vec", dir),    "single character string")
   expect_error(model_unidentifiable_pattern("badre", dir),  "not a valid regex")
+})
+
+test_that("every model script defining build_model declares a valid STRUCTURAL_UNIDENTIFIABLE_PATTERN", {
+  undeclared <- function(dirs) {
+    scripts <- unlist(lapply(dirs, list.files, pattern = "[.]R$", full.names = TRUE))
+    defines <- Filter(function(f) any(grepl("^build_model[[:space:]]*<-[[:space:]]*function", readLines(f, warn = FALSE))), scripts)
+    problems <- vapply(defines, function(f) {
+      tryCatch({ model_unidentifiable_pattern(tools::file_path_sans_ext(basename(f)), dirname(f)); "" },
+               error = conditionMessage)
+    }, character(1))
+    problems[nzchar(problems)]
+  }
+  expect_length(undeclared(c(file.path(ROOT, "R", "fit"), file.path(ROOT, "__tests__", "fixtures"))), 0L)
+
+  # the scan really fails for a model script that forgot the declaration
+  dir <- withr::local_tempdir()
+  writeLines("MODEL_NAME <- 'forgot'
+build_model <- function(data, n_chains) NULL", file.path(dir, "forgot.R"))
+  writeLines("STRUCTURAL_UNIDENTIFIABLE_PATTERN <- NA_character_
+build_model <- function(data, n_chains) NULL",
+             file.path(dir, "fine.R"))
+  found <- undeclared(dir)
+  expect_named(found, file.path(dir, "forgot.R"))
+  expect_match(found[[1]], "does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN")
 })
