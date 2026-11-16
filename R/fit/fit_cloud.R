@@ -93,6 +93,7 @@ out_name  <- paste0(model_name, suffix)
 save_path <- file.path(MODELS_FIT_DIR, sprintf("%s_%s.rds", run_date, out_name))
 log_file  <- model_log_path(out_name, MODELS_FIT_DIR)
 
+dir.create(dirname(log_file), recursive = TRUE, showWarnings = FALSE)
 cat("", file = log_file, append = FALSE)
 log_msg(sprintf("===== FIT: %s (%s) =====", out_name,
                 if (!is.null(model_script)) "fresh" else "resume"),
