@@ -3,7 +3,7 @@
 #'   - R/eval/helpers/io.R : latest_dated_file, model_name_from_rds, load_model,
 #'                           save_eval_table, newer_than_inputs
 #'   - R/eval/eval_config.R: discover_model_names, model_colors
-#'   - R/utils.R           : parse_int_arg, parse_str_arg
+#'   - R/utils.R           : parse_int_arg, parse_str_arg, find_model_script
 #' =============================================================================
 
 library(testthat)
@@ -144,4 +144,27 @@ test_that("parse_int_arg / parse_str_arg: value after the flag, else NULL; malfo
   expect_null(parse_str_arg(args, "--trailing"))
   expect_warning(bad <- parse_int_arg(args, "--bad"), "NAs introduced")
   expect_identical(bad, NA_integer_)
+})
+
+test_that("find_model_script: locates by declared MODEL_NAME without executing, skips non-models, errors clearly", {
+  dir <- withr::local_tempdir()
+  put <- function(file, ...) writeLines(c(...), file.path(dir, file))
+  put("odd_file_name.R", "stop('boom')", "MODEL_NAME <- 'alpha'")   # name differs from file; top level would fail if run
+  put("beta.R", "MODEL_NAME = paste0('b', 'eta')")                  # `=` and base-R rhs
+  put("runner.R", "x <- 1")                                         # no MODEL_NAME
+  put("config.R", "MODEL_NAME <- some_global()")                    # rhs not self-contained
+  put("vec.R", "MODEL_NAME <- c('a', 'b')")                         # not a length-1 string
+  put("broken.R", "MODEL_NAME <- 'gamma'", "this is ( not R")
+  expect_equal(find_model_script("alpha", dir), file.path(dir, "odd_file_name.R"))
+  expect_equal(find_model_script("beta", dir), file.path(dir, "beta.R"))
+
+  err <- expect_error(find_model_script("nope", dir), "No model script.*'nope'")
+  expect_match(conditionMessage(err), "Model names found: alpha, beta[.]")
+  expect_match(conditionMessage(err), "cannot be parsed.*broken[.]R")   # a broken script is never a bare "not found"
+
+  put("alpha_copy.R", "MODEL_NAME <- 'alpha'")
+  expect_error(find_model_script("alpha", dir), "more than one script.*alpha_copy[.]R, odd_file_name[.]R")
+  put("twice.R", "MODEL_NAME <- 'twice'", "MODEL_NAME <- 'twice'")
+  expect_error(find_model_script("beta", dir), "twice[.]R.*more than once")
+  expect_error(find_model_script("alpha", file.path(dir, "absent")), "directory not found")
 })
