@@ -188,6 +188,23 @@ test_that(".sample_iters counts only chain 1's sample stage, ignoring preburn/bu
   expect_equal(.sample_iters(m), 3L)
 })
 
+test_that(".validate_resume_model refuses malformed or unsampled objects and accepts a sampled fit", {
+  chain  <- function(stage) list(samples = list(stage = stage))
+  sampled <- list(chain(c("burn", rep("sample", 5))), chain(c("burn", rep("sample", 5))))
+  expect_identical(.validate_resume_model(sampled, "fit.rds"), sampled)
+
+  # Each of these would count as 0 sample iters, i.e. read as "fresh" and be re-warmed over the file.
+  refused <- list(
+    null_value = NULL, empty_list = list(), a_string = "fit.rds", not_a_chain = list(1, 2),
+    data_frame = data.frame(a = 1), no_samples_slot = list(list(some_other_field = TRUE)),
+    unfitted_burn_only = list(chain(c("preburn", "burn", "adapt")))
+  )
+  for (nm in names(refused)) {
+    expect_error(.validate_resume_model(refused[[nm]], "fit.rds"), "Cannot resume: fit.rds", info = nm)
+  }
+  expect_error(.validate_resume_model(refused$unfitted_burn_only, "fit.rds"), "no sample-stage iterations")
+})
+
 test_that("model_log_path derives <dir>/log_fit_<basename>.txt, stripping .rds", {
   cases <- list(
     c("mymodel",                      "outputs/models/fit", "log_fit_mymodel.txt"),
