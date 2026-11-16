@@ -48,11 +48,19 @@ get_core_args <- function(n_chains) {
 
 
 # -------------------------
-#' Record the installed EMC2 version on a fitted model (attribute "emc2_version").
+#' Record the installed EMC2 version on a fitted model.
+#'
+#' "emc2_version" holds the current version; "emc2_version_history" the ordered
+#' unique versions the object was saved under (a pre-existing "emc2_version"
+#' without a history seeds it), so a fit resumed under another version keeps both.
 #' @param model An EMC2 object.
-#' @return `model` with the attribute set.
+#' @return `model` with both attributes set.
 stamp_emc2_version <- function(model) {
-  attr(model, "emc2_version") <- emc_version()
+  current <- emc_version()
+  history <- attr(model, "emc2_version_history")
+  if (is.null(history)) history <- attr(model, "emc2_version")
+  attr(model, "emc2_version_history") <- unique(c(as.character(history), current))
+  attr(model, "emc2_version")         <- current
   model
 }
 
