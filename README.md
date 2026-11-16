@@ -11,7 +11,7 @@ A previous analysis (the `model1`–`model5` LBA family, evaluated through step 
 **R** (`EMC2`, `dplyr`, `readr`, `tools`, `testthat`)
 
 ```r
-install.packages(c("EMC2", "dplyr", "readr", "tools", "testthat"))
+install.packages(c("EMC2", "dplyr", "readr", "tools", "testthat", "loo"))
 ```
 
 **Data**: `data/` is gitignored. A fresh clone has no data. You need to supply:
