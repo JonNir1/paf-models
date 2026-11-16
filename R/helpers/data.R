@@ -55,7 +55,12 @@ filter_data <- function(data,
     data_filtered <- data_filtered %>% filter(is_target_repeated == FALSE)
   }
 
-  data_filtered <- data_filtered %>% select(where(~ n_distinct(.) > 1))
+  varying_cols  <- data_filtered %>% select(where(~ n_distinct(.) > 1))
+  dropped_cols  <- setdiff(names(data_filtered), names(varying_cols))
+  if (length(dropped_cols) > 0L)
+    log_msg(sprintf("filter_data dropped constant columns: %s",
+                    paste(dropped_cols, collapse = ", ")), NULL)
+  data_filtered <- varying_cols
 
   # Drop factor levels left empty by row filtering. Critical for EMC2: design()
   # harvests factor levels from each data column's levels() attribute (not from
