@@ -103,7 +103,7 @@ Define a model as a thin script that returns an EMC2 object from `build_lba_mode
 factory in `R/fit/helpers/build_model.R`). It only needs to supply what differs between variants -
 the `v` and `B` formulas plus any model-specific prior entries - and define `MODEL_NAME` and a
 `build_model(data, n_chains)` function, plus `STRUCTURAL_UNIDENTIFIABLE_PATTERN` (a regex for
-parameters the design cannot identify, or `NA_character_` if none; read by the recovery eval without executing the script, so it must be a top-level assignment with a self-contained right-hand side, and `MODEL_NAME` must equal the file name). `__tests__/fixtures/test_model.R` is a minimal working
+parameters the design cannot identify, or `NA_character_` if none; read by the recovery eval without executing the script, so it must be a top-level assignment with a self-contained right-hand side, and the script is found by its declared `MODEL_NAME`, so the file may have any name but names must be unique within `R/fit/`). `__tests__/fixtures/test_model.R` is a minimal working
 template; the retired `model1`–`model5` definitions on the `analysis1` branch are fuller examples.
 
 ---
