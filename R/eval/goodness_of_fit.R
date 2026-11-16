@@ -85,9 +85,9 @@ if (eval_cache_fresh(loo_cache, MODEL_PATHS, loo_key)) {
   ))
 
   LOO_TABLE <- create_loo_table(MODEL_LIST, cores = LOO_CORES)
-  save_eval_table(LOO_TABLE, "loo_table", dir = LOO_DIR, cache_key = loo_key)
+  save_eval_table(LOO_TABLE, "loo_table", dir = LOO_DIR)
 
-  loo_objs        <- lapply(MODEL_NAMES, function(nm)
+  loo_objs       <- lapply(MODEL_NAMES, function(nm)
     readRDS(file.path(LOO_DIR, paste0(nm, "_loo.rds"))))
   names(loo_objs) <- MODEL_NAMES
 
@@ -108,6 +108,9 @@ if (eval_cache_fresh(loo_cache, MODEL_PATHS, loo_key)) {
   if (length(loo_objs) >= 2L)
     save_ggplot_png(plot_loo_comparison(LOO_COMPARISON),
                     file.path(LOO_DIR, "loo_comparison.png"), width = 7, height = 5)
+
+  # Keyed last: a failed comparison must not leave a cache that looks current.
+  save_eval_table(LOO_TABLE, "loo_table", dir = LOO_DIR, cache_key = loo_key)
 }
 
 print(LOO_TABLE)
