@@ -31,6 +31,35 @@ test_that("save_model: writes <date>_<name>.rds that round-trips, with today or 
   expect_equal(basename(save_model(obj, "m", dir, date_prefix = "991231")), "991231_m.rds")
 })
 
+test_that("stamp_emc2_version / save_model: history accumulates across EMC2 versions, seeded from a legacy attribute", {
+  version <- "3.4.1"
+  local_mocks(emc_version = function() version)
+
+  m <- stamp_emc2_version(list(chain = 1))
+  expect_identical(attr(m, "emc2_version"), "3.4.1")
+  expect_identical(attr(m, "emc2_version_history"), "3.4.1")
+
+  expect_identical(attr(stamp_emc2_version(m), "emc2_version_history"), "3.4.1")   # same version: no duplicate
+
+  version <- "3.5.0"
+  m <- stamp_emc2_version(m)
+  expect_identical(attr(m, "emc2_version"), "3.5.0")
+  expect_identical(attr(m, "emc2_version_history"), c("3.4.1", "3.5.0"))
+
+  version <- "3.4.1"                                     # back to the old version: current moves, history keeps order
+  m <- stamp_emc2_version(m)
+  expect_identical(attr(m, "emc2_version"), "3.4.1")
+  expect_identical(attr(m, "emc2_version_history"), c("3.4.1", "3.5.0"))
+
+  legacy <- structure(list(chain = 1), emc2_version = "3.3.0")   # saved before histories existed
+  version <- "3.5.0"
+  path <- save_model(legacy, "legacy", withr::local_tempdir())
+  back <- readRDS(path)
+  expect_identical(attr(back, "emc2_version"), "3.5.0")
+  expect_identical(attr(back, "emc2_version_history"), c("3.3.0", "3.5.0"))
+  expect_identical(back[[1]], 1)
+})
+
 test_that("save_model: empty name or directory throws error", {
   expect_error(save_model(list(), "", tempdir()), "Invalid model name")
   expect_error(save_model(list(), "m", ""), "Invalid directory path")
