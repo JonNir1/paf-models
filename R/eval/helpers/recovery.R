@@ -25,7 +25,7 @@ source_root("R/helpers/emc2_api.R")
 #'
 #' The "standard" EMC2 prior stores the population-mean prior covariance in
 #' `model[[1]]$prior$theta_mu_var`; its diagonal is the per-parameter prior
-#' variance. Verified against EMC2 3.4.1. Replaces the old hardcoded name->SD map.
+#' variance. Verified against EMC2 3.4.1 and 3.5.0. Replaces the old hardcoded name->SD map.
 #'
 #' @param model A fitted EMC2 model (emc object).
 #' @return Named numeric vector of prior SDs.
@@ -123,7 +123,7 @@ recovery_zscore_rows <- function(fit, mu_true, prior_sds, model_name, sim) {
 #'
 #' get_pars(selection="alpha", return_mcmc=TRUE) is PARAMETER-keyed: a list of
 #' length n_pars, each element a [samples x subjects] matrix (subjects = columns).
-#' Verified against EMC2 3.4.1. We take the posterior mean over samples for each
+#' Verified against EMC2 3.4.1 and 3.5.0. We take the posterior mean over samples for each
 #' subject, returning a subjects x parameters matrix.
 #'
 #' @param fit A fitted EMC2 model.

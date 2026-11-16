@@ -143,7 +143,7 @@ test_that(".validate_fit_args reachability is exact at the boundary (existing + 
 
 
 # =============================================================================
-# .block_rhat_ess(): pure check()-shape extraction, on the confirmed 3.4.1
+# .block_rhat_ess(): pure check()-shape extraction, on the confirmed 3.4.1 and 3.5.0
 # shapes (2-row Rhat/ESS matrix; alpha as a per-subject list of them)
 # =============================================================================
 

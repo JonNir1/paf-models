@@ -23,7 +23,7 @@ source_root("R/fit/helpers/fitting.R")
 #' means of the variance and correlation parameters.
 #'
 #' NOTE: EMC2 flattens the correlation matrix upper triangle in row-major order.
-#' This is verified against EMC2 v3.3.0 internals. If the reconstruction fails
+#' This is verified against EMC2 v3.3.0 internals and, on a real fit, 3.4.1 and 3.5.0. If the reconstruction fails
 #' (e.g. Sigma is not positive-definite), fall back to variance_proportion in
 #' make_random_effects() by passing Sigma = NULL.
 #'

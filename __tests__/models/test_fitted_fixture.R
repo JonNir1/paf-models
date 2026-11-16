@@ -42,7 +42,7 @@ test_that("run_ppc_simulation simulates n_draws datasets with the template's tri
 
 # =============================================================================
 # EMC2 object contracts the pipeline relies on (the "empirically confirmed
-# 3.4.1 shapes" in CLAUDE.md), checked on a real fit
+# 3.4.1 shapes" in CLAUDE.md, re-verified on 3.5.0), checked on a real fit
 # =============================================================================
 
 SUBJ  <- names(FITTED[[1]]$data)
