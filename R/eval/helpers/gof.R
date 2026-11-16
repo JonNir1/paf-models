@@ -224,34 +224,57 @@ make_loo_comparison_df <- function(loo_list) {
 }
 
 
-#' DIC / BPIC comparison table via EMC2::compare().
+#' DIC / BPIC comparison table via EMC2::compare(), for both IC types.
 #'
-#' Fast (no LL matrix needed). DIC is reported only; BPIC is for screening.
-#' No Bayes Factors (pre-registration: priors not grounded enough).
+#' Fast (no LL matrix needed). `compare()` is run with type = "conditional"
+#' (data likelihood only) and type = "joint" (adds the group-level density);
+#' `type` is always passed explicitly. DIC is reported only; BPIC is for
+#' screening. No Bayes Factors (pre-registration: priors not grounded enough).
 #'
 #' @param model_list         Named list of fitted EMC2 model objects.
 #' @param calc_bayes_factors Logical; default FALSE.
 #' @param verbose            Logical; if TRUE, print compare()'s own summary.
-#' @return data.frame, one row per model.
+#' @param cores_for_props    Parallel models in compare(); default = number of
+#'                           models capped by the available cores.
+#' @return data.frame, one row per model: model, num_params, then each IC column
+#'   twice with suffix `_conditional` / `_joint`.
 create_goodness_of_fit_table <- function(
-    model_list, calc_bayes_factors = FALSE, verbose = FALSE
+    model_list, calc_bayes_factors = FALSE, verbose = FALSE,
+    cores_for_props = .default_compare_cores(length(model_list))
 ) {
-  comp_results <- emc_compare(
-    model_list,
-    print_summary   = verbose,
-    BayesFactor     = calc_bayes_factors,
-    cores_for_props = 4,
-    cores_per_prop  = 1
-  )
-  comp_df        <- as.data.frame(comp_results)
-  comp_df$model  <- rownames(comp_df)
-  comp_df$mean_LL    <- comp_df$meanD / -2   # meanD = -2 * mean(log lik)
-  comp_df$num_params <- sapply(model_list, function(m) m[[1]][["n_pars"]])
+  ic_cols <- c("EffectiveN", "DIC", "wDIC", "BPIC", "wBPIC",
+               "mean_LL", "meanD", "Dmean", "minD")
+  if (calc_bayes_factors) ic_cols <- c(ic_cols, "BF")
 
-  cols <- c("model", "num_params", "EffectiveN", "DIC", "wDIC",
-            "BPIC", "wBPIC", "mean_LL", "meanD", "Dmean", "minD")
-  if (calc_bayes_factors) cols <- c(cols, "BF")
-  comp_df[, cols]
+  per_type <- lapply(c("conditional", "joint"), function(ic_type) {
+    comp_df <- as.data.frame(emc_compare(
+      model_list,
+      type            = ic_type,
+      print_summary   = verbose,
+      BayesFactor     = calc_bayes_factors,
+      cores_for_props = cores_for_props,
+      cores_per_prop  = 1
+    ))
+    comp_df$mean_LL <- comp_df$meanD / -2   # meanD = -2 * mean(log lik)
+    out <- comp_df[, ic_cols, drop = FALSE]
+    names(out) <- paste0(ic_cols, "_", ic_type)
+    out
+  })
+
+  data.frame(
+    model      = names(model_list),
+    num_params = sapply(model_list, function(m) m[[1]][["n_pars"]]),
+    per_type[[1]], per_type[[2]],
+    row.names = NULL, check.names = FALSE
+  )
+}
+
+
+#' Models to compare in parallel: one core per model, capped by the machine.
+.default_compare_cores <- function(n_models) {
+  total <- parallel::detectCores()
+  if (is.na(total) || total < 1L) total <- 1L
+  max(1L, min(n_models, total))
 }
 
 
