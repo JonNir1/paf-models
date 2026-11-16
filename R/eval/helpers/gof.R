@@ -280,33 +280,40 @@ make_loo_comparison_df <- function(loo_list) {
 #' Fast (no LL matrix needed). `compare()` is run with type = "conditional"
 #' (data likelihood only) and type = "joint" (adds the group-level density);
 #' `type` is always passed explicitly. DIC is reported only; BPIC is for
-#' screening. No Bayes Factors (pre-registration: priors not grounded enough).
+#' screening. No Bayes Factors (excluded from the analysis plan: priors not
+#' grounded enough), so `BayesFactor = FALSE` always.
 #'
-#' @param model_list         Named list of fitted EMC2 model objects.
-#' @param calc_bayes_factors Logical; default FALSE.
-#' @param verbose            Logical; if TRUE, print compare()'s own summary.
-#' @param cores_for_props    Parallel models in compare(); default = number of
-#'                           models capped by the available cores.
+#' EMC2 3.5.0 compare() reuses `attr(x, "ICs")` (set by add_ICs_MLL()) whenever
+#' it is present on a model object, whatever `type` is requested; both
+#' attributes ("ICs", "MLL") are therefore stripped from local copies first.
+#'
+#' `mean_LL_<type>` is `meanD_<type> / -2`. For type = "conditional" this is the
+#' mean data log-likelihood. For type = "joint", meanD includes the group-level
+#' (hierarchical) density, so `mean_LL_joint` is NOT a data log-likelihood; it
+#' is kept as the historical `mean_LL` definition only.
+#'
+#' @param model_list Named list of fitted EMC2 model objects.
+#' @param verbose    Logical; if TRUE, print compare()'s own summary.
 #' @return data.frame, one row per model: model, num_params, then each IC column
 #'   twice with suffix `_conditional` / `_joint`.
-create_goodness_of_fit_table <- function(
-    model_list, calc_bayes_factors = FALSE, verbose = FALSE,
-    cores_for_props = .default_compare_cores(length(model_list))
-) {
+create_goodness_of_fit_table <- function(model_list, verbose = FALSE) {
   ic_cols <- c("EffectiveN", "DIC", "wDIC", "BPIC", "wBPIC",
                "mean_LL", "meanD", "Dmean", "minD")
-  if (calc_bayes_factors) ic_cols <- c(ic_cols, "BF")
+
+  fresh_list <- lapply(model_list, function(m) {
+    attr(m, "ICs") <- NULL
+    attr(m, "MLL") <- NULL
+    m
+  })
 
   per_type <- lapply(c("conditional", "joint"), function(ic_type) {
     comp_df <- as.data.frame(emc_compare(
-      model_list,
-      type            = ic_type,
-      print_summary   = verbose,
-      BayesFactor     = calc_bayes_factors,
-      cores_for_props = cores_for_props,
-      cores_per_prop  = 1
+      fresh_list,
+      type          = ic_type,
+      print_summary = verbose,
+      BayesFactor   = FALSE
     ))
-    comp_df$mean_LL <- comp_df$meanD / -2   # meanD = -2 * mean(log lik)
+    comp_df$mean_LL <- comp_df$meanD / -2   # joint: meanD includes the group-level density
     out <- comp_df[, ic_cols, drop = FALSE]
     names(out) <- paste0(ic_cols, "_", ic_type)
     out
@@ -318,14 +325,6 @@ create_goodness_of_fit_table <- function(
     per_type[[1]], per_type[[2]],
     row.names = NULL, check.names = FALSE
   )
-}
-
-
-#' Models to compare in parallel: one core per model, capped by the machine.
-.default_compare_cores <- function(n_models) {
-  total <- parallel::detectCores()
-  if (is.na(total) || total < 1L) total <- 1L
-  max(1L, min(n_models, total))
 }
 
 

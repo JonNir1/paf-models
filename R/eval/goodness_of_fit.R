@@ -5,9 +5,14 @@
 #' (every fitted model discovered in MODELS_FIT_DIR):
 #'
 #'   DIC / BPIC  -- via EMC2::compare(); fast, always recomputed.
-#'                  DIC reported only; BPIC for screening.
+#'                  DIC reported only; BPIC for screening. Both IC types are
+#'                  reported (_conditional, _joint). mean_LL_joint = meanD_joint / -2
+#'                  includes the group-level density, so it is NOT a data
+#'                  log-likelihood (kept only as the historical mean_LL definition).
 #'   PSIS-LOO-CV -- primary decision criterion; slow, mtime-cached.
-#'   WAIC        -- confirmatory; computed alongside LOO.
+#'   WAIC        -- confirmatory; computed alongside LOO. The per-model LOO/WAIC table
+#'                  is written first; the pairwise comparison (which requires the
+#'                  same subjects and trial counts) follows and may fail on its own.
 #'
 #' No Bayes Factors (priors not grounded enough to trust marginal-likelihood
 #' ratios -- pre-registered).

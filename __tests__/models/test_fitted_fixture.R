@@ -145,7 +145,7 @@ test_that("log_lik_per_trial sums to EMC2's subject log-likelihood; the LL matri
 
 test_that("create_goodness_of_fit_table: conditional and joint ICs are both reported and internally consistent", {
   ic_cols <- c("EffectiveN", "DIC", "wDIC", "BPIC", "wBPIC", "mean_LL", "meanD", "Dmean", "minD")
-  tbl <- create_goodness_of_fit_table(list(first = FITTED, second = FITTED), cores_for_props = 1L)
+  tbl <- create_goodness_of_fit_table(list(first = FITTED, second = FITTED))
 
   expect_equal(tbl$model, c("first", "second"))
   expect_equal(tbl$num_params, rep(length(PARS), 2L))
@@ -186,15 +186,13 @@ test_that("create_loo_table: balanced chains, r_eff passed to loo, finite summar
   expect_equal(saved$diagnostics$n_eff, with_reff$diagnostics$n_eff)
   expect_false(isTRUE(all.equal(saved$diagnostics$n_eff, no_reff$diagnostics$n_eff)))
 
-  one_subject <- lapply(FITTED, function(chain) { chain$data <- chain$data[1]; chain })
+  reordered <- lapply(FITTED, function(chain) { chain$data <- rev(chain$data); chain })   # same subjects, other order
   other <- suppressWarnings(quietly(suppressMessages(
-    create_loo_table(list(first = FITTED, other = one_subject), max_samples = 41L))))
+    create_loo_table(list(first = FITTED, other = reordered), max_samples = 41L))))
   expect_equal(other$model, c("first", "other"))                       # per-model table is still produced
   expect_equal(attr(saved, "trial_counts"), .trial_counts(FITTED))
   expect_error(make_loo_comparison_df(list(first = saved, other = readRDS(file.path(loo_dir, "other_loo.rds")))),
-               "different numbers of trials")
-  swapped <- saved; attr(swapped, "trial_counts") <- rev(.trial_counts(FITTED))
-  expect_error(make_loo_comparison_df(list(first = saved, swapped = swapped)), "differ in subjects")
+               "differ in subjects")
   short <- suppressWarnings(loo::loo(ll[, seq_len(ncol(ll) / 2)], r_eff = NA))
   expect_error(make_loo_comparison_df(list(first = saved, short = short)), "different numbers of trials")
   expect_equal(make_loo_comparison_df(list(first = saved, second = saved))$elpd_diff, c(0, 0))
