@@ -241,7 +241,9 @@ loo_summary_row <- function(model_name, loo_obj, waic_obj,
 #' Tidy pairwise ELPD-diff table from a named list of loo objects.
 #'
 #' Wraps `loo::loo_compare()`.  The reference (best) model appears first with
-#' elpd_diff = 0.
+#' elpd_diff = 0. Stops unless all models cover the same trials: equal total
+#' counts AND identical `trial_counts` attributes (named per-subject counts,
+#' attached by create_loo_table()), i.e. same subjects in the same order.
 #'
 #' @param loo_list  Named list of loo objects (one per model).
 #' @return data.frame, columns: model, elpd_diff, se_diff.
@@ -250,6 +252,13 @@ make_loo_comparison_df <- function(loo_list) {
   if (length(unique(n_obs)) > 1L)
     stop(sprintf("Models cover different numbers of trials (%s); LOO comparison is invalid.",
                  paste(names(n_obs), n_obs, sep = "=", collapse = ", ")))
+  counts <- lapply(loo_list, attr, "trial_counts")
+  if (any(vapply(counts, is.null, logical(1))))
+    stop("A loo object carries no 'trial_counts' attribute (created by create_loo_table()); ",
+         "recompute the LOO table before comparing.")
+  if (!all(vapply(counts, identical, logical(1), counts[[1]])))
+    stop("Models differ in subjects (or their order) or per-subject trial counts; ",
+         "LOO comparison is invalid.")
   .tidy_loo_compare(loo::loo_compare(loo_list))
 }
 
@@ -325,7 +334,10 @@ create_goodness_of_fit_table <- function(
 #' Calls extract_log_lik_matrix() + loo::loo() (with r_eff from the chain
 #' structure) + loo::waic() per model.
 #' Caches per-model loo objects to LOO_DIR/<model_name>_loo.rds for use by
-#' make_loo_comparison_df() and plot_pareto_k().
+#' make_loo_comparison_df() and plot_pareto_k(). Each loo object carries the
+#' model's per-subject trial counts as attribute "trial_counts"; models with
+#' different trial structures still get their own rows (only the comparison
+#' is invalid, and make_loo_comparison_df() rejects it).
 #'
 #' LOO_DIR, PARETO_K_THRESHOLD, and PARETO_K_BAD_FRAC must be in scope
 #' (provided by eval_config.R via the caller).
@@ -336,9 +348,6 @@ create_goodness_of_fit_table <- function(
 #' @param cores       Parallelism over subjects; on Windows falls back to serial.
 #' @return data.frame, one row per model (columns from loo_summary_row()).
 create_loo_table <- function(model_list, max_samples = 2000L, cores = 1L) {
-  counts <- lapply(model_list, .trial_counts)
-  if (!all(vapply(counts, identical, logical(1), counts[[1]])))
-    stop("Models differ in subjects or per-subject trial counts; LOO comparison is invalid.")
   dir.create(LOO_DIR, recursive = TRUE, showWarnings = FALSE)
   rows <- lapply(names(model_list), function(mname) {
     message(sprintf("  [LOO] extracting log-lik matrix for %s ...", mname))
@@ -346,6 +355,7 @@ create_loo_table <- function(model_list, max_samples = 2000L, cores = 1L) {
     message(sprintf("  [LOO] running loo::loo() for %s ...", mname))
     loo_obj  <- loo::loo(ll_mat, r_eff = trial_relative_eff(ll_mat, cores), cores = cores)
     waic_obj <- loo::waic(ll_mat)
+    attr(loo_obj, "trial_counts") <- .trial_counts(model_list[[mname]])
     saveRDS(loo_obj, file.path(LOO_DIR, paste0(mname, "_loo.rds")))
     loo_summary_row(mname, loo_obj, waic_obj,
                     pareto_k_threshold = PARETO_K_THRESHOLD,
