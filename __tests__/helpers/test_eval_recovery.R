@@ -70,6 +70,36 @@ test_that("add_convergence_verdict: Rhat and ESS verdicts split; combined is the
   expect_equal(out$verdict,      c("marginal", "fail"))
 })
 
+test_that("convergence table + verdict: non-finite or empty diagnostics fail gated groups and read NA, not +-Inf, when descriptive", {
+  blk <- function(rhat, ess) matrix(c(rhat, ess), nrow = 2, byrow = TRUE)
+  ok  <- list(s1 = blk(1.01, 900))
+  chk <- list(
+    partial_na = list(mu = blk(c(1.01, NA), c(900, 900)), alpha = ok,
+                      sigma2 = blk(c(NA, NA), c(NA, NA)), correlation = blk(c(Inf, Inf), c(Inf, Inf))),
+    all_na     = list(mu = blk(c(NA, NA), c(NA, NA)), alpha = ok,
+                      sigma2 = blk(1.3, 100), correlation = blk(1.4, 50)),
+    empty      = list(mu = blk(1.01, 900), alpha = list(),
+                      sigma2 = blk(1.3, 100), correlation = blk(1.4, 50))
+  )
+  local_mocks(emc_check = function(model, ...) chk[[model]])
+  tbl <- create_convergence_table(setNames(as.list(names(chk)), names(chk)))
+  tbl <- add_convergence_verdict(tbl, max_rhat_mu = TH$rhat_mu, min_ess_mu = TH$ess_mu,
+                                 max_rhat_alpha = TH$rhat_alpha, min_ess_alpha = TH$ess_alpha)
+  verdict <- function(m, g) tbl$verdict[tbl$model == m & tbl$group == g]
+
+  expect_equal(verdict("partial_na", "mu"), "fail")      # one NA Rhat spoils an otherwise clean block
+  expect_equal(verdict("partial_na", "alpha"), "pass")
+  expect_equal(verdict("all_na", "mu"), "fail")
+  expect_equal(verdict("empty", "alpha"), "fail")        # a gated block with no values never passes
+  expect_equal(verdict("empty", "mu"), "pass")
+
+  expect_true(all(tbl$verdict[tbl$group %in% c("sigma2", "correlation")] == "descriptive"))
+  desc <- tbl[tbl$model == "partial_na" & tbl$group %in% c("sigma2", "correlation"), ]
+  expect_true(all(is.na(desc$max_rhat)) && all(is.na(desc$min_ess)))   # not -Inf / Inf
+  expect_equal(desc$n_nonfinite_rhat, c(2L, 2L))
+  expect_false(any(is.infinite(unlist(tbl[sapply(tbl, is.numeric)]))))
+})
+
 test_that("metric_verdict: descriptive for sigma2/correlation, NA for unknown groups, error on bad metric", {
   expect_equal(metric_verdict("sigma2", "rhat", 1.30, 60, TH), "descriptive")
   expect_equal(metric_verdict("correlation", "ess", 100, thresholds = TH), "descriptive")
@@ -137,6 +167,30 @@ test_that("recovery_subject_rows aligns estimates to truth by subject and parame
     matrix(1, 1, 1, dimnames = list("other", "v"))
   })
   expect_error(recovery_subject_rows(NULL, true_alpha, "m", 1L), "no overlapping")
+})
+
+test_that("align_true_alpha re-orders by name and refuses mismatched subjects or parameters; add_coverage95 only appends", {
+  true_alpha <- matrix(1:9, nrow = 3, dimnames = list(c("s1", "s2", "s3"), c("v", "B", "t0")))
+  est <- function(rows, cols) matrix(0, length(rows), length(cols), dimnames = list(rows, cols))
+
+  out <- align_true_alpha(true_alpha, est(c("s3", "s1", "s2"), c("t0", "v")))   # shuffled; B is extra
+  expect_equal(out, true_alpha[c("s3", "s1", "s2"), c("t0", "v")])
+  expect_equal(dim(align_true_alpha(true_alpha, est(c("s2", "s1", "s3"), "B"))), c(3L, 1L))
+
+  expect_error(align_true_alpha(unname(true_alpha), est("s1", "v")), "needs subject")
+  expect_error(align_true_alpha(true_alpha, est(c("s1", "s2"), "v")), "subjects differ")
+  expect_error(align_true_alpha(true_alpha, est(c("s1", "s2", "s3", "s9"), "v")), "subjects differ")
+  expect_error(align_true_alpha(true_alpha, est(c("s1", "s2", "s3"), c("v", "A"))), "missing from true_alpha: A")
+
+  stats <- data.frame(model = c("m", "m", "n"), parameter = c("v", "B", "v"), n = 1:3, rmse = c(.3, .2, .1),
+                      stringsAsFactors = FALSE)
+  pts <- data.frame(model = c("m", "m", "m", "m", "n"), parameter = c("B", "B", "v", "v", "v"),
+                    inside = c(TRUE, FALSE, TRUE, TRUE, FALSE))
+  got <- add_coverage95(stats, pts)
+  expect_identical(got[names(stats)], stats)
+  expect_equal(got$coverage95, c(100, 50, 0))
+  expect_true(is.na(add_coverage95(rbind(stats, data.frame(model = "z", parameter = "v", n = 0L, rmse = NA)),
+                                   pts)$coverage95[4]))
 })
 
 test_that("recovery_subject_stats pools sims per (model, parameter) with closed-form RMSE and r", {
