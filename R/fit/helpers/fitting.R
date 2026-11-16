@@ -107,10 +107,19 @@ save_model <- function(model, name, dir_path, date_prefix = NULL) {
 
 
 # -------------------------
-#' Pull max-Rhat and min-ESS for one EMC2 check() block (see check_block_values()).
+#' Pull max-Rhat and min-ESS (over finite values) for one EMC2 check() block
+#' (see check_block_values()). NA when the block has no finite value.
 .block_rhat_ess <- function(chk, token) {
-  list(max_rhat = max(check_block_values(chk, token, 1), na.rm = TRUE),
-       min_ess  = min(check_block_values(chk, token, 2), na.rm = TRUE))
+  finite_extreme <- function(x, fn) if (any(is.finite(x))) fn(x[is.finite(x)]) else NA_real_
+  list(max_rhat = finite_extreme(check_block_values(chk, token, 1), max),
+       min_ess  = finite_extreme(check_block_values(chk, token, 2), min))
+}
+
+
+#' TRUE when a check() block has values and every Rhat and ESS is finite.
+.block_all_finite <- function(chk, token) {
+  vals <- c(check_block_values(chk, token, 1), check_block_values(chk, token, 2))
+  length(vals) > 0L && all(is.finite(vals))
 }
 
 
@@ -131,6 +140,7 @@ save_model <- function(model, name, dir_path, date_prefix = NULL) {
 #'        alpha = list(max_rhat = 1.10, min_ess = 400)).
 #'   The `num_samples` element is ignored here (it gates the sample floor in
 #'   fit_to_convergence(), not Rhat/ESS).
+#'   A gated group with any non-finite Rhat/ESS (or none at all) is NOT converged.
 #' @return List with `converged` (overall boolean) and `groups` (per-group list
 #'   of max_rhat, min_ess, thresholds, and per-group `converged`).
 check_convergence <- function(model, convergence_criteria) {
@@ -155,7 +165,8 @@ check_convergence <- function(model, convergence_criteria) {
       stop(sprintf("convergence_criteria$%s must have numeric max_rhat and min_ess.", key))
 
     de        <- .block_rhat_ess(chk, tokens[[i]])
-    converged <- de$max_rhat < spec$max_rhat && de$min_ess > spec$min_ess
+    converged <- .block_all_finite(chk, tokens[[i]]) &&
+      de$max_rhat < spec$max_rhat && de$min_ess > spec$min_ess
     all_converged <- all_converged && converged
 
     groups[[key]] <- list(
