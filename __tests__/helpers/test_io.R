@@ -42,6 +42,12 @@ test_that("load_model: invalid name, invalid or missing directory throw errors",
 
 test_that("latest_dated_file / model_name_from_rds: NA when nothing matches; names stripped", {
   expect_identical(latest_dated_file(tempfile("empty_"), "\\.rds$"), NA_character_)
+  dir <- touch_rds(tempfile("dated_"), c("260101_a.rds", "260301_a.rds", "notes.rds"))
+  expect_equal(basename(latest_dated_file(dir, "\\.rds$")), "260301_a.rds")   # undated names never win
+
+  tie <- touch_rds(tempfile("tie_"), c("260301_model.rds", "260301_model_extended.rds", "260101_model.rds"))
+  expect_error(latest_dated_file(tie, "\\.rds$"), "Ambiguous latest file.*260301_model\\.rds.*260301_model_extended\\.rds")
+  expect_error(suppressMessages(load_model("model", tie)), "Ambiguous latest file")   # never picks by directory order
   expect_equal(model_name_from_rds(c("260101_m.rds", "dir/260101_m_extended.rds",
                                      "260101_test_model.rds", "260101_a_b_c.rds")),
                c("m", "m", "test_model", "a_b_c"))
@@ -90,6 +96,31 @@ test_that("newer_than_inputs: missing cache, equal or older mtime -> recompute",
   set_mtimes(t0, t0);           expect_false(newer_than_inputs(cache, input))
   set_mtimes(t0, t0 + 10);      expect_false(newer_than_inputs(cache, input))
   set_mtimes(t0 + 10, t0);      expect_false(newer_than_inputs(cache, c(input, file.path(dir, "gone.rds"))))
+})
+
+test_that("eval_cache_fresh: reused only when newer than every input AND built with identical settings", {
+  dir   <- withr::local_tempdir()
+  input <- file.path(dir, "fit.rds"); saveRDS(1, input)
+  key   <- list(models = c("a", "b"), thresholds = c(1.05, 500, 1.1, 400), emc2 = "3.5.0")
+  cache <- function(stem, k) suppressMessages(save_eval_table(data.frame(x = 1), stem, dir, cache_key = k))
+  age   <- function(path, secs) Sys.setFileTime(path, Sys.time() + secs)
+  age(input, -20)
+
+  fresh <- cache("fresh", key);  age(fresh, 0)
+  expect_true(eval_cache_fresh(fresh, input, key))
+
+  for (changed in list(modifyList(key, list(models = "a")),
+                       modifyList(key, list(thresholds = c(1.1, 500, 1.1, 400))),
+                       modifyList(key, list(emc2 = "3.4.1")))) {
+    expect_false(eval_cache_fresh(fresh, input, changed))
+  }
+
+  nokey <- cache("nokey", NULL); age(nokey, 0)
+  expect_false(eval_cache_fresh(nokey, input, key))
+
+  stale <- cache("stale", key); age(stale, -40)
+  expect_false(eval_cache_fresh(stale, input, key))
+  expect_false(eval_cache_fresh(file.path(dir, "absent.rds"), input, key))
 })
 
 test_that("model_colors: one stable colour per model, recycling past the palette", {
