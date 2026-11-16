@@ -25,6 +25,7 @@ local_fit_mocks <- function(verdicts, env = parent.frame()) {
     emc_fit           = fit_rec$fn,
     emc_run           = run_rec$fn,
     check_convergence = scripted_convergence(verdicts),
+    emc_version       = function() "9.9.9",
     .frame = env
   )
   list(fit = fit_rec, run = run_rec)

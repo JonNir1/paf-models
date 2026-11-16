@@ -191,6 +191,7 @@ if (length(args) == 0L) {
           log_file, console_print = TRUE)
   log_msg(sprintf("Output name: %s_ppc%s", ppc_name, suffix),
           log_file, console_print = TRUE)
+  log_msg(sprintf("EMC2 version: %s", emc_version()), log_file)
   if (!is.null(n_draws_override))
     log_msg(sprintf("Override: --n-draws %d", n_draws_override),
             log_file, console_print = TRUE)

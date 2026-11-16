@@ -213,6 +213,7 @@ if (length(args) == 0L) {
   log_msg(sprintf("===== RECOVERY: %s  sim=%d =====", extended_rds, sim_index),
           log_file, console_print = TRUE)
   log_msg(sprintf("Output name: %s", recovery_name), log_file, console_print = TRUE)
+  log_msg(sprintf("EMC2 version: %s", emc_version()), log_file)
   for (override in list(
          list("--fit-samples", fit_samples_override),
          list("--max-tries",   max_tries_override),

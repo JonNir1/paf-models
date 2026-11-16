@@ -4,7 +4,7 @@
 #' tests load it instead of fitting, so rerun this after an EMC2 major/minor
 #' upgrade or a change to the test model, then commit the .rds.
 #'
-#' Run from the repo root (~1 h on Windows, mostly EMC2 cluster start-up):
+#' Run from the repo root (~20-45 min on Windows, mostly EMC2 cluster start-up):
 #'   R_LIBS_USER=<lib> Rscript __tests__/fixtures/generate_fitted_fixture.R
 #' =============================================================================
 
@@ -25,8 +25,7 @@ fit <- fit_to_convergence(
 )
 if (!fit$converged) stop("Fixture fit did not reach the sample floor.")
 
-model <- fit$model
-attr(model, "emc2_version") <- as.character(utils::packageVersion("EMC2"))
+model <- stamp_emc2_version(fit$model)
 saveRDS(model, FITTED_FIXTURE, compress = "xz")
 cat(sprintf("Wrote %s: %.2f MB, %d sample iters, EMC2 %s\n", FITTED_FIXTURE,
             file.size(FITTED_FIXTURE) / 2^20, fit$n_samples, attr(model, "emc2_version")))

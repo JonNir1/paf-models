@@ -4,7 +4,7 @@
 #' Everything needed to run, checkpoint, and drive a hierarchical LBA fit to
 #' convergence from a single entry point:
 #'   - get_core_args()        runtime parallelism configuration
-#'   - save_model()           date-stamped RDS serialisation
+#'   - save_model()           date-stamped RDS serialisation (EMC2-version stamped)
 #'   - check_convergence()    generic per-group Rhat / ESS diagnostics
 #'   - fit_to_convergence()   unified fit loop: warm up a fresh model OR resume a
 #'                            pre-fitted one, then sample to convergence with
@@ -48,7 +48,17 @@ get_core_args <- function(n_chains) {
 
 
 # -------------------------
-#' Save a fitted model as a date-stamped RDS file.
+#' Record the installed EMC2 version on a fitted model (attribute "emc2_version").
+#' @param model An EMC2 object.
+#' @return `model` with the attribute set.
+stamp_emc2_version <- function(model) {
+  attr(model, "emc2_version") <- emc_version()
+  model
+}
+
+
+# -------------------------
+#' Save a fitted model as a date-stamped RDS file (stamped with the EMC2 version).
 #' @param model       The fitted EMC2 model object.
 #' @param name        Model name (non-date portion of the filename).
 #' @param dir_path    Output directory; created recursively if absent.
@@ -62,7 +72,7 @@ save_model <- function(model, name, dir_path, date_prefix = NULL) {
   if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
   if (is.null(date_prefix)) date_prefix <- format(Sys.Date(), "%y%m%d")
   full_path <- file.path(dir_path, paste0(date_prefix, "_", name, ".rds"))
-  saveRDS(model, full_path)
+  saveRDS(stamp_emc2_version(model), full_path)
   return(full_path)
 }
 
@@ -334,7 +344,7 @@ fit_to_convergence <- function(emc,
     if (is.null(save_path)) return(invisible(NULL))
     dir_path <- dirname(save_path)
     if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
-    saveRDS(model, save_path)
+    saveRDS(stamp_emc2_version(model), save_path)
     log_msg(sprintf("%s: saved %s", tag, save_path), log_file, console_print = TRUE)
     if (!is.null(post_save_hook)) post_save_hook(save_path, log_file)
   }

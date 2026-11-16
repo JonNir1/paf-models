@@ -12,6 +12,7 @@ ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
 source(file.path(ROOT, "R", "utils.R"))
 source_root("R/eval/eval_config.R")
 source_root("R/fit/helpers/fitting.R")   # save_model()
+source(file.path(ROOT, "__tests__", "fixtures", "common.R"))   # local_mocks()
 
 touch_rds <- function(dir, files) {
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
@@ -57,11 +58,12 @@ test_that("discover_model_names: unique sorted bare names; empty or missing dir 
 
 test_that("save_model -> discover_model_names -> load_model round-trips a model", {
   dir <- tempfile("roundtrip_")
+  local_mocks(emc_version = function() "9.9.9")
   obj <- list(chains = 3, tag = "fitted")
   save_model(obj, "my_model.v2", dir)
   name <- discover_model_names(dir)
   expect_equal(name, "my_model.v2")
-  expect_equal(suppressMessages(load_model(name, dir)), obj)
+  expect_equal(suppressMessages(load_model(name, dir)), stamp_emc2_version(obj))
 })
 
 test_that("save_eval_table: writes matching .rds and .csv, creating the directory", {

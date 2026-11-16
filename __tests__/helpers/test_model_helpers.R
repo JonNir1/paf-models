@@ -1,6 +1,7 @@
 library(testthat)
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
 source(file.path(ROOT, "R", "fit", "helpers", "fitting.R"))
+source(file.path(ROOT, "__tests__", "fixtures", "common.R"))   # local_mocks()
 
 
 test_that("get_core_args: chain cores are capped by n_chains and the core count, never below 1", {
@@ -19,12 +20,14 @@ test_that("get_core_args: chain cores are capped by n_chains and the core count,
 
 
 test_that("save_model: writes <date>_<name>.rds that round-trips, with today or a pinned date", {
+  local_mocks(emc_version = function() "9.9.9")
   dir  <- tempfile("save_model_")
   obj  <- list(a = 42, b = "hello")
   path <- save_model(obj, "mymodel", dir)
   expect_true(dir.exists(dir))
   expect_equal(basename(path), paste0(format(Sys.Date(), "%y%m%d"), "_mymodel.rds"))
-  expect_equal(readRDS(path), obj)
+  expect_equal(readRDS(path), stamp_emc2_version(obj))
+  expect_identical(attr(readRDS(path), "emc2_version"), "9.9.9")
   expect_equal(basename(save_model(obj, "m", dir, date_prefix = "991231")), "991231_m.rds")
 })
 

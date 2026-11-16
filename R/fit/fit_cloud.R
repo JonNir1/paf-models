@@ -98,6 +98,7 @@ log_msg(sprintf("===== FIT: %s (%s) =====", out_name,
                 if (!is.null(model_script)) "fresh" else "resume"),
         log_file, console_print = TRUE)
 log_config_variables(FIT_CONFIG_FILE, log_file)
+log_msg(sprintf("EMC2 version: %s", emc_version()), log_file)
 
 # --- Build convergence_criteria from the profile + overrides ---
 convergence_criteria <- default_convergence_criteria(profile)
