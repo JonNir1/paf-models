@@ -77,6 +77,10 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
                              post_save_hook     = NULL,
                              init_stop_criteria = NULL) {
 
+  if (!file.exists(model_script_path)) {
+    stop(sprintf("Model script not found: %s", model_script_path))
+  }
+
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   run_date <- format(Sys.Date(), "%y%m%d")
   if (is.null(post_save_hook)) post_save_hook <- function(...) invisible(NULL)
@@ -120,9 +124,6 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
   post_save_hook(true_alpha_path, log_file)
 
   # --- 4. Source model script to get build_model() ---
-  if (!file.exists(model_script_path)) {
-    stop(sprintf("Model script not found: %s", model_script_path))
-  }
   log_msg(sprintf("Sourcing model script: %s", model_script_path),
           log_file, console_print = TRUE)
   source(model_script_path)   # defines build_model() and MODEL_NAME
