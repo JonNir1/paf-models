@@ -85,8 +85,8 @@ plot_convergence_summary <- function(conv_table) {
 #' Subject-level recovery scatter: estimated vs true alpha, faceted by model.
 #'
 #' Points are coloured by whether the parameter is in the identifiable "core"
-#' subspace; the structurally-unidentifiable StimulusAtLoc x SearchDifficulty
-#' block (models 4/5) shows up as the off-diagonal red cloud.
+#' subspace; each model's structurally-unidentifiable parameters (declared in its
+#' model script) show up as the off-diagonal red cloud.
 #'
 #' @param points_df Long: columns model, parameter, subject, true, est, identifiable.
 #' @param stats_df  Optional per-model summary with r_all/rmse_all/r_core/rmse_core.
@@ -95,18 +95,18 @@ plot_recovery_scatter <- function(points_df, stats_df = NULL) {
   library(ggplot2)
   if (is.null(points_df$identifiable)) points_df$identifiable <- TRUE
   points_df$id_lab <- ifelse(points_df$identifiable,
-                             "core parameters", "StimulusAtLoc x SearchDifficulty block")
+                             "core parameters", "structurally unidentifiable")
 
   p <- ggplot(points_df, aes(true, est, color = id_lab)) +
     geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
     geom_point(size = 1, alpha = 0.4) +
     facet_wrap(~model, scales = "free") +
     scale_color_manual(values = c("core parameters" = "#2c7fb8",
-                                  "StimulusAtLoc x SearchDifficulty block" = "#d7301f"),
+                                  "structurally unidentifiable" = "#d7301f"),
                        name = NULL) +
     labs(x = "True alpha", y = "Estimated alpha (posterior mean)",
          title = "Subject-level recovery: estimated vs true alpha",
-         subtitle = "Red = the StimulusAtLoc x SearchDifficulty block - unidentifiable in models 4 & 5, identifiable in 1 & 2") +
+         subtitle = "Red = parameters the model design leaves structurally unidentifiable") +
     theme_bw(base_size = 12) +
     theme(legend.position = "bottom")
 

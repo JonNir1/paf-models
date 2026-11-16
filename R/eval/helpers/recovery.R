@@ -284,26 +284,76 @@ add_coverage95 <- function(subj_stats, points) {
 }
 
 
-#' Flag whether a parameter is in the identifiable "core" subspace.
+#' Read a model's structural-unidentifiability declaration from its script.
 #'
-#' FALSE for the StimulusAtLoc x SearchDifficulty partially-nested block (see
-#' STRUCTURAL_UNIDENTIFIABLE_PATTERN in eval_config.R). Pure / vectorised.
+#' Sources `<script_dir>/<model_name>.R` into a throwaway environment (so the
+#' caller's `build_model`/`MODEL_NAME` are untouched) and returns its
+#' `STRUCTURAL_UNIDENTIFIABLE_PATTERN`: a regex for the parameters the design
+#' cannot identify, or NA_character_ if every parameter is identifiable. A
+#' missing script, missing declaration, non-scalar-character value or invalid
+#' regex is an error; there is no default pattern.
+#'
+#' @param model_name Model name (script basename, no extension).
+#' @param script_dir Directory holding the model scripts (default MODEL_SCRIPT_DIR).
+#' @return Length-1 character: a valid regex, or NA_character_.
+model_unidentifiable_pattern <- function(model_name, script_dir = MODEL_SCRIPT_DIR) {
+  path <- file.path(script_dir, paste0(model_name, ".R"))
+  fail <- function(why) stop(sprintf("Model '%s' (%s): %s", model_name, path, why), call. = FALSE)
+  if (!file.exists(path)) fail("model script not found")
+
+  env <- new.env(parent = globalenv())
+  source(path, local = env)
+  if (!exists("STRUCTURAL_UNIDENTIFIABLE_PATTERN", envir = env, inherits = FALSE)) {
+    fail("script does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN (a regex string, or NA_character_ if none)")
+  }
+  pattern <- env$STRUCTURAL_UNIDENTIFIABLE_PATTERN
+  if (!is.character(pattern) || length(pattern) != 1L) {
+    fail("STRUCTURAL_UNIDENTIFIABLE_PATTERN must be a single character string or NA_character_")
+  }
+  if (!is.na(pattern)) {
+    tryCatch(grepl(pattern, ""), error = function(e) {
+      fail(sprintf("STRUCTURAL_UNIDENTIFIABLE_PATTERN is not a valid regex (%s)", conditionMessage(e)))
+    })
+  }
+  pattern
+}
+
+
+#' Flag whether a parameter is in its model's identifiable "core" subspace.
+#'
+#' Each model is flagged with ITS OWN pattern. A model whose pattern is NA has
+#' every parameter identifiable; a non-NA pattern that matches none of that
+#' model's parameters is an error (stale or mistyped). Pure / vectorised.
 #'
 #' @param parameter Character vector of parameter names.
-#' @param pattern   Regex for the structurally-unidentifiable block.
+#' @param model     Character vector (same length) of each parameter's model.
+#' @param patterns  Named character vector (names = models) of regexes or NA,
+#'   as from model_unidentifiable_pattern().
 #' @return Logical vector (TRUE = identifiable core).
-flag_identifiable <- function(parameter, pattern = STRUCTURAL_UNIDENTIFIABLE_PATTERN) {
-  !grepl(pattern, parameter)
+flag_identifiable <- function(parameter, model, patterns) {
+  flag <- rep(TRUE, length(parameter))
+  for (m in unique(model)) {
+    if (!m %in% names(patterns)) stop(sprintf("No unidentifiability pattern for model '%s'", m))
+    pattern <- patterns[[m]]
+    if (is.na(pattern)) next
+    hit <- model == m & grepl(pattern, parameter)
+    if (!any(hit)) {
+      stop(sprintf("Model '%s': STRUCTURAL_UNIDENTIFIABLE_PATTERN '%s' matches none of its parameters (stale or mistyped?)",
+                   m, pattern))
+    }
+    flag[hit] <- FALSE
+  }
+  flag
 }
 
 
 #' Per-model recovery summary over the FULL set and the identifiable CORE subspace.
 #'
 #' @param subj_stats Output of recovery_subject_stats() (one row per model x param).
-#' @param pattern    Structural-unidentifiability regex.
+#' @param patterns   Named per-model unidentifiability regexes (see flag_identifiable()).
 #' @return data.frame(model, n_all, rmse_all, r_all, n_core, rmse_core, r_core).
-recovery_model_summary <- function(subj_stats, pattern = STRUCTURAL_UNIDENTIFIABLE_PATTERN) {
-  subj_stats$identifiable <- flag_identifiable(subj_stats$parameter, pattern)
+recovery_model_summary <- function(subj_stats, patterns) {
+  subj_stats$identifiable <- flag_identifiable(subj_stats$parameter, subj_stats$model, patterns)
   do.call(rbind, lapply(split(subj_stats, subj_stats$model), function(d) {
     core <- d[d$identifiable, ]
     data.frame(

@@ -44,26 +44,9 @@ model_colors <- function(model_names) {
 }
 
 
-# --- Structurally-unidentifiable parameters (design partial-nesting) ---
-# `StimulusAtLoc` (the distractor type at an accumulator's location) and
-# `SearchDifficulty` (a trial-level property of the whole 4-location display) are
-# PARTIALLY NESTED, not crossed:
-#   - an easy distractor never appears on an all-difficult trial  => E x DIFFICULT empty
-#   - a difficult distractor never appears on an all-easy trial   => D x EASY  empty
-# In models carrying the v ~ StimulusAtLoc * SearchDifficulty interaction (models
-# 4 and 5) this makes the StimulusAtLoc-by-SearchDifficulty interaction block
-# unidentifiable (v_StimulusAtLocE:SearchDifficultyDIFFICULT is a pure structural
-# zero), and aliases the StimulusAtLoc main effects (the empty D x EASY baseline
-# cell). Recovery is therefore reported both for the FULL parameter set and for the
-# "core" subspace with this block removed (step 2.9). The pattern below matches the
-# StimulusAtLoc main effects and their SearchDifficulty interactions.
-# NOTE: this is a known design limitation flagged for the PI at 2.9; it is NOT
-# silently dropped from the fitted models.
-# MODEL-FAMILY-SPECIFIC: this regex matches the retired model1-5 design (preserved
-# on the `analysis1` branch). Revise it to the structural zeros of the new model
-# family before running recovery eval; set to a never-matching pattern if none.
-STRUCTURAL_UNIDENTIFIABLE_PATTERN <-
-  "^v_StimulusAtLoc[DE](:SearchDifficulty(MIXED|DIFFICULT))?$"
+# Directory of the model scripts (R/fit/<MODEL_NAME>.R); each declares its own
+# STRUCTURAL_UNIDENTIFIABLE_PATTERN. A caller may pre-set MODEL_SCRIPT_DIR.
+if (!exists("MODEL_SCRIPT_DIR")) MODEL_SCRIPT_DIR <- file.path(CODE_DIR, "fit")
 
 
 # --- Step 4: PPC config ---

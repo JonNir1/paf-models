@@ -19,6 +19,9 @@
 #'   source("R/eval/recovery.R")
 #' Non-interactive, tolerating missing pairs:
 #'   Rscript -e "ALLOW_PARTIAL_RECOVERY <- TRUE; source('R/eval/recovery.R')"
+#' Model scripts (for their STRUCTURAL_UNIDENTIFIABLE_PATTERN) are read from
+#' MODEL_SCRIPT_DIR (default R/fit); pre-set it to override. Never downgraded
+#' by ALLOW_PARTIAL_RECOVERY.
 #' =============================================================================
 
 library(EMC2)
@@ -35,6 +38,9 @@ if (!dir.exists(RECOVERY_OUT_DIR)) dir.create(RECOVERY_OUT_DIR, recursive = TRUE
 
 MODEL_NAMES <- discover_model_names()
 N_SIMS      <- 3L
+
+# Per-model structural-unidentifiability patterns; any error here is fatal.
+UNIDENTIFIABLE_PATTERNS <- vapply(MODEL_NAMES, model_unidentifiable_pattern, character(1))
 
 # Set ALLOW_PARTIAL_RECOVERY <- TRUE before sourcing to proceed with missing or
 # unreadable recovery pairs / source fits; by default they are an error.
@@ -124,15 +130,15 @@ for (p in pairs) {
 pop_table   <- do.call(rbind, pop_rows)
 z_table     <- do.call(rbind, z_rows)
 subj_points <- do.call(rbind, subj_rows)
-subj_points$identifiable <- flag_identifiable(subj_points$parameter)
+subj_points$identifiable <- flag_identifiable(subj_points$parameter, subj_points$model, UNIDENTIFIABLE_PATTERNS)
 emc2_stats  <- do.call(rbind, lapply(emc2_rows, `[[`, "stats"))
 emc2_points <- do.call(rbind, lapply(emc2_rows, `[[`, "points"))
 subj_stats  <- add_coverage95(recovery_subject_stats(subj_points), emc2_points)
-subj_stats$identifiable <- flag_identifiable(subj_stats$parameter)
+subj_stats$identifiable <- flag_identifiable(subj_stats$parameter, subj_stats$model, UNIDENTIFIABLE_PATTERNS)
 
 # Per-model summary over the full set AND the identifiable "core" subspace
-# (excludes the StimulusAtLoc x SearchDifficulty partially-nested block; step 2.9).
-model_stats <- recovery_model_summary(subj_stats)
+# (excludes each model's declared structurally-unidentifiable parameters; step 2.9).
+model_stats <- recovery_model_summary(subj_stats, UNIDENTIFIABLE_PATTERNS)
 
 write.csv(pop_table,   file.path(RECOVERY_OUT_DIR, "recovery_population_table.csv"),   row.names = FALSE)
 write.csv(z_table,     file.path(RECOVERY_OUT_DIR, "recovery_zscores_contraction.csv"), row.names = FALSE)

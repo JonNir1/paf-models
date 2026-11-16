@@ -213,16 +213,26 @@ test_that("recovery_subject_stats pools sims per (model, parameter) with closed-
 
 PAT <- "^v_StimulusAtLoc[DE](:SearchDifficulty(MIXED|DIFFICULT))?$"
 
-test_that("flag_identifiable marks the StimulusAtLoc x SearchDifficulty block FALSE", {
+test_that("flag_identifiable applies each model's own pattern; NA = all identifiable; stale pattern errors", {
   pars <- c("v", "v_PrevTargetAtLocTRUE", "B",
             "v_StimulusAtLocD", "v_StimulusAtLocE",
             "v_StimulusAtLocD:SearchDifficultyMIXED",
             "v_StimulusAtLocE:SearchDifficultyDIFFICULT")
-  flag <- flag_identifiable(pars, pattern = PAT)
-  expect_equal(flag, c(TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE))
+  one <- rep("m1", length(pars))
+  expect_equal(flag_identifiable(pars, one, c(m1 = PAT)),
+               c(TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE))
+  expect_true(all(flag_identifiable(pars, one, c(m1 = NA_character_))))
+
+  # two models stacked: m1 uses PAT, m2 only flags "B"
+  two <- flag_identifiable(c(pars, "v", "B"), c(one, "m2", "m2"),
+                           c(m1 = PAT, m2 = "^B$"))
+  expect_equal(two, c(TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE))
+
+  expect_error(flag_identifiable(pars, one, c(m1 = "^nope$")), "m1.*matches none")
+  expect_error(flag_identifiable(pars, one, c(other = PAT)), "No unidentifiability pattern for model 'm1'")
 })
 
-test_that("recovery_model_summary computes full and core means", {
+test_that("recovery_model_summary computes full and core means, per-model patterns", {
   ss <- data.frame(
     model     = "model4",
     parameter = c("v", "v_StimulusAtLocD", "v_StimulusAtLocE:SearchDifficultyDIFFICULT"),
@@ -231,9 +241,36 @@ test_that("recovery_model_summary computes full and core means", {
     r         = c(0.9, -0.3, -0.7),
     stringsAsFactors = FALSE
   )
-  out <- recovery_model_summary(ss, pattern = PAT)
+  out <- recovery_model_summary(ss, c(model4 = PAT))
   expect_equal(out$n_all, 3)
   expect_equal(out$n_core, 1)              # only "v" survives
   expect_equal(out$r_core, 0.9)            # core mean = just v
   expect_equal(round(out$r_all, 4), round(mean(c(0.9, -0.3, -0.7)), 4))
+
+  ss2 <- rbind(ss, transform(ss, model = "model_na"))
+  out2 <- recovery_model_summary(ss2, c(model4 = PAT, model_na = NA_character_))
+  expect_equal(out2$n_core[match(c("model4", "model_na"), out2$model)], c(1, 3))   # model4 flagged, model_na untouched
+})
+
+test_that("model_unidentifiable_pattern reads the script's declaration in isolation and rejects bad ones", {
+  fixtures <- file.path(ROOT, "__tests__", "fixtures")
+  leaks <- function() c("build_model", "MODEL_NAME") %in% ls(globalenv(), all.names = TRUE)
+  before <- leaks()
+  expect_identical(model_unidentifiable_pattern("test_model", fixtures), NA_character_)
+  expect_identical(leaks(), before)
+  expect_false(exists("build_model", envir = environment(), inherits = FALSE))
+
+  dir <- withr::local_tempdir()
+  write_script <- function(name, body) writeLines(body, file.path(dir, paste0(name, ".R")))
+  write_script("ok",     "STRUCTURAL_UNIDENTIFIABLE_PATTERN <- '^v_x$'")
+  write_script("none",   "MODEL_NAME <- 'none'")
+  write_script("num",    "STRUCTURAL_UNIDENTIFIABLE_PATTERN <- 1")
+  write_script("vec",    "STRUCTURAL_UNIDENTIFIABLE_PATTERN <- c('a', 'b')")
+  write_script("badre",  "STRUCTURAL_UNIDENTIFIABLE_PATTERN <- '(['")
+  expect_equal(model_unidentifiable_pattern("ok", dir), "^v_x$")
+  expect_error(model_unidentifiable_pattern("absent", dir), "absent.*script not found")
+  expect_error(model_unidentifiable_pattern("none", dir),   "does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN")
+  expect_error(model_unidentifiable_pattern("num", dir),    "single character string")
+  expect_error(model_unidentifiable_pattern("vec", dir),    "single character string")
+  expect_error(model_unidentifiable_pattern("badre", dir),  "not a valid regex")
 })
