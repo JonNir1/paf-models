@@ -21,11 +21,17 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 #'
 #' @param dir     Directory to search.
 #' @param pattern Regex applied to base file names.
-#' @return The file's path, or NA_character_ if nothing matches.
+#' @return The file's path, or NA_character_ if nothing matches. Stops if
+#'   several files share the latest date prefix.
 latest_dated_file <- function(dir, pattern) {
   files <- list.files(dir, pattern = pattern, full.names = TRUE)
   if (length(files) == 0L) return(NA_character_)
-  files[which.max(as.Date(sub("_.*", "", basename(files)), format = "%y%m%d"))]
+  dates  <- as.Date(sub("_.*", "", basename(files)), format = "%y%m%d")
+  latest <- files[dates == max(dates, na.rm = TRUE) & !is.na(dates)]
+  if (length(latest) > 1L)
+    stop(sprintf("Ambiguous latest file: %s share the latest date prefix.",
+                 paste(basename(latest), collapse = ", ")))
+  latest
 }
 
 
