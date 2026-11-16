@@ -44,7 +44,7 @@ model_colors <- function(model_names) {
 }
 
 
-# Directory of the model scripts (R/fit/<MODEL_NAME>.R); each declares its own
+# Directory of the model scripts (R/fit/); each is found by its declared MODEL_NAME and declares its own
 # STRUCTURAL_UNIDENTIFIABLE_PATTERN. A caller may pre-set MODEL_SCRIPT_DIR.
 if (!exists("MODEL_SCRIPT_DIR")) MODEL_SCRIPT_DIR <- file.path(CODE_DIR, "fit")
 

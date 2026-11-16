@@ -9,6 +9,7 @@
 library(testthat)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
+source(file.path(ROOT, "R", "utils.R"))
 source(file.path(ROOT, "R", "eval", "helpers", "convergence.R"))
 source(file.path(ROOT, "R", "eval", "helpers", "recovery.R"))
 source(file.path(ROOT, "__tests__", "fixtures", "common.R"))   # local_mocks()
@@ -304,23 +305,19 @@ test_that("model_unidentifiable_pattern reads the script's declaration in isolat
   write_script("broken", c(decl("'a'"), "this is ( not R"))
   write_script("rhsboom", decl("stop('rhs-boom')"))
   write_script("rhsglobal", decl("some_global_helper()"))
-  writeLines(decl("'a'"), file.path(dir, "nomodel.R"))
-  write_script("mismatch", c("MODEL_NAME <- 'other'", decl("'a'")))
-  write_script("twiceName", c("MODEL_NAME <- 'twiceName'", "MODEL_NAME <- 'twiceName'", decl("'a'")))
+  writeLines(c("MODEL_NAME <- 'declared_name'", decl("'^v_named$'")), file.path(dir, "differently_named_file.R"))
   expect_equal(model_unidentifiable_pattern("ok", dir), "^v_x$")
   expect_equal(model_unidentifiable_pattern("eq", dir), "^v_y$")
-  expect_error(model_unidentifiable_pattern("absent", dir), "absent.*script not found")
+  expect_equal(model_unidentifiable_pattern("declared_name", dir), "^v_named$")   # found by MODEL_NAME, not file name
+  expect_error(model_unidentifiable_pattern("absent", dir), "No model script.*absent")
   expect_error(model_unidentifiable_pattern("none", dir),   "none.*does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN")
   expect_error(model_unidentifiable_pattern("num", dir),    "num.*single character string")
   expect_error(model_unidentifiable_pattern("vec", dir),    "vec.*single character string")
   expect_error(model_unidentifiable_pattern("empty", dir),  "empty.*must not be the empty string")
   expect_error(model_unidentifiable_pattern("twice", dir),  "twice.*more than once")
-  expect_error(model_unidentifiable_pattern("broken", dir), "broken.*cannot be parsed")
+  expect_error(model_unidentifiable_pattern("broken", dir), "broken.*cannot be parsed.*broken[.]R")
   expect_error(model_unidentifiable_pattern("rhsboom", dir), "rhsboom.*failed to evaluate.*rhs-boom")
   expect_error(model_unidentifiable_pattern("rhsglobal", dir), "rhsglobal.*failed to evaluate")
-  expect_error(model_unidentifiable_pattern("nomodel", dir), "nomodel.*does not define MODEL_NAME")
-  expect_error(model_unidentifiable_pattern("mismatch", dir), "mismatch.*MODEL_NAME is \"other\"")
-  expect_error(model_unidentifiable_pattern("twiceName", dir), "twiceName.*MODEL_NAME is assigned more than once")
   expect_no_warning(expect_error(model_unidentifiable_pattern("badre", dir), "badre.*not a valid regex"))
 
   # nothing in the script is executed: side effects, failing calls and config overrides are inert
@@ -338,7 +335,8 @@ test_that("every model script defining build_model declares a valid STRUCTURAL_U
     scripts <- unlist(lapply(dirs, list.files, pattern = "[.]R$", full.names = TRUE))
     defines <- Filter(function(f) any(grepl("^build_model[[:space:]]*<-[[:space:]]*function", readLines(f, warn = FALSE))), scripts)
     problems <- vapply(defines, function(f) {
-      tryCatch({ model_unidentifiable_pattern(tools::file_path_sans_ext(basename(f)), dirname(f)); "" },
+      declared <- read_top_level(parse(f, keep.source = FALSE), "MODEL_NAME")$value
+      tryCatch({ model_unidentifiable_pattern(declared, dirname(f)); "" },
                error = conditionMessage)
     }, character(1))
     problems[nzchar(problems)]
@@ -356,4 +354,9 @@ build_model <- function(data, n_chains) NULL",
   found <- undeclared(dir)
   expect_named(found, file.path(dir, "forgot.R"))
   expect_match(found[[1]], "does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN")
+  # two scripts declaring the same MODEL_NAME are caught by the scan
+  writeLines("MODEL_NAME <- 'fine'
+STRUCTURAL_UNIDENTIFIABLE_PATTERN <- NA_character_
+build_model <- function(data, n_chains) NULL", file.path(dir, "fine_copy.R"))
+  expect_match(undeclared(dir)[[file.path(dir, "fine.R")]], "more than one script")
 })

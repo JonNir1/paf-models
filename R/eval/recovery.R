@@ -20,8 +20,9 @@
 #' Non-interactive, tolerating missing pairs:
 #'   Rscript -e "ALLOW_PARTIAL_RECOVERY <- TRUE; source('R/eval/recovery.R')"
 #' Model scripts are parsed, not executed, for their STRUCTURAL_UNIDENTIFIABLE_PATTERN
-#' (top-level assignment, self-contained RHS; MODEL_NAME must equal the file name) in
-#' MODEL_SCRIPT_DIR (default R/fit); pre-set it to override. Never downgraded
+#' (top-level assignment, self-contained RHS). Each script is found by its declared
+#' MODEL_NAME (any file name, unique within the directory) in MODEL_SCRIPT_DIR
+#' (default R/fit); pre-set it to override. Never downgraded
 #' by ALLOW_PARTIAL_RECOVERY.
 #' =============================================================================
 

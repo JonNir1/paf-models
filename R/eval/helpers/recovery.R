@@ -286,47 +286,30 @@ add_coverage95 <- function(subj_stats, points) {
 
 #' Read a model's structural-unidentifiability declaration from its script.
 #'
-#' Parses `<script_dir>/<model_name>.R` WITHOUT executing it, and evaluates only
-#' the right-hand side of its top-level `STRUCTURAL_UNIDENTIFIABLE_PATTERN`
-#' assignment (`<-` or `=`) in a fresh environment whose parent is `baseenv()`.
-#' The right-hand side must therefore be self-contained (a literal or base-R
-#' expression); nothing else in the script runs, so the caller's globals,
-#' config and mocks are untouched. The script's top-level `MODEL_NAME` must
-#' equal `model_name` (the eval and the recovery CLI locate scripts by name).
-#' Errors: missing script, unparsable script, missing or repeated declaration,
-#' failing right-hand side, missing or mismatching `MODEL_NAME`, a value that is
-#' not a length-1 character, the empty string (matches every parameter), or an
-#' invalid regex. There is no default pattern.
+#' Locates the script by its declared `MODEL_NAME` (`find_model_script()`, any
+#' file name; names must be unique in `script_dir`) and parses it WITHOUT
+#' executing it, evaluating only the right-hand side of its top-level
+#' `STRUCTURAL_UNIDENTIFIABLE_PATTERN` assignment (`<-` or `=`) in a fresh
+#' environment whose parent is `baseenv()`. The right-hand side must therefore
+#' be self-contained (a literal or base-R expression); nothing else in the
+#' script runs, so the caller's globals, config and mocks are untouched.
+#' Errors: no (or several) script declaring `model_name`, missing or repeated
+#' declaration, failing right-hand side, a value that is not a length-1
+#' character, the empty string (matches every parameter), or an invalid regex.
+#' There is no default pattern.
 #'
-#' @param model_name Model name (script basename, no extension).
+#' @param model_name Declared `MODEL_NAME` of the model.
 #' @param script_dir Directory holding the model scripts (default MODEL_SCRIPT_DIR).
 #' @return Length-1 character: a valid non-empty regex, or NA_character_.
 model_unidentifiable_pattern <- function(model_name, script_dir = MODEL_SCRIPT_DIR) {
-  path <- file.path(script_dir, paste0(model_name, ".R"))
+  path <- find_model_script(model_name, script_dir)
   fail <- function(why) stop(sprintf("Model '%s' (%s): %s", model_name, path, why), call. = FALSE)
-  if (!file.exists(path)) fail("model script not found")
 
-  exprs <- tryCatch(parse(path, keep.source = FALSE),
-                    error = function(e) fail(sprintf("script cannot be parsed (%s)", conditionMessage(e))))
-  # list(value=) of the single top-level `name <- rhs` / `name = rhs`; NULL if absent.
-  declared <- function(name) {
-    rhs <- list()
-    for (ex in exprs) {
-      if (is.call(ex) && (identical(ex[[1]], quote(`<-`)) || identical(ex[[1]], quote(`=`))) &&
-          identical(ex[[2]], as.name(name))) rhs <- c(rhs, list(ex[[3]]))
-    }
-    if (length(rhs) > 1L) fail(sprintf("%s is assigned more than once at top level (ambiguous declaration)", name))
-    if (length(rhs) == 0L) return(NULL)
-    list(value = tryCatch(eval(rhs[[1]], new.env(parent = baseenv())),
-                          error = function(e) fail(sprintf("right-hand side of %s failed to evaluate (%s); it must be self-contained",
-                                                           name, conditionMessage(e)))))
-  }
-
-  pattern <- declared("STRUCTURAL_UNIDENTIFIABLE_PATTERN")
-  if (is.null(pattern)) {
+  declaration <- read_top_level(parse(path, keep.source = FALSE), "STRUCTURAL_UNIDENTIFIABLE_PATTERN", fail)
+  if (is.null(declaration)) {
     fail("script does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN as a top-level assignment (a regex string, or NA_character_ if none)")
   }
-  pattern <- pattern$value
+  pattern <- declaration$value
   if (!is.character(pattern) || length(pattern) != 1L) {
     fail("STRUCTURAL_UNIDENTIFIABLE_PATTERN must be a single character string or NA_character_")
   }
@@ -337,13 +320,6 @@ model_unidentifiable_pattern <- function(model_name, script_dir = MODEL_SCRIPT_D
     suppressWarnings(tryCatch(grepl(pattern, ""), error = function(e) {
       fail(sprintf("STRUCTURAL_UNIDENTIFIABLE_PATTERN is not a valid regex (%s)", conditionMessage(e)))
     }))
-  }
-
-  script_name <- declared("MODEL_NAME")
-  if (is.null(script_name)) fail("script does not define MODEL_NAME as a top-level assignment")
-  if (!identical(script_name$value, model_name)) {
-    fail(sprintf("MODEL_NAME is %s but the script file is named '%s'",
-                 deparse(script_name$value), model_name))
   }
   pattern
 }
