@@ -268,4 +268,5 @@ if (length(args) == 0L) {
 
   log_msg(sprintf("===== %s: %s =====", recovery_name, result),
           log_file, console_print = TRUE)
+  if (identical(result, "ERROR")) quit(status = 1)
 }

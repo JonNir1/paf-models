@@ -234,4 +234,5 @@ if (length(args) == 0L) {
 
   log_msg(sprintf("===== %s_ppc%s: %s =====", ppc_name, suffix, result),
           log_file, console_print = TRUE)
+  if (identical(result, "ERROR")) quit(status = 1)
 }
