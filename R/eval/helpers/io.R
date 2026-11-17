@@ -31,7 +31,7 @@ latest_dated_file <- function(dir, pattern) {
   latest <- files[dates == max(dates, na.rm = TRUE) & !is.na(dates)]
   if (length(latest) > 1L)
     stop(sprintf("Ambiguous latest file: %s share the latest date prefix.",
-                 paste(basename(latest), collapse = ", ")))
+                 paste(sort(basename(latest), method = "radix"), collapse = ", ")))
   latest
 }
 
