@@ -37,12 +37,12 @@ TEST_LEVEL=3 Rscript __tests__/run_tests.R       # level 3: + fit smoke tests (C
 
 | Tier | Dir | Scope | Cost | When |
 |---|---|---|---|---|
-| L1 | `__tests__/helpers/` | Unit tests with no EMC2 installed. EMC2 is reached only through the `emc_*` wrappers in `R/helpers/emc2_api.R`, which the tests mock (`local_mocks()` in `__tests__/fixtures/common.R`). Covers the pure helpers, `load_data()` end to end on synthetic raw CSVs, config invariants, naming/I/O, and the fit/PPC/recovery orchestration (`fit_to_convergence` loop, `run_ppc_simulation`, `run_recovery_fit`, `build_lba_model` wiring). | seconds | Every push/PR (CI auto). |
+| L1 | `__tests__/helpers/` | Unit tests with no EMC2 installed. EMC2 is reached only through the `emc_*` wrappers in `R/helpers/emc2_api.R`, which the tests mock (`local_mocks()` in `__tests__/fixtures/common.R`). Covers the pure helpers, `load_data()` end to end on synthetic raw CSVs, config invariants, naming/I/O, and the fit/PPC/recovery orchestration (`fit_to_convergence` loop, `run_ppc_simulation`, `run_recovery_fit`, `build_lba_model` wiring). | seconds | Every push/PR (CI auto) + manual dispatch. |
 | L2 | `__tests__/models/` | Real EMC2, no MCMC. `test_recovery_build.R` builds the synthetic `test_model` **once** (dominated by `EMC2::design()`) and checks the build + simulate step. `test_fitted_fixture.R` runs on the committed tiny fit `__tests__/fixtures/test_model_fitted.rds` (an EMC2 3.5.0 fit) plus the legacy 3.4.1 fit `test_model_fitted_3.4.1.rds`: EMC2 object shapes (`check()`, `get_pars()`, prior), per-trial log-lik vs EMC2's own likelihood (on both fits, proving a 3.4.1 fit needs no migration), GoF DIC/BPIC identities, the LOO table and comparison end to end, `recovery_emc2_rows`, PPC simulation. | minutes | Nightly + manual dispatch (CI). |
 | L3 | `__tests__/fit/` | End-to-end smoke tests with tiny MCMC (n_chains=2), driven by the synthetic model. One file (`test_fit_smoke.R`): **Smoke A/B** = `fit_to_convergence` (fresh + resume), **Smoke C** = recovery (incl. the rebuild on simulated data). | ~1 h | Weekly (Sun 04:00 UTC) + manual dispatch (CI). |
 
 CI (GitHub Actions):
-- L1 runs automatically on every push and on PRs to `main` (`.github/workflows/test.yml`).
+- L1 runs automatically on every push and on PRs to `main`, and on manual dispatch: Actions tab → "Tests" → "Run workflow" (`.github/workflows/test.yml`).
 - L2 is **not** per-push (intrinsically slow: `EMC2::design()` is ~minutes per model). It runs nightly (03:00 UTC) and on manual dispatch: Actions tab → "Build Tests" → "Run workflow" (`.github/workflows/build.yml`).
 - L3 runs weekly (Sundays 04:00 UTC, to catch upstream EMC2 changes; EMC2 is not pinned) and on manual dispatch: Actions tab → "Smoke Tests" → "Run workflow" (`.github/workflows/smoke.yml`).
 - Scheduled workflows run only from the default branch, and GitHub disables them after 60 days without repo activity; re-enable with `gh workflow enable <file>.yml` or the "Enable workflow" button in the Actions tab.
@@ -171,7 +171,7 @@ Other:
 - `__tests__/helpers/` - L1 unit tests (no EMC2)
 - `__tests__/models/` - L2 real-EMC2 tests: `test_recovery_build.R` (one build) + `test_fitted_fixture.R` (on the fitted fixture)
 - `__tests__/fit/test_fit_smoke.R` - L3 smoke tests on the synthetic model: Smoke A/B (`fit_to_convergence` fresh + resume), Smoke C (recovery). CI weekly + manual dispatch. Bounded `stop_criteria` (`max_gd=Inf`) makes all EMC2 phases exit after a fixed iteration count.
-- `.github/workflows/test.yml` - CI: L1 unit tests (auto on push/PR to `main`)
+- `.github/workflows/test.yml` - CI: L1 unit tests (auto on push/PR to `main` + manual dispatch)
 - `.github/workflows/build.yml` - CI: L2 build tests (nightly 03:00 UTC + manual dispatch)
 - `.github/workflows/smoke.yml` - CI: L3 smoke tests (weekly + manual dispatch)
 - `.github/r-deps-level1.txt` / `r-deps-level2.txt` - package lists used by CI cache keys

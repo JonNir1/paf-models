@@ -73,7 +73,7 @@ paf-models/
 |
 |- .github/
 |   |- workflows/
-|   |   |- test.yml              # CI: L1 unit tests on every push / PR to main (fast)
+|   |   |- test.yml              # CI: L1 unit tests on every push / PR to main (fast) + manual dispatch
 |   |   |- build.yml             # CI: L2 build tests, nightly (03:00 UTC) + manual dispatch
 |   |   |- smoke.yml             # CI: L3 smoke tests, weekly + manual dispatch
 |   |- r-deps-level1.txt         # Package list for L1 cache key
