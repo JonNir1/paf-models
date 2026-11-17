@@ -11,8 +11,11 @@ A previous analysis (the `model1`–`model5` LBA family, evaluated through step 
 **R** (`EMC2`, `dplyr`, `readr`, `tools`, `testthat`)
 
 ```r
-install.packages(c("EMC2", "dplyr", "readr", "tools", "testthat"))
+install.packages(c("EMC2", "dplyr", "readr", "tools", "testthat", "loo"))
 ```
+
+The pipeline is verified on EMC2 3.5.0 (3.4.1-made fits also work unchanged; never run
+`EMC2::update2version()` on them). EMC2 has no LOO/WAIC, hence `loo`.
 
 **Data**: `data/` is gitignored. A fresh clone has no data. You need to supply:
 - `data/exp1/Exp1_clean.csv`
@@ -99,7 +102,8 @@ Python data pipeline and exploratory notebooks (one dependency chain rooted at `
 Define a model as a thin script that returns an EMC2 object from `build_lba_model()` (the shared
 factory in `R/fit/helpers/build_model.R`). It only needs to supply what differs between variants -
 the `v` and `B` formulas plus any model-specific prior entries - and define `MODEL_NAME` and a
-`build_model(data, n_chains)` function. `__tests__/fixtures/test_model.R` is a minimal working
+`build_model(data, n_chains)` function, plus `STRUCTURAL_UNIDENTIFIABLE_PATTERN` (a regex for
+parameters the design cannot identify, or `NA_character_` if none; read by the recovery eval without executing the script, so it must be a top-level assignment with a self-contained right-hand side, and the script is found by its declared `MODEL_NAME`, so the file may have any name but names must be unique within `R/fit/`). `__tests__/fixtures/test_model.R` is a minimal working
 template; the retired `model1`–`model5` definitions on the `analysis1` branch are fuller examples.
 
 ---
@@ -163,8 +167,9 @@ TEST_LEVEL=3 Rscript __tests__/run_tests.R       # L3: + smoke tests (tiny end-t
 **Tiered testing.** L1 (fast per-push gate, no EMC2) covers the pure helpers, `load_data()` end to
 end on synthetic raw CSVs, config invariants, and the fit/PPC/recovery orchestration with EMC2
 mocked through the `emc_*` wrappers. L2 (real EMC2, no MCMC) builds the synthetic `test_model` once
-and runs checks on a committed tiny fit (`__tests__/fixtures/test_model_fitted.rds`): EMC2 object
-shapes, per-trial log-likelihood vs EMC2's own, and PPC simulation. Because `EMC2::design()` is
+and runs checks on a committed tiny EMC2 3.5.0 fit (`__tests__/fixtures/test_model_fitted.rds`, plus a
+legacy 3.4.1 fit kept to show old fits need no migration): EMC2 object shapes, per-trial
+log-likelihood vs EMC2's own, GoF/LOO and recovery-statistic checks, and PPC simulation. Because `EMC2::design()` is
 intrinsically slow (~minutes), L2 runs nightly + on manual dispatch rather than per-push. L3
 (`test_fit_smoke.R`, weekly + manual dispatch) drives the synthetic model end-to-end with tiny MCMC: Smoke A/B
 (`fit_to_convergence` fresh + resume) and Smoke C (recovery). When adding a new pipeline, add the

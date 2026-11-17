@@ -5,9 +5,14 @@
 #' (every fitted model discovered in MODELS_FIT_DIR):
 #'
 #'   DIC / BPIC  -- via EMC2::compare(); fast, always recomputed.
-#'                  DIC reported only; BPIC for screening.
-#'   PSIS-LOO-CV -- primary decision criterion; slow, mtime-cached.
-#'   WAIC        -- confirmatory; computed alongside LOO.
+#'                  DIC reported only; BPIC for screening. Both IC types are
+#'                  reported (_conditional, _joint). mean_LL_joint = meanD_joint / -2
+#'                  includes the group-level density, so it is NOT a data
+#'                  log-likelihood (kept only as the historical mean_LL definition).
+#'   PSIS-LOO-CV -- primary decision criterion; slow, cached (mtime + settings key).
+#'   WAIC        -- confirmatory; computed alongside LOO. The per-model LOO/WAIC table
+#'                  is written first; the pairwise comparison (which requires the
+#'                  same subjects and trial counts) follows and may fail on its own.
 #'
 #' No Bayes Factors (priors not grounded enough to trust marginal-likelihood
 #' ratios -- pre-registered).
@@ -30,7 +35,7 @@ library(loo)
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/eval/eval_config.R")        # transitively: utils.R -> config.R
-source_root("R/eval/helpers/io.R")         # load_model, save_eval_table, newer_than_inputs
+source_root("R/eval/helpers/io.R")         # load_model, save_eval_table, eval_cache_fresh
 source_root("R/eval/helpers/gof.R")        # all GoF helpers + create_* functions
 source_root("R/eval/helpers/plot.R")       # plot_pareto_k, plot_loo_comparison, save_ggplot_png
 
@@ -57,13 +62,21 @@ print(DIC_BPIC_TABLE)
 
 
 # ------------------------------
-# LOO / WAIC  (slow; mtime-cached)
+# LOO / WAIC  (slow; cached on mtime + settings key)
 
 LOO_CORES <- as.integer(Sys.getenv("PAF_LOO_CORES", unset = "1"))
 loo_cache  <- file.path(LOO_DIR, "loo_table.rds")
 
-if (newer_than_inputs(loo_cache, MODEL_PATHS)) {
-  message("LOO cache is current (newer than all model fits); loading from disk.")
+loo_key <- list(models = MODEL_NAMES,
+                files = basename(MODEL_PATHS),
+                max_samples = formals(create_loo_table)$max_samples,
+                pareto = c(PARETO_K_THRESHOLD, PARETO_K_BAD_FRAC),
+                r_eff = "per-chain stride",
+                emc2 = emc_version(),
+                loo = as.character(utils::packageVersion("loo")))
+
+if (eval_cache_fresh(loo_cache, MODEL_PATHS, loo_key)) {
+  message("LOO cache is current (newer than all model fits, same settings); loading from disk.")
   LOO_TABLE <- readRDS(loo_cache)
 } else {
   message(sprintf(
@@ -74,12 +87,16 @@ if (newer_than_inputs(loo_cache, MODEL_PATHS)) {
   LOO_TABLE <- create_loo_table(MODEL_LIST, cores = LOO_CORES)
   save_eval_table(LOO_TABLE, "loo_table", dir = LOO_DIR)
 
-  loo_objs        <- lapply(MODEL_NAMES, function(nm)
+  loo_objs       <- lapply(MODEL_NAMES, function(nm)
     readRDS(file.path(LOO_DIR, paste0(nm, "_loo.rds"))))
   names(loo_objs) <- MODEL_NAMES
 
-  LOO_COMPARISON  <- make_loo_comparison_df(loo_objs)
-  save_eval_table(LOO_COMPARISON, "loo_comparison", dir = LOO_DIR)
+  if (length(loo_objs) >= 2L) {
+    LOO_COMPARISON <- make_loo_comparison_df(loo_objs)
+    save_eval_table(LOO_COMPARISON, "loo_comparison", dir = LOO_DIR)
+  } else {
+    message("Fewer than two models: skipping the LOO comparison and its plot.")
+  }
 
   pareto_df <- do.call(rbind, lapply(MODEL_NAMES, function(nm) {
     data.frame(model = nm,
@@ -88,8 +105,12 @@ if (newer_than_inputs(loo_cache, MODEL_PATHS)) {
   }))
   save_ggplot_png(plot_pareto_k(pareto_df),
                   file.path(LOO_DIR, "pareto_k_per_model.png"), height = 6)
-  save_ggplot_png(plot_loo_comparison(LOO_COMPARISON),
-                  file.path(LOO_DIR, "loo_comparison.png"), width = 7, height = 5)
+  if (length(loo_objs) >= 2L)
+    save_ggplot_png(plot_loo_comparison(LOO_COMPARISON),
+                    file.path(LOO_DIR, "loo_comparison.png"), width = 7, height = 5)
+
+  # Keyed last: a failed comparison must not leave a cache that looks current.
+  save_eval_table(LOO_TABLE, "loo_table", dir = LOO_DIR, cache_key = loo_key)
 }
 
 print(LOO_TABLE)

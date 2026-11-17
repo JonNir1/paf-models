@@ -9,6 +9,7 @@
 library(testthat)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
+source(file.path(ROOT, "R", "utils.R"))
 source(file.path(ROOT, "R", "eval", "helpers", "convergence.R"))
 source(file.path(ROOT, "R", "eval", "helpers", "recovery.R"))
 source(file.path(ROOT, "__tests__", "fixtures", "common.R"))   # local_mocks()
@@ -68,6 +69,36 @@ test_that("add_convergence_verdict: Rhat and ESS verdicts split; combined is the
   expect_equal(out$verdict_rhat, c("marginal", "pass"))
   expect_equal(out$verdict_ess,  c("pass", "fail"))
   expect_equal(out$verdict,      c("marginal", "fail"))
+})
+
+test_that("convergence table + verdict: non-finite or empty diagnostics fail gated groups and read NA, not +-Inf, when descriptive", {
+  blk <- function(rhat, ess) matrix(c(rhat, ess), nrow = 2, byrow = TRUE)
+  ok  <- list(s1 = blk(1.01, 900))
+  chk <- list(
+    partial_na = list(mu = blk(c(1.01, NA), c(900, 900)), alpha = ok,
+                      sigma2 = blk(c(NA, NA), c(NA, NA)), correlation = blk(c(Inf, Inf), c(Inf, Inf))),
+    all_na     = list(mu = blk(c(NA, NA), c(NA, NA)), alpha = ok,
+                      sigma2 = blk(1.3, 100), correlation = blk(1.4, 50)),
+    empty      = list(mu = blk(1.01, 900), alpha = list(),
+                      sigma2 = blk(1.3, 100), correlation = blk(1.4, 50))
+  )
+  local_mocks(emc_check = function(model, ...) chk[[model]])
+  tbl <- create_convergence_table(setNames(as.list(names(chk)), names(chk)))
+  tbl <- add_convergence_verdict(tbl, max_rhat_mu = TH$rhat_mu, min_ess_mu = TH$ess_mu,
+                                 max_rhat_alpha = TH$rhat_alpha, min_ess_alpha = TH$ess_alpha)
+  verdict <- function(m, g) tbl$verdict[tbl$model == m & tbl$group == g]
+
+  expect_equal(verdict("partial_na", "mu"), "fail")      # one NA Rhat spoils an otherwise clean block
+  expect_equal(verdict("partial_na", "alpha"), "pass")
+  expect_equal(verdict("all_na", "mu"), "fail")
+  expect_equal(verdict("empty", "alpha"), "fail")        # a gated block with no values never passes
+  expect_equal(verdict("empty", "mu"), "pass")
+
+  expect_true(all(tbl$verdict[tbl$group %in% c("sigma2", "correlation")] == "descriptive"))
+  desc <- tbl[tbl$model == "partial_na" & tbl$group %in% c("sigma2", "correlation"), ]
+  expect_true(all(is.na(desc$max_rhat)) && all(is.na(desc$min_ess)))   # not -Inf / Inf
+  expect_equal(desc$n_nonfinite_rhat, c(2L, 2L))
+  expect_false(any(is.infinite(unlist(tbl[sapply(tbl, is.numeric)]))))
 })
 
 test_that("metric_verdict: descriptive for sigma2/correlation, NA for unknown groups, error on bad metric", {
@@ -139,6 +170,30 @@ test_that("recovery_subject_rows aligns estimates to truth by subject and parame
   expect_error(recovery_subject_rows(NULL, true_alpha, "m", 1L), "no overlapping")
 })
 
+test_that("align_true_alpha re-orders by name and refuses mismatched subjects or parameters; add_coverage95 only appends", {
+  true_alpha <- matrix(1:9, nrow = 3, dimnames = list(c("s1", "s2", "s3"), c("v", "B", "t0")))
+  est <- function(rows, cols) matrix(0, length(rows), length(cols), dimnames = list(rows, cols))
+
+  out <- align_true_alpha(true_alpha, est(c("s3", "s1", "s2"), c("t0", "v")))   # shuffled; B is extra
+  expect_equal(out, true_alpha[c("s3", "s1", "s2"), c("t0", "v")])
+  expect_equal(dim(align_true_alpha(true_alpha, est(c("s2", "s1", "s3"), "B"))), c(3L, 1L))
+
+  expect_error(align_true_alpha(unname(true_alpha), est("s1", "v")), "needs subject")
+  expect_error(align_true_alpha(true_alpha, est(c("s1", "s2"), "v")), "subjects differ")
+  expect_error(align_true_alpha(true_alpha, est(c("s1", "s2", "s3", "s9"), "v")), "subjects differ")
+  expect_error(align_true_alpha(true_alpha, est(c("s1", "s2", "s3"), c("v", "A"))), "missing from true_alpha: A")
+
+  stats <- data.frame(model = c("m", "m", "n"), parameter = c("v", "B", "v"), n = 1:3, rmse = c(.3, .2, .1),
+                      stringsAsFactors = FALSE)
+  pts <- data.frame(model = c("m", "m", "m", "m", "n"), parameter = c("B", "B", "v", "v", "v"),
+                    inside = c(TRUE, FALSE, TRUE, TRUE, FALSE))
+  got <- add_coverage95(stats, pts)
+  expect_identical(got[names(stats)], stats)
+  expect_equal(got$coverage95, c(100, 50, 0))
+  expect_true(is.na(add_coverage95(rbind(stats, data.frame(model = "z", parameter = "v", n = 0L, rmse = NA)),
+                                   pts)$coverage95[4]))
+})
+
 test_that("recovery_subject_stats pools sims per (model, parameter) with closed-form RMSE and r", {
   pts <- data.frame(model = "m", parameter = rep(c("v", "B"), c(4, 2)),
                     sim = c(1, 1, 2, 2, 1, 2),
@@ -159,16 +214,43 @@ test_that("recovery_subject_stats pools sims per (model, parameter) with closed-
 
 PAT <- "^v_StimulusAtLoc[DE](:SearchDifficulty(MIXED|DIFFICULT))?$"
 
-test_that("flag_identifiable marks the StimulusAtLoc x SearchDifficulty block FALSE", {
+test_that("flag_identifiable applies each model's own pattern; NA = all identifiable; stale pattern errors", {
   pars <- c("v", "v_PrevTargetAtLocTRUE", "B",
             "v_StimulusAtLocD", "v_StimulusAtLocE",
             "v_StimulusAtLocD:SearchDifficultyMIXED",
             "v_StimulusAtLocE:SearchDifficultyDIFFICULT")
-  flag <- flag_identifiable(pars, pattern = PAT)
-  expect_equal(flag, c(TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE))
+  one <- rep("m1", length(pars))
+  expect_equal(flag_identifiable(pars, one, c(m1 = PAT)),
+               c(TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE))
+  expect_true(all(flag_identifiable(pars, one, c(m1 = NA_character_))))
+
+  # two models stacked: m1 uses PAT, m2 only flags "B"
+  two <- flag_identifiable(c(pars, "v", "B"), c(one, "m2", "m2"),
+                           c(m1 = PAT, m2 = "^B$"))
+  expect_equal(two, c(TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE))
+
+  # interleaved rows with shared names: each row follows its own model only, order kept
+  mix_par <- c("B", "v", "B", "v")
+  mix_mod <- c("m2", "m1", "m1", "m2")
+  expect_equal(flag_identifiable(mix_par, mix_mod, c(m1 = "^v$", m2 = NA_character_)),
+               c(TRUE, FALSE, TRUE, TRUE))
+  expect_equal(flag_identifiable(mix_par, mix_mod, c(m1 = NA_character_, m2 = "^B$")),
+               c(FALSE, TRUE, TRUE, TRUE))
+
+  expect_error(flag_identifiable(pars, one, c(m1 = "^nope$")), "m1.*matches none")
+  expect_error(flag_identifiable(pars, one, c(other = PAT)), "No unidentifiability pattern for model 'm1'")
+
+  # duplicated / missing names in patterns are ambiguous
+  expect_error(flag_identifiable(pars, one, c(m1 = PAT, m1 = NA_character_)), "duplicated.*m1")
+  expect_error(flag_identifiable(pars, one, c(PAT)), "name")
+  expect_error(flag_identifiable(pars, one, stats::setNames(PAT, NA_character_)), "name")
+  expect_error(flag_identifiable(pars, one, stats::setNames(PAT, "")), "name")
+
+  # a pattern matching every parameter of its model leaves no core
+  expect_error(flag_identifiable(pars, one, c(m1 = ".*")), "m1.*matches all of its parameters")
 })
 
-test_that("recovery_model_summary computes full and core means", {
+test_that("recovery_model_summary computes full and core means, per-model patterns", {
   ss <- data.frame(
     model     = "model4",
     parameter = c("v", "v_StimulusAtLocD", "v_StimulusAtLocE:SearchDifficultyDIFFICULT"),
@@ -177,9 +259,104 @@ test_that("recovery_model_summary computes full and core means", {
     r         = c(0.9, -0.3, -0.7),
     stringsAsFactors = FALSE
   )
-  out <- recovery_model_summary(ss, pattern = PAT)
+  out <- recovery_model_summary(ss, c(model4 = PAT))
   expect_equal(out$n_all, 3)
   expect_equal(out$n_core, 1)              # only "v" survives
   expect_equal(out$r_core, 0.9)            # core mean = just v
   expect_equal(round(out$r_all, 4), round(mean(c(0.9, -0.3, -0.7)), 4))
+
+  ss2 <- rbind(ss, transform(ss, model = "model_na"))
+  out2 <- recovery_model_summary(ss2, c(model4 = PAT, model_na = NA_character_))
+  expect_equal(out2$n_core[match(c("model4", "model_na"), out2$model)], c(1, 3))   # model4 flagged, model_na untouched
+  na_row <- out2[out2$model == "model_na", ]
+  expect_equal(na_row$rmse_core, na_row$rmse_all)   # NA pattern: core == full exactly
+  expect_equal(na_row$r_core, na_row$r_all)
+
+  # changing model_na's pattern leaves model4's stats untouched, and vice versa
+  out3 <- recovery_model_summary(ss2, c(model4 = PAT, model_na = "^v$"))
+  expect_equal(out3[out3$model == "model4", ], out2[out2$model == "model4", ])
+  expect_equal(out3$rmse_core[out3$model == "model_na"], mean(c(0.9, 8.0)))   # hand computation on the 2 rows left
+
+  expect_error(recovery_model_summary(ss, c(model4 = ".*")), "model4.*matches all of its parameters")
+})
+
+test_that("model_unidentifiable_pattern reads the script's declaration in isolation and rejects bad ones", {
+  fixtures <- file.path(ROOT, "__tests__", "fixtures")
+  leaks <- function() c("build_model", "MODEL_NAME") %in% ls(globalenv(), all.names = TRUE)
+  before <- leaks()
+  expect_identical(model_unidentifiable_pattern("test_model", fixtures), NA_character_)
+  expect_identical(leaks(), before)
+  expect_false(exists("build_model", envir = environment(), inherits = FALSE))
+
+  dir <- withr::local_tempdir()
+  write_script <- function(name, body) {   # every script gets a matching MODEL_NAME unless `body` brings its own
+    if (!any(grepl("MODEL_NAME", body, fixed = TRUE))) body <- c(sprintf("MODEL_NAME <- '%s'", name), body)
+    writeLines(body, file.path(dir, paste0(name, ".R")))
+  }
+  decl <- function(rhs) paste("STRUCTURAL_UNIDENTIFIABLE_PATTERN <-", rhs)
+  write_script("ok",     decl("'^v_x$'"))
+  write_script("eq",     c("MODEL_NAME = 'eq'", "STRUCTURAL_UNIDENTIFIABLE_PATTERN = paste0('^v', '_y$')"))
+  write_script("none",   "MODEL_NAME <- 'none'")
+  write_script("num",    decl("1"))
+  write_script("vec",    decl("c('a', 'b')"))
+  write_script("badre",  decl("'(['"))
+  write_script("empty",  decl("''"))
+  write_script("twice",  c(decl("'a'"), decl("NA_character_")))
+  write_script("broken", c(decl("'a'"), "this is ( not R"))
+  write_script("rhsboom", decl("stop('rhs-boom')"))
+  write_script("rhsglobal", decl("some_global_helper()"))
+  writeLines(c("MODEL_NAME <- 'declared_name'", decl("'^v_named$'")), file.path(dir, "differently_named_file.R"))
+  expect_equal(model_unidentifiable_pattern("ok", dir), "^v_x$")
+  expect_equal(model_unidentifiable_pattern("eq", dir), "^v_y$")
+  expect_equal(model_unidentifiable_pattern("declared_name", dir), "^v_named$")   # found by MODEL_NAME, not file name
+  expect_error(model_unidentifiable_pattern("absent", dir), "No model script.*absent")
+  expect_error(model_unidentifiable_pattern("none", dir),   "none.*does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN")
+  expect_error(model_unidentifiable_pattern("num", dir),    "num.*single character string")
+  expect_error(model_unidentifiable_pattern("vec", dir),    "vec.*single character string")
+  expect_error(model_unidentifiable_pattern("empty", dir),  "empty.*must not be the empty string")
+  expect_error(model_unidentifiable_pattern("twice", dir),  "twice.*more than once")
+  expect_error(model_unidentifiable_pattern("broken", dir), "broken.*cannot be parsed.*broken[.]R")
+  expect_error(model_unidentifiable_pattern("rhsboom", dir), "rhsboom.*failed to evaluate.*rhs-boom")
+  expect_error(model_unidentifiable_pattern("rhsglobal", dir), "rhsglobal.*failed to evaluate")
+  expect_no_warning(expect_error(model_unidentifiable_pattern("badre", dir), "badre.*not a valid regex"))
+
+  # nothing in the script is executed: side effects, failing calls and config overrides are inert
+  prior_value <- globalenv()$MAX_RHAT_MU
+  withr::defer(if (is.null(prior_value)) rm("MAX_RHAT_MU", envir = globalenv()) else assign("MAX_RHAT_MU", prior_value, envir = globalenv()))
+  assign("MAX_RHAT_MU", "sentinel", envir = globalenv())
+  write_script("inert", c("stop('boom')", "source('does_not_exist.R')", "MAX_RHAT_MU <- 99",
+                          decl("'^v_inert$'")))
+  expect_equal(model_unidentifiable_pattern("inert", dir), "^v_inert$")
+  expect_identical(get("MAX_RHAT_MU", envir = globalenv()), "sentinel")
+})
+
+test_that("every model script defining build_model declares a valid STRUCTURAL_UNIDENTIFIABLE_PATTERN", {
+  undeclared <- function(dirs) {
+    scripts <- unlist(lapply(dirs, list.files, pattern = "[.]R$", full.names = TRUE))
+    defines <- Filter(function(f) any(grepl("^build_model[[:space:]]*<-[[:space:]]*function", readLines(f, warn = FALSE))), scripts)
+    problems <- vapply(defines, function(f) {
+      declared <- read_top_level(parse(f, keep.source = FALSE), "MODEL_NAME")$value
+      tryCatch({ model_unidentifiable_pattern(declared, dirname(f)); "" },
+               error = conditionMessage)
+    }, character(1))
+    problems[nzchar(problems)]
+  }
+  expect_length(undeclared(c(file.path(ROOT, "R", "fit"), file.path(ROOT, "__tests__", "fixtures"))), 0L)
+
+  # the scan really fails for a model script that forgot the declaration
+  dir <- withr::local_tempdir()
+  writeLines("MODEL_NAME <- 'forgot'
+build_model <- function(data, n_chains) NULL", file.path(dir, "forgot.R"))
+  writeLines("MODEL_NAME <- 'fine'
+STRUCTURAL_UNIDENTIFIABLE_PATTERN <- NA_character_
+build_model <- function(data, n_chains) NULL",
+             file.path(dir, "fine.R"))
+  found <- undeclared(dir)
+  expect_named(found, file.path(dir, "forgot.R"))
+  expect_match(found[[1]], "does not define STRUCTURAL_UNIDENTIFIABLE_PATTERN")
+  # two scripts declaring the same MODEL_NAME are caught by the scan
+  writeLines("MODEL_NAME <- 'fine'
+STRUCTURAL_UNIDENTIFIABLE_PATTERN <- NA_character_
+build_model <- function(data, n_chains) NULL", file.path(dir, "fine_copy.R"))
+  expect_match(undeclared(dir)[[file.path(dir, "fine.R")]], "more than one script")
 })

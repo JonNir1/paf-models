@@ -5,7 +5,7 @@
 #' No MCMC refitting -- this is pure simulation from the posterior.
 #'
 #' For each call:
-#'   1. Load a previously-extended model (.rds from fit_extend/)
+#'   1. Load a previously-extended model (.rds from outputs/models/fit/)
 #'   2. Sample T sets of subject parameters directly from the posterior via
 #'      sample_posterior_alphas() -- no MVN approximation
 #'   3. For each draw, simulate a full dataset via make_data()
@@ -38,7 +38,7 @@ source_root("R/eval/eval_config.R")       # PPC_N_DRAWS, PPC_MODELS_DIR
 #' Given an already-loaded fitted model and template data, draws n_draws
 #' posterior predictive datasets and returns them as a list.
 #'
-#' @param extended_model  Loaded EMC2 model object (output of fit_extend).
+#' @param extended_model  Loaded EMC2 model object (output of fit_to_convergence).
 #' @param template_data   Filtered design-matrix data frame providing trial
 #'                         structure for make_data(). May be a subset for tests.
 #' @param ppc_name        Base name for the output .rds file (without date prefix).
@@ -101,8 +101,7 @@ run_ppc_simulation <- function(extended_model, template_data,
       }
     )
     if (isFALSE(sim_i)) {
-      n_failed <- n_failed + 1L
-      sim_list[[i]] <- NULL
+      n_failed <- n_failed + 1L   # slot i stays NULL: draw i always sits at index i
     } else {
       sim_list[[i]] <- sim_i
     }
@@ -191,6 +190,7 @@ if (length(args) == 0L) {
           log_file, console_print = TRUE)
   log_msg(sprintf("Output name: %s_ppc%s", ppc_name, suffix),
           log_file, console_print = TRUE)
+  log_msg(sprintf("EMC2 version: %s", emc_version()), log_file)
   if (!is.null(n_draws_override))
     log_msg(sprintf("Override: --n-draws %d", n_draws_override),
             log_file, console_print = TRUE)
@@ -233,4 +233,5 @@ if (length(args) == 0L) {
 
   log_msg(sprintf("===== %s_ppc%s: %s =====", ppc_name, suffix, result),
           log_file, console_print = TRUE)
+  if (identical(result, "ERROR")) quit(status = 1)
 }

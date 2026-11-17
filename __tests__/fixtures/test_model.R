@@ -11,13 +11,17 @@
 #'
 #' Defines both `build_model()` (the contract name expected by fit_cloud.R and
 #' run_recovery_fit) and a `build_test_model()` alias for readability in tests,
-#' plus MODEL_NAME.
+#' plus MODEL_NAME and STRUCTURAL_UNIDENTIFIABLE_PATTERN.
 #' =============================================================================
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/fit/helpers/build_model.R")
 
 MODEL_NAME <- "test_model"
+
+# NA: additive v formula and B ~ 1 (no SearchDifficulty term), so the partially
+# nested StimulusAtLoc x SearchDifficulty block does not exist; all parameters are identifiable.
+STRUCTURAL_UNIDENTIFIABLE_PATTERN <- NA_character_
 
 build_model <- function(data, n_chains = 2) {
   build_lba_model(

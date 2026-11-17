@@ -4,7 +4,7 @@
 #' Everything needed to run, checkpoint, and drive a hierarchical LBA fit to
 #' convergence from a single entry point:
 #'   - get_core_args()        runtime parallelism configuration
-#'   - save_model()           date-stamped RDS serialisation
+#'   - save_model()           date-stamped RDS serialisation (EMC2-version stamped)
 #'   - check_convergence()    generic per-group Rhat / ESS diagnostics
 #'   - fit_to_convergence()   unified fit loop: warm up a fresh model OR resume a
 #'                            pre-fitted one, then sample to convergence with
@@ -48,7 +48,25 @@ get_core_args <- function(n_chains) {
 
 
 # -------------------------
-#' Save a fitted model as a date-stamped RDS file.
+#' Record the installed EMC2 version on a fitted model.
+#'
+#' "emc2_version" holds the current version; "emc2_version_history" the ordered
+#' unique versions the object was saved under (a pre-existing "emc2_version"
+#' without a history seeds it), so a fit resumed under another version keeps both.
+#' @param model An EMC2 object.
+#' @return `model` with both attributes set.
+stamp_emc2_version <- function(model) {
+  current <- emc_version()
+  history <- attr(model, "emc2_version_history")
+  if (is.null(history)) history <- attr(model, "emc2_version")
+  attr(model, "emc2_version_history") <- unique(c(as.character(history), current))
+  attr(model, "emc2_version")         <- current
+  model
+}
+
+
+# -------------------------
+#' Save a fitted model as a date-stamped RDS file (stamped with the EMC2 version).
 #' @param model       The fitted EMC2 model object.
 #' @param name        Model name (non-date portion of the filename).
 #' @param dir_path    Output directory; created recursively if absent.
@@ -62,7 +80,7 @@ save_model <- function(model, name, dir_path, date_prefix = NULL) {
   if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
   if (is.null(date_prefix)) date_prefix <- format(Sys.Date(), "%y%m%d")
   full_path <- file.path(dir_path, paste0(date_prefix, "_", name, ".rds"))
-  saveRDS(model, full_path)
+  saveRDS(stamp_emc2_version(model), full_path)
   return(full_path)
 }
 
@@ -72,22 +90,30 @@ save_model <- function(model, name, dir_path, date_prefix = NULL) {
 #' EMC2 labels every stored iteration with its stage in
 #' model[[chain]]$samples$stage (a character vector); the convergence floor
 #' (`num_samples`) is defined on the sample stage only, NOT on burn/adapt.
-#' Returns 0 for a freshly-built make_emc() object (no samples yet).
+#' Returns 0 for a freshly-built make_emc() object (no samples yet) and for
+#' NULL / empty input; any other malformed input errors instead of reading as 0.
 .sample_iters <- function(model) {
-  st <- tryCatch(model[[1L]]$samples$stage, error = function(e) NULL)
+  if (length(model) == 0L) return(0L)
+  st <- model[[1L]]$samples$stage
   if (is.null(st)) return(0L)
   as.integer(sum(st == "sample"))
 }
 
 
-# -------------------------
-#' Total stored iterations (all stages) in an EMC2 model.
-#' Used for logging only. Fails loudly if the expected structure is absent.
-.get_n_iter <- function(model) {
-  d <- tryCatch(dim(model[[1L]]$samples$theta_mu), error = function(e) NULL)
-  if (!is.null(d) && length(d) >= 1L)
-    return(as.integer(d[length(d)]))
-  return(0L)
+#' Stop unless `model` is a fitted EMC2 object with sample-stage iterations.
+#' Guards the resume entry so a malformed or unfitted object is never treated as
+#' fresh and re-warmed over the original file.
+#' @param model An object read back from a saved fit.
+#' @param source_desc Where it came from (for the error message).
+.validate_resume_model <- function(model, source_desc = "model") {
+  is_emc <- is.list(model) && length(model) > 0L && is.list(model[[1L]]) &&
+    is.character(model[[1L]]$samples$stage)
+  if (!is_emc)
+    stop(sprintf("Cannot resume: %s is not an EMC2 object with stored samples.", source_desc))
+  if (.sample_iters(model) == 0L)
+    stop(sprintf("Cannot resume: %s has no sample-stage iterations (use --model-script for a fresh fit).",
+                 source_desc))
+  invisible(model)
 }
 
 
@@ -108,28 +134,19 @@ save_model <- function(model, name, dir_path, date_prefix = NULL) {
 
 
 # -------------------------
-#' Pull max-Rhat and min-ESS for one EMC2 check() block.
-#' EMC2 3.4.1 shapes (empirically confirmed):
-#'   - mu / sigma2 / correlation: chk[[token]] is either a 2-row matrix
-#'     (row 1 = Rhat, row 2 = ESS) or a list whose [[token]] element is that
-#'     matrix (e.g. chk$mu$mu).
-#'   - alpha: chk$alpha is a PER-SUBJECT list of 2-row matrices.
-#' Verify against the installed EMC2 if a future selection changes shape.
+#' Pull max-Rhat and min-ESS (over finite values) for one EMC2 check() block
+#' (see check_block_values()). NA when the block has no finite value.
 .block_rhat_ess <- function(chk, token) {
-  blk <- chk[[token]]
-  if (is.null(blk))
-    stop(sprintf("check() returned no '%s' block; cannot gate convergence on it.", token))
+  finite_extreme <- function(x, fn) if (any(is.finite(x))) fn(x[is.finite(x)]) else NA_real_
+  list(max_rhat = finite_extreme(check_block_values(chk, token, 1), max),
+       min_ess  = finite_extreme(check_block_values(chk, token, 2), min))
+}
 
-  if (token == "alpha") {
-    rhat <- unlist(lapply(blk, function(x) x[1, ]))
-    ess  <- unlist(lapply(blk, function(x) x[2, ]))
-  } else {
-    m    <- if (is.matrix(blk)) blk else blk[[token]]
-    rhat <- m[1, ]
-    ess  <- m[2, ]
-  }
-  list(max_rhat = max(rhat, na.rm = TRUE),
-       min_ess  = min(ess,  na.rm = TRUE))
+
+#' TRUE when a check() block has values and every Rhat and ESS is finite.
+.block_all_finite <- function(chk, token) {
+  vals <- c(check_block_values(chk, token, 1), check_block_values(chk, token, 2))
+  length(vals) > 0L && all(is.finite(vals))
 }
 
 
@@ -150,6 +167,7 @@ save_model <- function(model, name, dir_path, date_prefix = NULL) {
 #'        alpha = list(max_rhat = 1.10, min_ess = 400)).
 #'   The `num_samples` element is ignored here (it gates the sample floor in
 #'   fit_to_convergence(), not Rhat/ESS).
+#'   A gated group with any non-finite Rhat/ESS (or none at all) is NOT converged.
 #' @return List with `converged` (overall boolean) and `groups` (per-group list
 #'   of max_rhat, min_ess, thresholds, and per-group `converged`).
 check_convergence <- function(model, convergence_criteria) {
@@ -174,7 +192,8 @@ check_convergence <- function(model, convergence_criteria) {
       stop(sprintf("convergence_criteria$%s must have numeric max_rhat and min_ess.", key))
 
     de        <- .block_rhat_ess(chk, tokens[[i]])
-    converged <- de$max_rhat < spec$max_rhat && de$min_ess > spec$min_ess
+    converged <- .block_all_finite(chk, tokens[[i]]) &&
+      de$max_rhat < spec$max_rhat && de$min_ess > spec$min_ess
     all_converged <- all_converged && converged
 
     groups[[key]] <- list(
@@ -340,6 +359,10 @@ fit_to_convergence <- function(emc,
   .validate_convergence_criteria(convergence_criteria)
   num_samples  <- convergence_criteria$num_samples
   n_samp_start <- .sample_iters(emc)
+  # EMC2 drops custom attributes when fitting, so remember the versions the
+  # incoming object was saved under and restore them before every stamp.
+  prior_versions <- attr(emc, "emc2_version_history")
+  if (is.null(prior_versions)) prior_versions <- attr(emc, "emc2_version")
   .validate_fit_args(n_samp_start, num_samples, max_tries, batch_size,
                      save_every, save_path, post_save_hook)
 
@@ -363,7 +386,8 @@ fit_to_convergence <- function(emc,
     if (is.null(save_path)) return(invisible(NULL))
     dir_path <- dirname(save_path)
     if (!dir.exists(dir_path)) dir.create(dir_path, recursive = TRUE)
-    saveRDS(model, save_path)
+    attr(model, "emc2_version_history") <- prior_versions
+    saveRDS(stamp_emc2_version(model), save_path)
     log_msg(sprintf("%s: saved %s", tag, save_path), log_file, console_print = TRUE)
     if (!is.null(post_save_hook)) post_save_hook(save_path, log_file)
   }

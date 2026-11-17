@@ -93,11 +93,13 @@ out_name  <- paste0(model_name, suffix)
 save_path <- file.path(MODELS_FIT_DIR, sprintf("%s_%s.rds", run_date, out_name))
 log_file  <- model_log_path(out_name, MODELS_FIT_DIR)
 
+dir.create(dirname(log_file), recursive = TRUE, showWarnings = FALSE)
 cat("", file = log_file, append = FALSE)
 log_msg(sprintf("===== FIT: %s (%s) =====", out_name,
                 if (!is.null(model_script)) "fresh" else "resume"),
         log_file, console_print = TRUE)
 log_config_variables(FIT_CONFIG_FILE, log_file)
+log_msg(sprintf("EMC2 version: %s", emc_version()), log_file)
 
 # --- Build convergence_criteria from the profile + overrides ---
 convergence_criteria <- default_convergence_criteria(profile)
@@ -118,8 +120,10 @@ result <- tryCatch({
     emc <- build_model(clean_data, n_chains = N_CHAINS)
   } else {
     in_path <- if (file.exists(resume_rds)) resume_rds else file.path(MODELS_FIT_DIR, resume_rds)
+    if (!file.exists(in_path)) stop(sprintf("Resume file not found: %s", in_path))
     log_msg(sprintf("Resuming model from: %s", in_path), log_file, console_print = TRUE)
     emc <- readRDS(in_path)
+    .validate_resume_model(emc, in_path)
   }
 
   fit_to_convergence(
@@ -140,3 +144,4 @@ result <- tryCatch({
 })
 
 log_msg(sprintf("===== %s: %s =====", out_name, result), log_file, console_print = TRUE)
+if (identical(result, "ERROR")) quit(status = 1)

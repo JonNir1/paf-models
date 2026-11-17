@@ -50,6 +50,12 @@ test_that("the default fit-loop settings can reach their sample floors and check
   expect_true(.validate_fit_args(0, RECOVERY_FIT_SAMPLES, MAX_TRIES_RECOVERY, STEP_SIZE_RECOVERY,
                                  SAVE_EVERY, "x.rds", NULL))
   expect_gte(N_CHAINS, 2)   # Rhat is undefined for a single chain
+
+  withr::local_envvar(PAF_REPO_ROOT = ROOT)
+  withr::local_dir(withr::local_tempdir())
+  cfg <- new.env()
+  sys.source(file.path(ROOT, "R", "config.R"), envir = cfg)
+  expect_true(file.exists(cfg$FIT_CONFIG_FILE))   # code paths ignore cwd
 })
 
 test_that("RT cutoffs are ordered and the t0 prior mean lies below the fastest kept saccade", {

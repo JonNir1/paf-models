@@ -17,3 +17,32 @@ emc_design              <- function(..., model = EMC2::LBA) EMC2::design(..., mo
 emc_prior               <- function(...) EMC2::prior(...)
 emc_make_emc            <- function(...) EMC2::make_emc(...)
 emc_sampled_pars        <- function(...) EMC2::sampled_pars(...)
+emc_compare             <- function(...) EMC2::compare(...)
+emc_recovery            <- function(...) EMC2::recovery(...)
+emc_version             <- function() as.character(utils::packageVersion("EMC2"))
+
+
+#' Rhat (row 1) or ESS (row 2) values of one EMC2 check() block, as one vector.
+#'
+#' Per block `g`, check() holds a 2-row matrix (row 1 = Rhat, row 2 = ESS;
+#' columns = parameters), either directly (`chk[[g]]`) or nested
+#' (`chk[[g]][[g]]`). For `alpha` it holds a per-subject list of such matrices,
+#' pooled here into one vector. Fails loudly on any other layout.
+#'
+#' @param chk     Object returned by check().
+#' @param group   One of "mu", "sigma2", "alpha", "correlation".
+#' @param row_idx 1 for Rhat, 2 for ESS.
+#' @return Numeric vector (NAs kept).
+check_block_values <- function(chk, group, row_idx) {
+  blk <- chk[[group]]
+  if (is.null(blk)) stop(sprintf("check() returned no '%s' block.", group))
+
+  mats <- if (group == "alpha") blk else list(if (is.matrix(blk)) blk else blk[[group]])
+  unlist(lapply(mats, function(m) {
+    if (!is.matrix(m) || nrow(m) < row_idx) {
+      stop(sprintf("Unexpected check() layout for block '%s' (expected >= %d rows).",
+                   group, row_idx))
+    }
+    m[row_idx, ]
+  }))
+}

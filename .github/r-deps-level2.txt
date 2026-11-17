@@ -2,3 +2,4 @@ EMC2
 readr
 dplyr
 testthat
+loo

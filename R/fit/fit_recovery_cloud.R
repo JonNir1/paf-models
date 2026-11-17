@@ -2,7 +2,7 @@
 #' Parameter Recovery - Cloud Runner (step 2.5)
 #'
 #' Runs one recovery simulation for one model on a cloud VM. For each call:
-#'   1. Load a previously-extended model (.rds from fit_extend/)
+#'   1. Load a previously-extended model (.rds from outputs/models/fit/)
 #'   2. Extract group-level posterior (mu, Sigma) via extract_group_params()
 #'   3. Draw fresh subject parameters + simulate data via simulate_recovery_data()
 #'   4. Refit the same model from scratch on the simulated data (same priors)
@@ -29,6 +29,11 @@
 #'
 #' Cloud sync: reads CP_CMD and DEST_PREFIX from the environment (set by
 #' scripts/run_recovery.sh). No-op if either is unset (safe for local use).
+#'
+#' Limitation: the model script must live in R/fit/. It is found by its declared
+#' MODEL_NAME (the fit file's model name), whatever the script file is called;
+#' names must be unique within R/fit/. Checked up front, before anything is
+#' computed or written.
 #' =============================================================================
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
@@ -46,7 +51,7 @@ source_root("R/eval/helpers/io.R")        # model_name_from_rds
 #' Inputs and outputs (log file, dirs) are explicit parameters so this is
 #' equally usable from the CLI runner and from smoke tests.
 #'
-#' @param extended_model       Loaded EMC2 model object (output of fit_extend).
+#' @param extended_model       Loaded EMC2 model object (output of fit_to_convergence).
 #' @param template_data        Filtered design-matrix data frame (trial structure
 #'                              for make_data). May be a subset for fast smoke tests.
 #' @param model_script_path    Absolute path to the model definition script
@@ -76,6 +81,10 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
                              save_every         = SAVE_EVERY,
                              post_save_hook     = NULL,
                              init_stop_criteria = NULL) {
+
+  if (!file.exists(model_script_path)) {
+    stop(sprintf("Model script not found: %s", model_script_path))
+  }
 
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   run_date <- format(Sys.Date(), "%y%m%d")
@@ -120,9 +129,6 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
   post_save_hook(true_alpha_path, log_file)
 
   # --- 4. Source model script to get build_model() ---
-  if (!file.exists(model_script_path)) {
-    stop(sprintf("Model script not found: %s", model_script_path))
-  }
   log_msg(sprintf("Sourcing model script: %s", model_script_path),
           log_file, console_print = TRUE)
   source(model_script_path)   # defines build_model() and MODEL_NAME
@@ -213,6 +219,7 @@ if (length(args) == 0L) {
   log_msg(sprintf("===== RECOVERY: %s  sim=%d =====", extended_rds, sim_index),
           log_file, console_print = TRUE)
   log_msg(sprintf("Output name: %s", recovery_name), log_file, console_print = TRUE)
+  log_msg(sprintf("EMC2 version: %s", emc_version()), log_file)
   for (override in list(
          list("--fit-samples", fit_samples_override),
          list("--max-tries",   max_tries_override),
@@ -225,6 +232,9 @@ if (length(args) == 0L) {
   }
 
   result <- tryCatch({
+    # Fail fast, before loading the fit or data
+    model_script <- find_model_script(orig_name, file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "fit"))
+
     ext_path <- file.path(MODELS_FIT_DIR, extended_rds)
     log_msg(sprintf("Loading source (converged) model from: %s", ext_path),
             log_file, console_print = TRUE)
@@ -235,9 +245,6 @@ if (length(args) == 0L) {
     template_data <- load_data(min_rt               = MIN_SACCADE_CUTOFF,
                                max_rt               = MAX_SACCADE_CUTOFF,
                                allow_target_repeats = ALLOW_TARGET_REPEAT)
-
-    model_script <- file.path(Sys.getenv("PAF_REPO_ROOT", getwd()),
-                              "R", "fit", paste0(orig_name, ".R"))
 
     # Recovery convergence target (relaxed); --fit-samples overrides the floor.
     recovery_criteria <- default_convergence_criteria("recovery")
@@ -267,4 +274,5 @@ if (length(args) == 0L) {
 
   log_msg(sprintf("===== %s: %s =====", recovery_name, result),
           log_file, console_print = TRUE)
+  if (identical(result, "ERROR")) quit(status = 1)
 }

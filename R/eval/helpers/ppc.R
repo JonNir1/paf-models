@@ -1,24 +1,24 @@
 #' =============================================================================
 #' PPC Eval Helpers (step 4)
 #'
-#' Computes distribution-fit statistics (KS, Anderson-Darling), choice-proportion
+#' Computes distribution-fit statistics (per-subject KS), choice-proportion
 #' tables, and quantile probability function (QPF) tables from a list of posterior
 #' predictive datasets. All computations are data-level (not parameter-level), so
-#' they are valid for all models including models 4 & 5 with structurally
-#' unidentifiable StimulusAtLoc x SearchDifficulty parameters.
+#' they are valid for any model, including ones with structurally
+#' unidentifiable parameters.
 #'
 #' Exports:
-#'   compute_dist_stats()         -- per-subject KS + AD + BH FDR
+#'   compute_dist_stats()         -- per-subject KS + BH FDR
 #'   compute_choice_proportions() -- predicted vs obs saccade target fractions
 #'   compute_qpf_table()          -- predicted vs obs RT quantile functions
 #'                                   (marginal, or stratified by response type)
-#'   plot_ppc_dist_stats()        -- violin/jitter of KS D and AD statistic
+#'   plot_ppc_dist_stats()        -- violin/jitter of the KS D statistic
 #'   plot_ppc_choice()            -- predicted ribbon + observed points (choice)
 #'   plot_ppc_qpf()               -- marginal QPF overlay
 #'   plot_ppc_qpf_by_response()   -- QPF stratified by T/D/E response type
 #'   plot_ppc_cdf()               -- defective CDF reconstructed from QPF + choice
 #'
-#' Dependencies: dplyr, ggplot2 (plots only), ADGofTest (compute_dist_stats only).
+#' Dependencies: dplyr, ggplot2 (plots only).
 #' Source chain: ppc.R -> eval_config.R -> config.R, utils.R
 #' =============================================================================
 
@@ -34,8 +34,17 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 # Returns character vector: "T" = target, "D" = difficult distractor, "E" = easy.
 .response_type <- function(data) {
   clean_S <- gsub(",", "", as.character(data$S))
-  loc_idx <- as.integer(data$R)
+  loc_idx <- as.integer(as.character(data$R))   # label, not factor code
   substr(clean_S, loc_idx, loc_idx)
+}
+
+# Rows of `df` in the condition cell `cond` (one row of experiment x cue_size x
+# search_difficulty). Compared on labels, so identical labels match even when the
+# factors' level sets differ (e.g. an unused NONE cue level in the simulations).
+.in_cell <- function(df, cond) {
+  as.character(df$experiment)          == as.character(cond$experiment) &
+    as.character(df$cue_size)          == as.character(cond$cue_size) &
+    as.character(df$search_difficulty) == as.character(cond$search_difficulty)
 }
 
 # Shared model colour map for multi-model plots: assigns palette colours to
@@ -55,8 +64,9 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 #' FDR (Benjamini-Hochberg) is applied to KS p-values across subjects within
 #' this model (not across models).
 #'
-#' Note: the KS test has lower power than Anderson-Darling for tail differences,
-#' but is sufficient here: (a) the pooled predicted sample is extremely large
+#' Note: the KS test has lower power than a tail-sensitive test (e.g.
+#' Anderson-Darling) for tail differences, but is sufficient here:
+#' (a) the pooled predicted sample is extremely large
 #' (T x N_obs per subject), giving very high power; (b) QPF plots directly
 #' surface tail misfit more informatively than any formal tail-sensitive test.
 #'
@@ -67,9 +77,10 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 #'   ks_p_fdr, fdr_pass.
 compute_dist_stats <- function(ppc_list, obs_data, model_name) {
   subjects <- unique(obs_data$subjects)
+  # Subjects are matched on labels, so factor vs numeric or differing level sets agree.
   rows <- lapply(subjects, function(subj) {
-    obs_rt  <- obs_data$rt[obs_data$subjects == subj]
-    pred_rt <- unlist(lapply(ppc_list, function(d) d$rt[d$subjects == subj]))
+    obs_rt  <- obs_data$rt[as.character(obs_data$subjects) == as.character(subj)]
+    pred_rt <- unlist(lapply(ppc_list, function(d) d$rt[as.character(d$subjects) == as.character(subj)]))
     if (length(obs_rt) < 2L || length(pred_rt) < 2L) {
       return(data.frame(model = model_name, subject = subj,
                         ks_d = NA_real_, ks_p = NA_real_,
@@ -86,7 +97,7 @@ compute_dist_stats <- function(ppc_list, obs_data, model_name) {
 
   # BH FDR correction on KS p-values within this model
   out$ks_p_fdr <- p.adjust(out$ks_p, method = "BH")
-  out$fdr_pass <- !is.na(out$ks_p_fdr) & out$ks_p_fdr >= PPC_AD_ALPHA
+  out$fdr_pass <- !is.na(out$ks_p_fdr) & out$ks_p_fdr >= PPC_KS_ALPHA
   out
 }
 
@@ -119,17 +130,13 @@ compute_choice_proportions <- function(ppc_list, obs_data, model_name) {
 
   rows <- lapply(seq_len(nrow(conditions)), function(r) {
     cond <- conditions[r, , drop = FALSE]
-    obs_sel <- obs_data$experiment        == cond$experiment &
-               obs_data$cue_size          == cond$cue_size &
-               obs_data$search_difficulty == cond$search_difficulty
+    obs_sel <- .in_cell(obs_data, cond)
 
     lapply(resp_types, function(rt) {
       obs_prop <- mean(obs_data$response_type[obs_sel] == rt)
 
       draw_vals <- vapply(ppc_list, function(d) {
-        sim_sel <- d$experiment        == cond$experiment &
-                   d$cue_size          == cond$cue_size &
-                   d$search_difficulty == cond$search_difficulty
+        sim_sel <- .in_cell(d, cond)
         if (sum(sim_sel) == 0L) return(NA_real_)
         d$response_type <- .response_type(d)
         mean(d$response_type[sim_sel] == rt)
@@ -199,9 +206,7 @@ compute_qpf_table <- function(ppc_list, obs_data, model_name,
 
   rows <- lapply(seq_len(nrow(conditions)), function(r) {
     cond     <- conditions[r, , drop = FALSE]
-    cond_sel <- obs_data$experiment        == cond$experiment &
-                obs_data$cue_size          == cond$cue_size &
-                obs_data$search_difficulty == cond$search_difficulty
+    cond_sel <- .in_cell(obs_data, cond)
 
     rt_results <- lapply(rt_loop, function(rt) {
       obs_sel <- if (is.null(rt)) cond_sel else cond_sel & obs_data$response_type == rt
@@ -214,9 +219,7 @@ compute_qpf_table <- function(ppc_list, obs_data, model_name,
         obs_q <- quantile(obs_data$rt[obs_sel], p)
 
         draw_vals <- vapply(ppc_list, function(d) {
-          sim_sel <- d$experiment        == cond$experiment &
-                     d$cue_size          == cond$cue_size &
-                     d$search_difficulty == cond$search_difficulty
+          sim_sel <- .in_cell(d, cond)
           if (!is.null(rt)) sim_sel <- sim_sel & d$response_type == rt
           if (sum(sim_sel) < 2L) return(NA_real_)
           quantile(d$rt[sim_sel], p)
@@ -271,7 +274,7 @@ plot_ppc_dist_stats <- function(stats_df) {
                         na.translate = FALSE) +
     labs(x = NULL, y = "KS D statistic",
          title = "PPC distribution fit per subject (step 4)",
-         subtitle = paste0("KS FDR threshold = ", PPC_AD_ALPHA,
+         subtitle = paste0("KS FDR threshold = ", PPC_KS_ALPHA,
                            " (Benjamini-Hochberg within model)")) +
     theme_bw(base_size = 12) +
     theme(axis.text.x = element_text(angle = 20, hjust = 1))
@@ -379,7 +382,7 @@ plot_ppc_qpf_by_response <- function(qpf_resp_df, x_var = "cue_size") {
 #'   p(RT <= q_p, R = r) = P(R = r) * p(RT <= q_p | R = r) = CP_r * p.
 #'
 #' Ribbon reflects 90% CI on the choice-proportion axis (dominant uncertainty
-#' source). All 4 models overlaid; observed shown in black.
+#' source). All active models overlaid; observed shown in black.
 #'
 #' @param qpf_resp_df  Output of compute_qpf_table(by_response = TRUE).
 #' @param choice_df    Output of compute_choice_proportions().

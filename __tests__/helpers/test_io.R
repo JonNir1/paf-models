@@ -3,7 +3,7 @@
 #'   - R/eval/helpers/io.R : latest_dated_file, model_name_from_rds, load_model,
 #'                           save_eval_table, newer_than_inputs
 #'   - R/eval/eval_config.R: discover_model_names, model_colors
-#'   - R/utils.R           : parse_int_arg, parse_str_arg
+#'   - R/utils.R           : parse_int_arg, parse_str_arg, find_model_script
 #' =============================================================================
 
 library(testthat)
@@ -12,6 +12,7 @@ ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
 source(file.path(ROOT, "R", "utils.R"))
 source_root("R/eval/eval_config.R")
 source_root("R/fit/helpers/fitting.R")   # save_model()
+source(file.path(ROOT, "__tests__", "fixtures", "common.R"))   # local_mocks()
 
 touch_rds <- function(dir, files) {
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
@@ -41,6 +42,12 @@ test_that("load_model: invalid name, invalid or missing directory throw errors",
 
 test_that("latest_dated_file / model_name_from_rds: NA when nothing matches; names stripped", {
   expect_identical(latest_dated_file(tempfile("empty_"), "\\.rds$"), NA_character_)
+  dir <- touch_rds(tempfile("dated_"), c("260101_a.rds", "260301_a.rds", "notes.rds"))
+  expect_equal(basename(latest_dated_file(dir, "\\.rds$")), "260301_a.rds")   # undated names never win
+
+  tie <- touch_rds(tempfile("tie_"), c("260301_model.rds", "260301_model_extended.rds", "260101_model.rds"))
+  expect_error(latest_dated_file(tie, "\\.rds$"), "Ambiguous latest file.*260301_model\\.rds.*260301_model_extended\\.rds")
+  expect_error(suppressMessages(load_model("model", tie)), "Ambiguous latest file")   # never picks by directory order
   expect_equal(model_name_from_rds(c("260101_m.rds", "dir/260101_m_extended.rds",
                                      "260101_test_model.rds", "260101_a_b_c.rds")),
                c("m", "m", "test_model", "a_b_c"))
@@ -57,11 +64,15 @@ test_that("discover_model_names: unique sorted bare names; empty or missing dir 
 
 test_that("save_model -> discover_model_names -> load_model round-trips a model", {
   dir <- tempfile("roundtrip_")
+  local_mocks(emc_version = function() "9.9.9")
   obj <- list(chains = 3, tag = "fitted")
   save_model(obj, "my_model.v2", dir)
   name <- discover_model_names(dir)
   expect_equal(name, "my_model.v2")
-  expect_equal(suppressMessages(load_model(name, dir)), obj)
+  loaded <- suppressMessages(load_model(name, dir))
+  expect_equal(loaded[names(obj)], obj)
+  expect_identical(attr(loaded, "emc2_version"), "9.9.9")
+  expect_identical(attr(loaded, "emc2_version_history"), "9.9.9")
 })
 
 test_that("save_eval_table: writes matching .rds and .csv, creating the directory", {
@@ -90,6 +101,33 @@ test_that("newer_than_inputs: missing cache, equal or older mtime -> recompute",
   set_mtimes(t0 + 10, t0);      expect_false(newer_than_inputs(cache, c(input, file.path(dir, "gone.rds"))))
 })
 
+test_that("eval_cache_fresh: reused only when newer than every input AND built with identical settings", {
+  dir   <- withr::local_tempdir()
+  input <- file.path(dir, "fit.rds"); saveRDS(1, input)
+  key   <- list(models = c("a", "b"), files = c("250101_a.rds", "250102_b.rds"), thresholds = c(1.05, 500, 1.1, 400), emc2 = "3.5.0")
+  cache <- function(stem, k) suppressMessages(save_eval_table(data.frame(x = 1), stem, dir, cache_key = k))
+  age   <- function(path, secs) Sys.setFileTime(path, Sys.time() + secs)
+  age(input, -20)
+
+  fresh <- cache("fresh", key);  age(fresh, 0)
+  expect_true(eval_cache_fresh(fresh, input, key))
+
+  for (changed in list(modifyList(key, list(models = "a")),
+                       modifyList(key, list(thresholds = c(1.1, 500, 1.1, 400))),
+                       modifyList(key, list(emc2 = "3.4.1")),
+                       # newest fit of "b" deleted: an older file becomes the latest
+                       modifyList(key, list(files = c("250101_a.rds", "241231_b.rds"))))) {
+    expect_false(eval_cache_fresh(fresh, input, changed))
+  }
+
+  nokey <- cache("nokey", NULL); age(nokey, 0)
+  expect_false(eval_cache_fresh(nokey, input, key))
+
+  stale <- cache("stale", key); age(stale, -40)
+  expect_false(eval_cache_fresh(stale, input, key))
+  expect_false(eval_cache_fresh(file.path(dir, "absent.rds"), input, key))
+})
+
 test_that("model_colors: one stable colour per model, recycling past the palette", {
   cols <- model_colors(paste0("m", 1:10))
   expect_equal(names(cols), paste0("m", 1:10))
@@ -106,4 +144,27 @@ test_that("parse_int_arg / parse_str_arg: value after the flag, else NULL; malfo
   expect_null(parse_str_arg(args, "--trailing"))
   expect_warning(bad <- parse_int_arg(args, "--bad"), "NAs introduced")
   expect_identical(bad, NA_integer_)
+})
+
+test_that("find_model_script: locates by declared MODEL_NAME without executing, skips non-models, errors clearly", {
+  dir <- withr::local_tempdir()
+  put <- function(file, ...) writeLines(c(...), file.path(dir, file))
+  put("odd_file_name.R", "stop('boom')", "MODEL_NAME <- 'alpha'")   # name differs from file; top level would fail if run
+  put("beta.R", "MODEL_NAME = paste0('b', 'eta')")                  # `=` and base-R rhs
+  put("runner.R", "x <- 1")                                         # no MODEL_NAME
+  put("config.R", "MODEL_NAME <- some_global()")                    # rhs not self-contained
+  put("vec.R", "MODEL_NAME <- c('a', 'b')")                         # not a length-1 string
+  put("broken.R", "MODEL_NAME <- 'gamma'", "this is ( not R")
+  expect_equal(find_model_script("alpha", dir), file.path(dir, "odd_file_name.R"))
+  expect_equal(find_model_script("beta", dir), file.path(dir, "beta.R"))
+
+  err <- expect_error(find_model_script("nope", dir), "No model script.*'nope'")
+  expect_match(conditionMessage(err), "Model names found: alpha, beta[.]")
+  expect_match(conditionMessage(err), "cannot be parsed.*broken[.]R")   # a broken script is never a bare "not found"
+
+  put("alpha_copy.R", "MODEL_NAME <- 'alpha'")
+  expect_error(find_model_script("alpha", dir), "more than one script.*alpha_copy[.]R, odd_file_name[.]R")
+  put("twice.R", "MODEL_NAME <- 'twice'", "MODEL_NAME <- 'twice'")
+  expect_error(find_model_script("beta", dir), "twice[.]R.*more than once")
+  expect_error(find_model_script("alpha", file.path(dir, "absent")), "directory not found")
 })

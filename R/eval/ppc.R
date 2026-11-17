@@ -2,9 +2,9 @@
 #' Posterior Predictive Check Analysis (step 4) -- driver
 #'
 #' Loads the posterior predictive simulation outputs produced by fit_ppc_cloud.R
-#' (4 models, each with T=PPC_N_DRAWS simulated datasets) and produces:
+#' (each active model with T=PPC_N_DRAWS simulated datasets) and produces:
 #'
-#'   A. Distribution fit      -- per-subject KS + Anderson-Darling + BH FDR
+#'   A. Distribution fit      -- per-subject KS + BH FDR
 #'   B. Choice proportions    -- T / D / E fractions: predicted vs observed
 #'      by cue_size and search_difficulty
 #'   C. Marginal QPF          -- 10/25/50/75/90th-percentile RT by condition:
@@ -19,6 +19,8 @@
 #'
 #' Run from the repo root after downloading the ppc .rds files from S3:
 #'   source("R/eval/ppc.R")
+#' Non-interactive, tolerating missing ppc fits:
+#'   Rscript -e "ALLOW_PARTIAL_PPC <- TRUE; source('R/eval/ppc.R')"
 #' =============================================================================
 
 library(EMC2)
@@ -31,8 +33,10 @@ source_root("R/helpers/data.R")          # load_data
 
 if (!dir.exists(PPC_EVAL_DIR)) dir.create(PPC_EVAL_DIR, recursive = TRUE)
 
-# Active set = every fitted model; the loop below skips any without a PPC .rds.
+# Active set = every fitted model. A model without a PPC .rds is an error unless
+# ALLOW_PARTIAL_PPC <- TRUE is set before sourcing (then it is skipped).
 MODEL_NAMES <- discover_model_names()
+if (!exists("ALLOW_PARTIAL_PPC")) ALLOW_PARTIAL_PPC <- FALSE
 
 
 # =============================================================================
@@ -62,6 +66,19 @@ message(sprintf("Observed data: %d trials, %d subjects",
 
 message("Running PPC evaluation...")
 
+# A failing metric is recorded here and reported after every metric has run.
+metric_failures <- character(0)
+missing_ppc     <- character(0)
+.try_metric <- function(model_name, metric, expr) {
+  tryCatch(expr, error = function(e) {
+    message(sprintf("    %s ERROR: %s", metric, conditionMessage(e)))
+    metric_failures <<- c(metric_failures,
+                          sprintf("%s / %s: %s", model_name, metric, conditionMessage(e)))
+    NULL
+  })
+}
+has_rows <- function(df) !is.null(df) && nrow(df) > 0L
+
 dist_rows     <- list()
 choice_rows   <- list()
 qpf_rows      <- list()
@@ -71,29 +88,33 @@ for (mn in MODEL_NAMES) {
   rds_path <- .latest_ppc(mn)
   if (is.na(rds_path)) {
     message(sprintf("  MISSING: no ppc .rds found for %s in %s", mn, PPC_MODELS_DIR))
+    missing_ppc <- c(missing_ppc, mn)
     next
   }
   message(sprintf("  Loading PPC sims for %s: %s", mn, basename(rds_path)))
   ppc_list <- readRDS(rds_path)
   message(sprintf("    %d draws loaded", length(ppc_list)))
 
-  dist_rows[[mn]] <- tryCatch(
-    compute_dist_stats(ppc_list, obs_data, mn),
-    error = function(e) { message("    dist_stats ERROR: ", e$message); NULL }
-  )
-  choice_rows[[mn]] <- tryCatch(
-    compute_choice_proportions(ppc_list, obs_data, mn),
-    error = function(e) { message("    choice_proportions ERROR: ", e$message); NULL }
-  )
-  qpf_rows[[mn]] <- tryCatch(
-    compute_qpf_table(ppc_list, obs_data, mn),
-    error = function(e) { message("    qpf_table ERROR: ", e$message); NULL }
-  )
-  qpf_resp_rows[[mn]] <- tryCatch(
-    compute_qpf_table(ppc_list, obs_data, mn, by_response = TRUE),
-    error = function(e) { message("    qpf_by_response ERROR: ", e$message); NULL }
-  )
+  dist_rows[[mn]]     <- .try_metric(mn, "dist_stats",
+                                     compute_dist_stats(ppc_list, obs_data, mn))
+  choice_rows[[mn]]   <- .try_metric(mn, "choice_proportions",
+                                     compute_choice_proportions(ppc_list, obs_data, mn))
+  qpf_rows[[mn]]      <- .try_metric(mn, "qpf_table",
+                                     compute_qpf_table(ppc_list, obs_data, mn))
+  qpf_resp_rows[[mn]] <- .try_metric(mn, "qpf_by_response",
+                                     compute_qpf_table(ppc_list, obs_data, mn, by_response = TRUE))
   rm(ppc_list)   # free memory before next model
+}
+
+if (length(metric_failures) > 0L) {
+  stop(sprintf("PPC metric failure(s), as <model> / <metric>: <message>:
+  %s", paste(metric_failures, collapse = "
+  ")))
+}
+
+if (length(missing_ppc) > 0L && !ALLOW_PARTIAL_PPC) {
+  stop(sprintf("No ppc .rds in %s for: %s; set ALLOW_PARTIAL_PPC <- TRUE to proceed without them.",
+               PPC_MODELS_DIR, paste(missing_ppc, collapse = ", ")))
 }
 
 dist_rows     <- Filter(Negate(is.null), dist_rows)
@@ -128,7 +149,7 @@ if (!is.null(qpf_resp_df)) {
 
 message("Saved PPC tables to ", PPC_EVAL_DIR)
 
-# Per-model AD FDR summary
+# Per-model KS FDR summary
 fdr_summary <- aggregate(fdr_pass ~ model, dist_df,
                          FUN = function(x) mean(x, na.rm = TRUE))
 names(fdr_summary)[2] <- "frac_fdr_pass"
@@ -145,7 +166,7 @@ save_ggplot_png(plot_ppc_dist_stats(dist_df),
                 file.path(PPC_EVAL_DIR, "ppc_dist_stats.png"))
 
 # B. Choice proportions
-if (nrow(choice_df) > 0L) {
+if (has_rows(choice_df)) {
   save_ggplot_png(plot_ppc_choice(choice_df, x_var = "cue_size"),
                   file.path(PPC_EVAL_DIR, "ppc_choice_cue.png"))
   save_ggplot_png(plot_ppc_choice(choice_df, x_var = "search_difficulty"),
@@ -153,7 +174,7 @@ if (nrow(choice_df) > 0L) {
 }
 
 # C. Marginal QPF
-if (nrow(qpf_df) > 0L) {
+if (has_rows(qpf_df)) {
   save_ggplot_png(plot_ppc_qpf(qpf_df, x_var = "cue_size"),
                   file.path(PPC_EVAL_DIR, "ppc_qpf_cue.png"),
                   width = 12, height = 10)
@@ -163,7 +184,7 @@ if (nrow(qpf_df) > 0L) {
 }
 
 # D. QPF by response type
-if (!is.null(qpf_resp_df) && nrow(qpf_resp_df) > 0L) {
+if (has_rows(qpf_resp_df)) {
   save_ggplot_png(plot_ppc_qpf_by_response(qpf_resp_df, x_var = "cue_size"),
                   file.path(PPC_EVAL_DIR, "ppc_qpf_resp_cue.png"),
                   width = 14, height = 10)
@@ -173,7 +194,7 @@ if (!is.null(qpf_resp_df) && nrow(qpf_resp_df) > 0L) {
 }
 
 # E. Defective CDFs (requires both qpf_resp_df and choice_df)
-if (!is.null(qpf_resp_df) && nrow(qpf_resp_df) > 0L && nrow(choice_df) > 0L) {
+if (has_rows(qpf_resp_df) && has_rows(choice_df)) {
   save_ggplot_png(plot_ppc_cdf(qpf_resp_df, choice_df, x_facet = "cue_size"),
                   file.path(PPC_EVAL_DIR, "ppc_cdf_cue.png"),
                   width = 14, height = 8)

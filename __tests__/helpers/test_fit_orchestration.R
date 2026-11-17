@@ -25,6 +25,7 @@ local_fit_mocks <- function(verdicts, env = parent.frame()) {
     emc_fit           = fit_rec$fn,
     emc_run           = run_rec$fn,
     check_convergence = scripted_convergence(verdicts),
+    emc_version       = function() "9.9.9",
     .frame = env
   )
   list(fit = fit_rec, run = run_rec)
@@ -107,6 +108,19 @@ test_that("saves after warm-up, every save_every tries and at the end, hooking (
   for (args in hook$calls()) expect_identical(args, list(save_path, log_file))
   expect_identical(res$saved_path, save_path)
   expect_equal(.sample_iters(readRDS(save_path)), res$n_samples)
+
+  # The mocks return attribute-free objects (as EMC2 does): a fresh model gets
+  # only the current version; a resumed one keeps its prior versions.
+  expect_identical(attr(readRDS(save_path), "emc2_version_history"), "9.9.9")
+  expect_identical(attr(readRDS(save_path), "emc2_version"), "9.9.9")
+
+  legacy  <- structure(mock_emc(40L), emc2_version = "3.4.1")
+  history <- structure(mock_emc(40L), emc2_version_history = c("3.3.0", "3.4.1"))
+  run_fit(legacy, max_tries = 2L, save_every = 1L, save_path = save_path)
+  expect_identical(attr(readRDS(save_path), "emc2_version_history"), c("3.4.1", "9.9.9"))
+  run_fit(history, max_tries = 2L, save_every = 1L, save_path = save_path)
+  expect_identical(attr(readRDS(save_path), "emc2_version_history"), c("3.3.0", "3.4.1", "9.9.9"))
+  expect_identical(attr(readRDS(save_path), "emc2_version"), "9.9.9")
 })
 
 test_that("save_path = NULL writes nothing and never calls the hook", {
@@ -156,12 +170,29 @@ test_that("check_convergence thresholds are strict and every gated group must pa
     list(name = "Rhat == max",     mu = blk(1.05, 900),  alpha = ok_alpha, expected = FALSE),
     list(name = "ESS == min",      mu = blk(1.01, 500),  alpha = ok_alpha, expected = FALSE),
     list(name = "one subject bad", mu = blk(1.01, 900),
-         alpha = list(s1 = blk(1.02, 900), s2 = blk(1.2, 900)), expected = FALSE)
+         alpha = list(s1 = blk(1.02, 900), s2 = blk(1.2, 900)), expected = FALSE),
+    # Non-finite diagnostics must never read as converged, whatever the finite rest says.
+    list(name = "NA Rhat in one mu parameter", mu = blk(c(1.01, NA), c(900, 900)),
+         alpha = ok_alpha, expected = FALSE),
+    list(name = "Inf ESS in one mu parameter", mu = blk(c(1.01, 1.01), c(900, Inf)),
+         alpha = ok_alpha, expected = FALSE),
+    list(name = "NaN ESS in one subject's alpha", mu = blk(1.01, 900),
+         alpha = list(s1 = blk(1.02, 900), s2 = blk(1.02, NaN)), expected = FALSE),
+    list(name = "all-NA mu block", mu = blk(c(NA, NA), c(NA, NA)),
+         alpha = ok_alpha, expected = FALSE),
+    list(name = "empty mu block", mu = matrix(numeric(0), nrow = 2, ncol = 0),
+         alpha = ok_alpha, expected = FALSE)
   )
   for (cs in cases) {
     local_check(list(mu = cs$mu, alpha = cs$alpha))
     expect_identical(check_convergence(mock_emc(), cc2)$converged, cs$expected, info = cs$name)
   }
+
+  # Nothing finite to summarise is reported as NA, never as -Inf / +Inf.
+  local_check(list(mu = blk(c(NA, NA), c(NA, NA)), alpha = ok_alpha))
+  mu_group <- check_convergence(mock_emc(), cc2)$groups$mu
+  expect_true(is.na(mu_group$max_rhat) && is.na(mu_group$min_ess))
+  expect_false(mu_group$converged)
 })
 
 test_that("check_convergence refuses criteria that gate no group", {

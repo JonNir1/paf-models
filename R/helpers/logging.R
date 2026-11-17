@@ -31,7 +31,7 @@ log_msg <- function(msg, file_path, console_print = FALSE) {
 }
 
 
-#' Source a config file into a private environment and log all variables.
+#' Source a config file into a private environment and log all its non-function variables.
 #' @param config_path Path to the R config script to introspect.
 #' @param log_file    Path to the log file (appended to).
 log_config_variables <- function(config_path, log_file) {
@@ -42,7 +42,7 @@ log_config_variables <- function(config_path, log_file) {
   source(config_path, local = cnfg_env)
 
   log_msg("--- SESSION CONFIGURATION ---", log_file, console_print = FALSE)
-  for (v in ls(cnfg_env)) {
+  for (v in Filter(function(v) !is.function(get(v, envir = cnfg_env)), ls(cnfg_env))) {
     val_str <- paste(get(v, envir = cnfg_env), collapse = ", ")
     log_msg(sprintf("  %-25s : %s", v, val_str), log_file, console_print = FALSE)
   }

@@ -32,7 +32,8 @@ MAX_RHAT_ALPHA <- 1.10;  MIN_ESS_ALPHA <- 400   # subject params feed OOD simula
 
 
 # --- Paths ---
-CODE_DIR    <- "R"
+# Code paths resolve against the repo root; data/output dirs stay cwd-relative.
+CODE_DIR    <- file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R")
 DATA_DIR    <- "data"
 
 OUTPUTS_DIR <- "outputs"
