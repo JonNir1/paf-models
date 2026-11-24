@@ -9,6 +9,7 @@
 #'   plot_convergence_summary()  -- Rhat/ESS vs thresholds, per model x block
 #'   plot_recovery_scatter()     -- subject-level estimated vs true alpha
 #'   plot_zscore_contraction()   -- Schad et al. 2021 z-score vs contraction
+#'   plot_confusion_matrix()     -- model-recovery generating x selected heatmap
 #'
 #' Source chain: plot.R -> utils.R.
 #' Convergence thresholds (MAX_RHAT_*, MIN_ESS_*) come from R/config.R via the caller.
@@ -203,4 +204,27 @@ plot_zscore_contraction <- function(zscore_df) {
          y = "Posterior z-score ((est - true) / SD_post)",
          title = "Posterior z-score vs contraction (Schad et al. 2021)") +
     theme_bw(base_size = 12)
+}
+
+
+#' Model-recovery confusion matrix: generating (rows) x selected (columns) model.
+#'
+#' Tiles are shaded by the row proportion and labelled with the count.
+#'
+#' @param confusion_df confusion_table() output: generating, selected, n, prop.
+#' @return A ggplot.
+plot_confusion_matrix <- function(confusion_df) {
+  library(ggplot2)
+  models <- unique(c(confusion_df$generating, confusion_df$selected))
+  confusion_df$generating <- factor(confusion_df$generating, levels = rev(models))
+  confusion_df$selected   <- factor(confusion_df$selected,   levels = models)
+  ggplot(confusion_df, aes(selected, generating, fill = prop)) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = n), size = 3.5) +
+    scale_fill_gradient(low = "white", high = "#2c7fb8", limits = c(0, 1), name = "proportion") +
+    labs(x = "Selected model (highest marginal likelihood)", y = "Generating model",
+         title = "Model recovery: generating vs selected model",
+         subtitle = "Tile label = number of simulations; shade = proportion of the generating model's simulations") +
+    theme_bw(base_size = 12) +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1))
 }

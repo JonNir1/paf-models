@@ -16,6 +16,7 @@ source_root("R/eval/helpers/convergence.R")
 source_root("R/eval/helpers/recovery.R")
 source_root("R/eval/helpers/gof.R")
 source(file.path(ROOT, "__tests__", "fixtures", "common.R"))
+source(file.path(ROOT, "__tests__", "fixtures", "test_model.R"))   # TEST_MODEL_PRIOR_MU
 
 FITTED <- load_fitted_fixture()
 DATA   <- load_fixture_data()
@@ -74,7 +75,8 @@ test_that("get_pars(alpha) is parameter-keyed [samples x subjects]; the prior ho
   expect_equal(nrow(m), .sample_iters(FITTED) * length(FITTED))
 
   expect_setequal(names(emc_sampled_pars(extract_design(FITTED))), PARS)
-  expect_true(all(PARS %in% names(PRIOR_MU)))
+  # the fixture was fit with the config intercept priors + the fixture model's declared effect priors
+  expect_equal(FITTED[[1]]$prior$theta_mu_mean, c(PRIOR_MU, TEST_MODEL_PRIOR_MU)[PARS])
 
   V <- FITTED[[1]]$prior$theta_mu_var
   expect_equal(dim(V), c(length(PARS), length(PARS)))
@@ -255,4 +257,13 @@ test_that("the fixture's declared unidentifiability pattern is consistent with i
   expect_equal(PARS[!anchored], c("v_StimulusAtLocD", "v_StimulusAtLocE"))
   expect_error(flag_identifiable(PARS, rep("m", length(PARS)), c(m = "^v_StimulusAtLoc[DE]:SearchDifficulty")),
                "matches none")   # a pattern for a block this model does not have is stale
+})
+
+test_that("emc_bridge_sampling forwards to EMC2::run_bridge_sampling, whose arguments compute_mll() relies on still exist", {
+  # No numeric run here: the tiny fixture (2 subjects, 100 samples, alpha ESS ~22) makes run_bridge_sampling
+  # fail with "NAs are not allowed in subscripted assignments" for every option (both_splits, filter,
+  # hyper_only), while real 42-subject fits work (verified: ~6.5 min for one repetition, 3 chains x 1000 samples).
+  expect_identical(body(emc_bridge_sampling), quote(EMC2::run_bridge_sampling(...)))
+  expect_true(all(c("emc", "stage", "repetitions", "cores_for_props", "cores_per_prop")
+                  %in% names(formals(EMC2::run_bridge_sampling))))
 })

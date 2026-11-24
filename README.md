@@ -41,6 +41,7 @@ paf-models/
 |   |   |- fit_cloud.R           # Unified single-model runner (build-fresh OR resume); syncs to S3/GCS
 |   |   |- fit_recovery_cloud.R  # Parameter recovery (one sim per invocation) via the unified core
 |   |   |- fit_ppc_cloud.R        # Posterior predictive simulation on the cloud
+|   |   |- fit_bf_cloud.R        # Bridge-sampling marginal likelihood of one fit (cloud; feeds the BF + model-recovery evals)
 |   |   |- helpers/
 |   |       |- build_model.R     # build_lba_model() factory (shared boilerplate for LBA variants)
 |   |       |- fitting.R         # get_core_args(), save_model(), check_convergence(), fit_to_convergence()
@@ -49,11 +50,13 @@ paf-models/
 |       |- eval_config.R         # Eval params, discover_model_names(), model_colors(), thresholds
 |       |- convergence.R         # Convergence table + verdict (outputs convergence.{rds,csv})
 |       |- goodness_of_fit.R     # GoF/model comparison (DIC/BPIC/LOO/WAIC)
+|       |- bayes_factors.R       # Marginal likelihoods + log Bayes factors vs a reference model
+|       |- model_recovery.R      # Model recovery: generating x selected confusion matrix
 |       |- recovery.R            # Load recovery fits; population table, scatter, z/contraction
 |       |- ppc.R                 # Posterior predictive checks (per-subject KS + contrasts)
 |       |- review_convergence_and_recovery.R  # Convergence + recovery synthesis
 |       |- examine_model.R       # Interactive: inspect a single fitted model
-|       |- helpers/              # convergence/recovery/gof/ppc computations, plot.R, io.R
+|       |- helpers/              # convergence/recovery/gof/bf/model_recovery/ppc computations, plot.R, io.R
 |
 |- scripts/
 |   |- helpers.sh                # Shared config defaults + cloud copy helpers (sourced by scripts below)
@@ -61,6 +64,7 @@ paf-models/
 |   |- run_fit.sh                # Build-fresh OR resume a fit on a VM via fit_cloud.R, sync results
 |   |- run_recovery.sh           # Download a fit, run fit_recovery_cloud.R, sync results
 |   |- run_ppc.sh                # Download a fit, run fit_ppc_cloud.R, sync results
+|   |- run_bf.sh                 # Download a fit, run fit_bf_cloud.R (bridge-sampling marginal likelihood), sync results
 |
 |- __tests__/
 |   |- run_tests.R               # Entry point; gated by TEST_LEVEL env var (1/2/3)
@@ -85,6 +89,7 @@ paf-models/
 |   |   |- fit/                  #   output of the unified fit pipeline (YYMMDD_<name>.rds + logs)
 |   |   |- fit_recovery/         #   output of fit_recovery_cloud.R (recovery fits + true_alpha)
 |   |   |- fit_ppc/              #   output of fit_ppc_cloud.R (posterior-predictive draws)
+|   |   |- fit_bf/               #   output of fit_bf_cloud.R (per-fit marginal-likelihood files)
 |   |- evaluation/               #   convergence / GoF / recovery / PPC outputs
 |- docs/                         # Meeting slides, articles, model specs (reference only, gitignored)
 ```
@@ -105,6 +110,20 @@ the `v` and `B` formulas plus any model-specific prior entries - and define `MOD
 `build_model(data, n_chains)` function, plus `STRUCTURAL_UNIDENTIFIABLE_PATTERN` (a regex for
 parameters the design cannot identify, or `NA_character_` if none; read by the recovery eval without executing the script, so it must be a top-level assignment with a self-contained right-hand side, and the script is found by its declared `MODEL_NAME`, so the file may have any name but names must be unique within `R/fit/`). `__tests__/fixtures/test_model.R` is a minimal working
 template; the retired `model1`–`model5` definitions on the `analysis1` branch are fuller examples.
+
+- **Formulas and priors.** `v_formula`, `B_formula` and `sv_formula` are required (`A_formula` defaults
+  to `A ~ 1`, `t0 ~ 1` is fixed). `fit_config.R` holds only the intercept priors (`v`, `B`, `A`, `t0`);
+  the prior of every effect the design samples is passed by the model via `extra_mu`/`extra_sd`, and a
+  sampled parameter without a prior is an error. `functions =` selects the factor closures given to
+  `design()` (default: all of `StimulusAtLoc`, `TargetAtLoc`, `CueAtLoc`, `PrevTargetAtLoc`,
+  `SearchDifficulty`); pass only those the formulas use to shorten `design()`.
+- **Per-model data subset.** A script may declare a top-level `MODEL_DATA_ARGS <- list(...)` of extra
+  `load_data()` arguments (e.g. `list(difficulties = c("EASY", "DIFFICULT"))`), read without executing
+  the script like `STRUCTURAL_UNIDENTIFIABLE_PATTERN`. The data location, RT cutoffs and target-repeat
+  rule belong to the project config, so declaring `data_dir`, `min_rt`, `max_rt` or
+  `allow_target_repeats` is an error; no declaration means no extra arguments. Every runner
+  (`fit_cloud.R`, `fit_recovery_cloud.R`, `fit_ppc_cloud.R`, `R/eval/ppc.R`) loads a model's data through
+  `load_model_data(<script>)`.
 
 ---
 
@@ -142,11 +161,35 @@ you omit are descriptive-only (not gated) - `default_convergence_criteria()` gat
 ./scripts/run_fit.sh --resume 260618_mymodel.rds        # resume a saved fit
 ```
 
+### Simulation (recovery and PPC)
+
+`fit_recovery_cloud.R` and `fit_ppc_cloud.R` truncate their simulated RTs to `SIM_RT_WINDOW`
+(`fit_config.R`; `NULL` = untruncated, otherwise `c(min, max)` in seconds, inclusive like
+`filter_data()`) and log the dropped fraction overall and per subject. Only the simulated data are
+truncated; the likelihood stays the untruncated LBA.
+
+### Bayes factors and model recovery
+
+```bash
+./scripts/run_bf.sh 260618_mymodel.rds                  # bridge-sampling log marginal likelihood (MLL) of one fit
+./scripts/run_recovery.sh 260618_mymodel.rds 1 --fit-model-script R/fit/other.R   # refit simulated data with another model
+```
+
+`R/eval/bayes_factors.R` tabulates each model's MLL (`BF_REPS` repetitions) and its log Bayes factor
+against a reference model, with the spread across repetitions. It prefers the MLL files that `run_bf.sh`
+wrote to `outputs/models/fit_bf/` and computes locally (slow) only for missing ones. For model recovery,
+`--fit-model-script` refits the data simulated from one model with another; the output files are named
+`<gen>_recovery_sim<N>_fit_<fitted model>` (same-model files keep `<gen>_recovery_sim<N>`, which is all
+`R/eval/recovery.R` reads). `R/eval/model_recovery.R` selects, per generating model and simulation, the
+fitted model with the highest MLL and writes the generating x selected confusion matrix and a heatmap.
+
 ### Analysis
 
 ```r
 source("R/eval/convergence.R")                     # convergence table + verdict
 source("R/eval/goodness_of_fit.R")                 # GoF/model comparison (DIC/BPIC/LOO/WAIC)
+source("R/eval/bayes_factors.R")                   # marginal likelihoods + log Bayes factors (bridge sampling)
+source("R/eval/model_recovery.R")                  # model recovery: generating x selected confusion matrix
 source("R/eval/recovery.R")                        # parameter-recovery analysis (after cloud runs)
 source("R/eval/ppc.R")                             # posterior predictive checks
 source("R/eval/review_convergence_and_recovery.R") # convergence + recovery synthesis
@@ -154,7 +197,9 @@ source("R/eval/examine_model.R")                   # inspect a single model
 ```
 
 Eval drivers discover the active model set from `MODELS_FIT_DIR` (`discover_model_names()`) - no
-hardcoded model list.
+hardcoded model list. The PPC condition cells are the combinations of `PPC_GROUP_VARS`
+(`eval_config.R`; default `experiment`, `cue_size`, `search_difficulty`), pre-settable before
+sourcing `R/eval/ppc.R`; the figures' x variables are the grouping variables other than `experiment`.
 
 ### Tests
 
@@ -190,7 +235,7 @@ logic tests at L1 (mocking the `emc_*` seam) and real-EMC2 coverage at L2 or L3.
 | 1.9 | *Sanity check*: flag severe non-convergence before proceeding | |
 | 2 | **Parameter recovery** -- extract (μ̂, Σ̂); simulate on the real trial structure; refit; evaluate (RMSE + correlation, z-scores + contraction) | |
 | 2.9 | **STOP & REVIEW *(PI)***: convergence + recovery review; decide which models survive | |
-| 3 | **Goodness of fit** -- BPIC (screening), DIC (reporting only), PSIS-LOO-CV (primary), WAIC (confirmatory) | |
+| 3 | **Goodness of fit** -- BPIC (screening), DIC (reporting only), PSIS-LOO-CV (primary), WAIC (confirmatory); Bayes factors (bridge sampling) where the model comparison calls for them | |
 | 3.9 | **STOP & REVIEW *(PI)***: Pareto-k diagnostics, LOO/WAIC agreement, candidate winner(s) | |
 | 4 | **Posterior predictive checks** -- per-subject KS + theory-relevant contrasts on exp1+2 | |
 | 4.9 | **STOP & REVIEW**: PPC quality + exp1+2 vs exp3 population-shift check | |

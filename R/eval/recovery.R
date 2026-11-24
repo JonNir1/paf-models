@@ -33,13 +33,13 @@ source_root("R/eval/eval_config.R")              # utils -> config (RECOVERY_EVA
 source_root("R/fit/helpers/recovery.R")          # extract_group_params (data-generating mu)
 source_root("R/eval/helpers/recovery.R")         # recovery-eval computations
 source_root("R/eval/helpers/io.R")               # save_eval_table
-source_root("R/eval/helpers/plot.R")             # Plotly figures + save_plotly_png
+source_root("R/eval/helpers/plot.R")             # ggplot2 figures + save_ggplot_png
 
 RECOVERY_OUT_DIR <- RECOVERY_EVAL_DIR
 if (!dir.exists(RECOVERY_OUT_DIR)) dir.create(RECOVERY_OUT_DIR, recursive = TRUE)
 
 MODEL_NAMES <- discover_model_names()
-N_SIMS      <- 3L
+if (!exists("N_SIMS")) N_SIMS <- 3L   # pre-settable
 
 # Per-model structural-unidentifiability patterns; any error here is fatal.
 UNIDENTIFIABLE_PATTERNS <- vapply(MODEL_NAMES, model_unidentifiable_pattern, character(1))
@@ -54,10 +54,9 @@ if (!exists("ALLOW_PARTIAL_RECOVERY")) ALLOW_PARTIAL_RECOVERY <- FALSE
 # =============================================================================
 
 load_recovery_pair <- function(model_name, sim_index, dir = MODELS_RECOVERY_DIR) {
-  rds <- latest_dated_file(dir, sprintf("^[0-9]{6}_%s_recovery_sim%d\\.rds$",
-                                        model_name, sim_index))
-  ta  <- latest_dated_file(dir, sprintf("^[0-9]{6}_%s_recovery_sim%d_true_alpha\\.rds$",
-                                        model_name, sim_index))
+  stem <- regex_escape(recovery_stem(model_name, sim_index))
+  rds  <- latest_dated_file(dir, sprintf("^[0-9]{6}_%s\\.rds$", stem))
+  ta   <- latest_dated_file(dir, sprintf("^[0-9]{6}_%s_true_alpha\\.rds$", stem))
   if (is.na(rds) || is.na(ta)) {
     stop(sprintf("Missing recovery fit or true_alpha for %s sim%d in %s",
                  model_name, sim_index, dir))
@@ -153,7 +152,7 @@ print(model_stats)
 
 
 # =============================================================================
-#  Figures (Plotly -> PNG, HTML fallback if kaleido missing)
+#  Figures (ggplot2 -> PNG via ragg)
 # =============================================================================
 
 save_ggplot_png(plot_recovery_scatter(subj_points, model_stats),

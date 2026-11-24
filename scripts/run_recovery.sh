@@ -9,6 +9,9 @@
 #   ./scripts/run_recovery.sh <fitted_rds> <sim_index> [extra args forwarded to fit_recovery_cloud.R]
 # Example:
 #   ./scripts/run_recovery.sh 260618_mymodel.rds 1
+# Model recovery: refit the data simulated from mymodel with another model
+# (output files carry _fit_<other model name>):
+#   ./scripts/run_recovery.sh 260618_mymodel.rds 1 --fit-model-script R/fit/other.R
 #
 # Configure these env vars before running, or edit the defaults in helpers.sh:
 #   BUCKET   - "my-paf-bucket"

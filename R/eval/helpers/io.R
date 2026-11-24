@@ -6,6 +6,7 @@
 #'   - latest_dated_file(): newest `YYMMDD_*` file matching a regex in a dir
 #'   - model_rds_pattern(): exact-name regex for a model's fit files
 #'   - model_name_from_rds(): bare model name from a fit file name
+#'   - recovery_stem()    : the single naming rule of recovery fit files (generating x fitting model)
 #'   - latest_model_path(): path of a model's latest fit, or stop()
 #'   - load_model()       : load the latest-dated .rds for a model name from a dir
 #'   - save_eval_table()  : write a data frame as paired .rds + .csv under EVAL_DIR
@@ -41,9 +42,12 @@ latest_dated_file <- function(dir, pattern) {
 #' @param model_name Bare model name, matched literally.
 #' @return A single regex string.
 model_rds_pattern <- function(model_name) {
-  escaped <- gsub("([.|()\\\\^{}+$*?\\[\\]])", "\\\\\\1", model_name, perl = TRUE)
-  sprintf("^[0-9]{6}_%s(_extended)?\\.rds$", escaped)
+  sprintf("^[0-9]{6}_%s(_extended)?\\.rds$", regex_escape(model_name))
 }
+
+
+#' `x` with every regex metacharacter escaped, so it matches literally.
+regex_escape <- function(x) gsub("([.|()\\\\^{}+$*?\\[\\]])", "\\\\\\1", x, perl = TRUE)
 
 
 #' Bare model name from a `YYMMDD_<name>[_extended].rds` path. Vectorised.
@@ -53,6 +57,24 @@ model_rds_pattern <- function(model_name) {
 model_name_from_rds <- function(path) {
   name <- sub("^[0-9]{6}_", "", tools::file_path_sans_ext(basename(path)))
   sub("(_extended)+$", "", name)
+}
+
+
+#' Base name (no `YYMMDD_` prefix, no extension) of one recovery fit's files.
+#'
+#' `<gen>_recovery_sim<N>[_fit_<fit>][<suffix>]`: the `_fit_<fit>` part appears
+#' only when the simulated data were refit with a model other than the
+#' generating one (model recovery), so same-model names are unchanged and a
+#' cross-model fit never clobbers (or is mistaken for) a same-model one.
+#'
+#' @param gen_model  Generating model name (the fit the data were simulated from).
+#' @param sim_index  Simulation index.
+#' @param fit_model  Model refit on the simulated data (default: `gen_model`).
+#' @param suffix     Optional run suffix (e.g. "_smoke").
+#' @return A single string.
+recovery_stem <- function(gen_model, sim_index, fit_model = gen_model, suffix = "") {
+  sprintf("%s_recovery_sim%d%s%s", gen_model, sim_index,
+          if (identical(fit_model, gen_model)) "" else paste0("_fit_", fit_model), suffix)
 }
 
 

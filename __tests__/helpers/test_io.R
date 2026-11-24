@@ -167,4 +167,31 @@ test_that("find_model_script: locates by declared MODEL_NAME without executing, 
   put("twice.R", "MODEL_NAME <- 'twice'", "MODEL_NAME <- 'twice'")
   expect_error(find_model_script("beta", dir), "twice[.]R.*more than once")
   expect_error(find_model_script("alpha", file.path(dir, "absent")), "directory not found")
+
+  # model_script_name(): the declared name of one script; anything but a top-level non-empty string errors.
+  expect_identical(model_script_name(file.path(dir, "odd_file_name.R")), "alpha")
+  expect_identical(model_script_name(file.path(dir, "beta.R")), "beta")
+  put("empty.R", "MODEL_NAME <- ''")
+  for (bad in c("runner.R", "config.R", "vec.R", "twice.R", "broken.R", "empty.R"))
+    expect_error(model_script_name(file.path(dir, bad)), bad, fixed = TRUE, info = bad)
+})
+
+
+test_that("recovery_stem: same-model names unchanged; cross-model fits never match the same-model recovery selectors", {
+  expect_identical(recovery_stem("m", 2L), "m_recovery_sim2")
+  expect_identical(recovery_stem("m", 2L, "m", "_smoke"), "m_recovery_sim2_smoke")
+  expect_identical(recovery_stem("m", 2L, "other"), "m_recovery_sim2_fit_other")
+  expect_identical(recovery_stem("m", 2L, "other", "_smoke"), "m_recovery_sim2_fit_other_smoke")
+
+  dir <- touch_rds(tempfile("recovery_"), c(
+    "260101_m_recovery_sim1.rds", "260101_m_recovery_sim1_true_alpha.rds",
+    "260901_m_recovery_sim1_fit_other.rds", "260901_m_recovery_sim1_fit_other_true_alpha.rds",
+    "260901_m_recovery_sim1_extended.rds"))
+  # The selectors of R/eval/recovery.R load_recovery_pair(): the newer cross-model files must not win.
+  expect_match(latest_dated_file(dir, "^[0-9]{6}_m_recovery_sim1\\.rds$"), "260101_m_recovery_sim1\\.rds$")
+  expect_match(latest_dated_file(dir, "^[0-9]{6}_m_recovery_sim1_true_alpha\\.rds$"), "260101_m_recovery_sim1_true_alpha")
+  # Fit-file selectors ignore recovery files; the model-recovery selector finds exactly the cross-model fit.
+  expect_true(is.na(latest_dated_file(dir, model_rds_pattern("m"))))
+  expect_match(latest_dated_file(dir, sprintf("^[0-9]{6}_%s\\.rds$", regex_escape(recovery_stem("m", 1L, "other")))),
+               "260901_m_recovery_sim1_fit_other\\.rds$")
 })

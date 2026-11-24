@@ -112,8 +112,7 @@ save_every <- if (!is.null(save_every_over)) save_every_over else SAVE_EVERY
 result <- tryCatch({
   if (!is.null(model_script)) {
     log_msg(sprintf("Loading data from raw CSVs in: %s", DATA_DIR), log_file, console_print = TRUE)
-    clean_data <- load_data(min_rt = MIN_SACCADE_CUTOFF, max_rt = MAX_SACCADE_CUTOFF,
-                            allow_target_repeats = ALLOW_TARGET_REPEAT)
+    clean_data <- load_model_data(model_script)
     log_msg(sprintf("Data: %d rows, %d subjects",
                     nrow(clean_data), dplyr::n_distinct(clean_data$subjects)),
             log_file, console_print = TRUE)

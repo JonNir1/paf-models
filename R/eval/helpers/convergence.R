@@ -23,7 +23,7 @@ source_root("R/helpers/emc2_api.R")       # emc_check, check_block_values
 
 
 #' Create a single table comparing convergence metrics across models and blocks.
-#' @param model_list A named list of models, e.g. list(model1 = M1, model5 = M5).
+#' @param model_list A named list of models, e.g. list(mymodel = M1, other = M2).
 #' @return data.frame: one row per model x block, with Rhat & ESS summary columns.
 create_convergence_table <- function(model_list) {
   master_results <- lapply(names(model_list), function(m_name) {
@@ -76,7 +76,7 @@ metric_verdict <- function(group, metric, value, p_rhat_hi = 0, thresholds, n_no
 #'                    metric verdicts: fail > marginal > pass)
 #'
 #' This separation lets figures colour the Rhat and ESS markers independently
-#' (e.g. model5$mu is marginal on Rhat but passes on ESS).
+#' (e.g. a model's $mu is marginal on Rhat but passes on ESS).
 #'
 #' Thresholds default to the R/config.R globals; pass explicit values for unit tests.
 #'

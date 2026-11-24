@@ -8,6 +8,7 @@
 #'   check_valid_string - TRUE iff s is a non-empty, non-NA scalar character
 #'   read_top_level()   - value of a script's top-level assignment, read without executing it
 #'   find_model_script()- locate a model script by its declared MODEL_NAME (any file name)
+#'   model_script_name()- the MODEL_NAME a given model script declares
 #'
 #' Usage (at the top of every script):
 #'   source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
@@ -126,4 +127,17 @@ find_model_script <- function(model_name, script_dir) {
                if (length(unparsable)) sprintf(" Files that cannot be parsed (one may be the model script): %s.",
                                                paste(unparsable, collapse = ", ")) else ""),
        call. = FALSE)
+}
+
+
+#' The `MODEL_NAME` a model script declares, read without executing it.
+#'
+#' @param script Path of a model script.
+#' @return Its top-level `MODEL_NAME` (a non-empty string); an error otherwise.
+model_script_name <- function(script) {
+  declaration <- read_top_level(parse(script, keep.source = FALSE), "MODEL_NAME",
+                                fail = function(why) stop(sprintf("%s: %s", script, why), call. = FALSE))
+  if (is.null(declaration) || !is.character(declaration$value) || !check_valid_string(declaration$value))
+    stop(sprintf("%s: no top-level MODEL_NAME declared as a non-empty string", script), call. = FALSE)
+  declaration$value
 }

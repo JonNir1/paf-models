@@ -5,7 +5,8 @@
 #'   1. Load a previously-extended model (.rds from outputs/models/fit/)
 #'   2. Extract group-level posterior (mu, Sigma) via extract_group_params()
 #'   3. Draw fresh subject parameters + simulate data via simulate_recovery_data()
-#'   4. Refit the same model from scratch on the simulated data (same priors)
+#'   4. Refit a model from scratch on the simulated data (default: the same
+#'      model; --fit-model-script refits with another model for model recovery)
 #'   5. Extend until relaxed convergence criteria are met
 #'   6. Save recovered model + true subject params; sync to S3/GCS
 #'
@@ -18,9 +19,15 @@
 #'
 #' Usage (called by scripts/run_recovery.sh, or directly for local testing):
 #'   Rscript R/fit/fit_recovery_cloud.R <extended_rds> <sim_index>
-#'   e.g.: Rscript R/fit/fit_recovery_cloud.R 260525_model1_extended.rds 1
+#'   e.g.: Rscript R/fit/fit_recovery_cloud.R 260618_mymodel.rds 1
 #'
 #' Optional overrides (default to fit_config.R globals):
+#'   --fit-model-script PATH  Refit the simulated data with the model defined in
+#'                    PATH instead of the generating model (model recovery). The
+#'                    data are still simulated from the fit given as <extended_rds>
+#'                    (its own MODEL_DATA_ARGS); PATH must declare the same
+#'                    MODEL_DATA_ARGS. Output files then carry `_fit_<MODEL_NAME of
+#'                    PATH>` (see recovery_stem()); same-model names are unchanged.
 #'   --fit-samples N  Override RECOVERY_FIT_SAMPLES for the initial fit
 #'   --max-tries N    Override MAX_TRIES for the post-fit extension loop
 #'   --step-size N    Override STEP_SIZE for the extension loop
@@ -30,7 +37,10 @@
 #' Cloud sync: reads CP_CMD and DEST_PREFIX from the environment (set by
 #' scripts/run_recovery.sh). No-op if either is unset (safe for local use).
 #'
-#' Limitation: the model script must live in R/fit/. It is found by its declared
+#' Simulated RTs are truncated to SIM_RT_WINDOW (fit_config.R; NULL = untruncated);
+#' the dropped fraction is logged.
+#'
+#' Limitation: the generating model's script must live in R/fit/. It is found by its declared
 #' MODEL_NAME (the fit file's model name), whatever the script file is called;
 #' names must be unique within R/fit/. Checked up front, before anything is
 #' computed or written.
@@ -45,7 +55,7 @@ source_root("R/eval/helpers/io.R")        # model_name_from_rds
 #' Recovery pipeline (callable; no CLI / no I/O of inputs).
 #'
 #' Given an already-loaded fitted model and template data, runs the full
-#' recovery cycle: extract -> simulate -> save true_alpha -> source modelN.R ->
+#' recovery cycle: extract -> simulate -> save true_alpha -> source the model script ->
 #' build_model on simulated data -> fit -> save checkpoint -> extend.
 #'
 #' Inputs and outputs (log file, dirs) are explicit parameters so this is
@@ -54,8 +64,9 @@ source_root("R/eval/helpers/io.R")        # model_name_from_rds
 #' @param extended_model       Loaded EMC2 model object (output of fit_to_convergence).
 #' @param template_data        Filtered design-matrix data frame (trial structure
 #'                              for make_data). May be a subset for fast smoke tests.
-#' @param model_script_path    Absolute path to the model definition script
-#'                              (e.g. .../R/fit/mymodel.R). Must define build_model().
+#' @param model_script_path    Path to the definition script of the model that is
+#'                              refit on the simulated data (e.g. .../R/fit/mymodel.R).
+#'                              Must define build_model().
 #' @param recovery_name        Base name for output .rds files (without date prefix).
 #' @param log_file             Path to write timestamped progress lines.
 #' @param out_dir              Directory for recovered model + true_alpha .rds files.
@@ -69,6 +80,14 @@ source_root("R/eval/helpers/io.R")        # model_name_from_rds
 #'                              after each checkpoint (e.g. .cloud_hook for S3).
 #' @param init_stop_criteria   Optional stop_criteria for the warm-up fit (e.g.
 #'                              list(max_gd = Inf) for smoke tests). NULL in prod.
+#' @param rt_window            NULL (untruncated) or c(min, max) seconds (inclusive):
+#'                              simulated trials outside it are dropped before the
+#'                              refit. Default SIM_RT_WINDOW.
+#' @param source_fit           File name of the fit the data are simulated from; with
+#'                              `sim_seed`, `rt_window` and a fingerprint of `template_data`
+#'                              (`data_fingerprint()`) it is stored as the
+#'                              "provenance" attribute of the saved true_alpha, so
+#'                              model recovery can check that candidates share data.
 #' @return character "COMPLETE" on success; on failure, the error is re-thrown
 #'   so the CLI's tryCatch can log it. Side effects: writes true_alpha and the
 #'   recovered model .rds to out_dir.
@@ -80,11 +99,14 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
                              batch_size         = STEP_SIZE_RECOVERY,
                              save_every         = SAVE_EVERY,
                              post_save_hook     = NULL,
-                             init_stop_criteria = NULL) {
+                             init_stop_criteria = NULL,
+                             rt_window          = SIM_RT_WINDOW,
+                             source_fit         = NA_character_) {
 
   if (!file.exists(model_script_path)) {
     stop(sprintf("Model script not found: %s", model_script_path))
   }
+  .validate_rt_window(rt_window)
 
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   run_date <- format(Sys.Date(), "%y%m%d")
@@ -113,9 +135,11 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
   log_msg(sprintf("Simulating recovery data (seed = %d)...", sim_seed),
           log_file, console_print = TRUE)
   sim_result <- simulate_recovery_data(extended_model, group_params,
-                                       template_data, seed = sim_seed)
+                                       template_data, seed = sim_seed,
+                                       rt_window = rt_window)
   sim_data   <- sim_result$data
   true_alpha <- sim_result$subject_pars
+  log_truncation(sim_result$dropped, rt_window, log_file)
   log_msg(sprintf("  Simulated: %d trials, %d subjects",
                   nrow(sim_data), dplyr::n_distinct(sim_data$subjects)),
           log_file, console_print = TRUE)
@@ -123,6 +147,8 @@ run_recovery_fit <- function(extended_model, template_data, model_script_path,
   # --- 3. Save true alpha alongside the recovered model ---
   true_alpha_path <- file.path(out_dir,
                                sprintf("%s_%s_true_alpha.rds", run_date, recovery_name))
+  attr(true_alpha, "provenance") <- list(source_fit = source_fit, sim_seed = sim_seed, rt_window = rt_window,
+                                         template = data_fingerprint(template_data))
   saveRDS(true_alpha, true_alpha_path)
   log_msg(sprintf("Saved true subject params: %s", true_alpha_path),
           log_file, console_print = TRUE)
@@ -173,8 +199,8 @@ if (length(args) == 0L) {
 } else if (length(args) < 2L) {
   stop(
     "Usage: Rscript fit_recovery_cloud.R <extended_rds> <sim_index> [options]\n",
-    "Example: Rscript R/fit/fit_recovery_cloud.R 260525_model1_extended.rds 1\n",
-    "Smoke:   Rscript R/fit/fit_recovery_cloud.R 260525_model1_extended.rds 1 ",
+    "Example: Rscript R/fit/fit_recovery_cloud.R 260618_mymodel.rds 1\n",
+    "Smoke:   Rscript R/fit/fit_recovery_cloud.R 260618_mymodel.rds 1 ",
     "--fit-samples 5 --max-tries 1 --step-size 5 --save-every 1 --suffix _smoke"
   )
 } else {
@@ -204,16 +230,23 @@ if (length(args) == 0L) {
   save_every_override  <- parse_int_arg(args, "--save-every")
   fit_samples_override <- parse_int_arg(args, "--fit-samples")
   suffix_override      <- parse_str_arg(args, "--suffix")
+  fit_script_override  <- parse_str_arg(args, "--fit-model-script")
   suffix <- if (!is.null(suffix_override)) suffix_override else ""
 
   orig_name     <- model_name_from_rds(extended_rds)
-  recovery_name <- sprintf("%s_recovery_sim%d%s", orig_name, sim_index, suffix)
+  fit_name      <- orig_name
 
   if (!dir.exists(MODELS_RECOVERY_DIR)) dir.create(MODELS_RECOVERY_DIR, recursive = TRUE)
 
-  log_file <- file.path(MODELS_RECOVERY_DIR,
-                        sprintf("log_recovery_%s_sim%d%s.txt",
-                                orig_name, sim_index, suffix))
+  # Fail fast (before any log file is created): the refit model script and its name
+  if (!is.null(fit_script_override)) {
+    if (!file.exists(fit_script_override))
+      stop(sprintf("--fit-model-script not found: %s", fit_script_override))
+    fit_name <- model_script_name(fit_script_override)
+  }
+  recovery_name <- recovery_stem(orig_name, sim_index, fit_name, suffix)
+
+  log_file <- file.path(MODELS_RECOVERY_DIR, sprintf("log_%s.txt", recovery_name))
   cat("", file = log_file, append = FALSE)
 
   log_msg(sprintf("===== RECOVERY: %s  sim=%d =====", extended_rds, sim_index),
@@ -225,7 +258,8 @@ if (length(args) == 0L) {
          list("--max-tries",   max_tries_override),
          list("--step-size",   step_size_override),
          list("--save-every",  save_every_override),
-         list("--suffix",      suffix_override))) {
+         list("--suffix",      suffix_override),
+         list("--fit-model-script", fit_script_override))) {
     if (!is.null(override[[2]]))
       log_msg(sprintf("Override: %s %s", override[[1]], override[[2]]),
               log_file, console_print = TRUE)
@@ -233,7 +267,12 @@ if (length(args) == 0L) {
 
   result <- tryCatch({
     # Fail fast, before loading the fit or data
-    model_script <- find_model_script(orig_name, file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "fit"))
+    gen_script <- find_model_script(orig_name, file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "fit"))
+    fit_script <- if (is.null(fit_script_override)) gen_script else fit_script_override
+    if (!identical(model_data_args(fit_script), model_data_args(gen_script)))
+      stop(sprintf(paste0("Refit model '%s' and generating model '%s' declare different MODEL_DATA_ARGS; ",
+                          "the simulated data cannot serve both."),
+                   fit_name, orig_name))
 
     ext_path <- file.path(MODELS_FIT_DIR, extended_rds)
     log_msg(sprintf("Loading source (converged) model from: %s", ext_path),
@@ -242,9 +281,7 @@ if (length(args) == 0L) {
 
     log_msg(sprintf("Loading template data from raw CSVs in: %s", DATA_DIR),
             log_file, console_print = TRUE)
-    template_data <- load_data(min_rt               = MIN_SACCADE_CUTOFF,
-                               max_rt               = MAX_SACCADE_CUTOFF,
-                               allow_target_repeats = ALLOW_TARGET_REPEAT)
+    template_data <- load_model_data(gen_script)
 
     # Recovery convergence target (relaxed); --fit-samples overrides the floor.
     recovery_criteria <- default_convergence_criteria("recovery")
@@ -254,11 +291,12 @@ if (length(args) == 0L) {
     run_recovery_fit(
       extended_model    = extended_model,
       template_data     = template_data,
-      model_script_path = model_script,
+      model_script_path = fit_script,
       recovery_name     = recovery_name,
       log_file          = log_file,
       out_dir           = MODELS_RECOVERY_DIR,
       sim_seed          = RECOVERY_BASE_SEED + sim_index,
+      source_fit        = basename(extended_rds),
       convergence_criteria = recovery_criteria,
       max_tries         = if (!is.null(max_tries_override))   max_tries_override   else MAX_TRIES_RECOVERY,
       batch_size        = if (!is.null(step_size_override))   step_size_override   else STEP_SIZE_RECOVERY,

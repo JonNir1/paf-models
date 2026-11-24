@@ -28,7 +28,7 @@ Pick an instance type and name:
 
 ```powershell
 $INSTANCE_TYPE = "c5.large"      # c5.xlarge (smoke) / c6a.4xlarge (recovery, production)
-$INSTANCE_NAME = "paf-instance"  # informative, e.g. "paf-ppc-model1"
+$INSTANCE_NAME = "paf-instance"  # informative, e.g. "paf-ppc-mymodel"
 ```
 
 > **Optional: pin a subnet** (recommended, avoids capacity issues). List them with
@@ -85,9 +85,11 @@ Each script downloads its own inputs from S3 and syncs outputs back automaticall
 | Script | Example args | Purpose |
 |---|---|---|
 | `run_fit.sh` | `--model-script R/fit/mymodel.R` | build fresh + fit to convergence |
-| `run_fit.sh` | `--resume 260525_model1.rds` | resume a saved fit |
-| `run_recovery.sh` | `260525_model1.rds 1` | single-sim parameter recovery |
-| `run_ppc.sh` | `260525_model1.rds` | posterior predictive simulation |
+| `run_fit.sh` | `--resume 260618_mymodel.rds` | resume a saved fit |
+| `run_recovery.sh` | `260618_mymodel.rds 1` | single-sim parameter recovery |
+| `run_recovery.sh` | `260618_mymodel.rds 1 --fit-model-script R/fit/other.R` | model recovery: refit the simulated data with another model |
+| `run_ppc.sh` | `260618_mymodel.rds` | posterior predictive simulation |
+| `run_bf.sh` | `260618_mymodel.rds` | bridge-sampling marginal likelihood (Bayes factors; synced to `results/bf/`) |
 
 ```bash
 nohup env BUCKET=jon-nir/paf-models CLOUD=aws ./scripts/<script> <args> > ~/run.log 2>&1 &
@@ -106,7 +108,7 @@ The script hooks sync model `.rds` files automatically. Use this only for extra 
 hook does not cover:
 
 ```bash
-# RESULTS_SUB_DIR=ppc   # ppc / recovery / fit
+# RESULTS_SUB_DIR=ppc   # ppc / recovery / fit / bf
 # aws s3 sync outputs/models/fit_ppc/ "s3://jon-nir/paf-models/results/$RESULTS_SUB_DIR/"
 ```
 

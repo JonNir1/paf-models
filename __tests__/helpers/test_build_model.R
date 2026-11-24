@@ -26,10 +26,11 @@ local_build_mocks <- function(sampled, env = parent.frame()) {
 }
 
 build <- function(...) {
-  build_lba_model(data.frame(), v_formula = v ~ CueAtLoc, B_formula = B ~ 1, ...)
+  build_lba_model(data.frame(), v_formula = v ~ CueAtLoc, B_formula = B ~ 1,
+                  sv_formula = sv ~ TargetAtLoc, ...)
 }
 
-test_that("design() gets CONSTANTS, all five factor closures and the five formulas", {
+test_that("design() gets CONSTANTS, the five formulas and, by default, all five factor closures (a `functions` override replaces them)", {
   mocks <- local_build_mocks("v")
   expect_identical(build(n_chains = 4L), "emc")
 
@@ -41,12 +42,19 @@ test_that("design() gets CONSTANTS, all five factor closures and the five formul
                         StimulusAtLoc = StimulusAtLoc, TargetAtLoc = TargetAtLoc,
                         SearchDifficulty = SearchDifficulty))
   expect_identical(vapply(args$formula, function(f) deparse(f), character(1)),
-                   c("v ~ CueAtLoc", "sv ~ StimulusAtLoc", "B ~ 1", "A ~ 1", "t0 ~ 1"))
+                   c("v ~ CueAtLoc", "sv ~ TargetAtLoc", "B ~ 1", "A ~ 1", "t0 ~ 1"))
   expect_identical(mocks$emc$calls()[[1L]]$n_chains, 4L)
+
+  build(functions = list(CueAtLoc = CueAtLoc, TargetAtLoc = TargetAtLoc))
+  expect_named(mocks$design$calls()[[2L]]$functions, c("CueAtLoc", "TargetAtLoc"))
+
+  # sv_formula has no default any more: forgetting it fails before design() is called.
+  expect_error(build_lba_model(data.frame(), v_formula = v ~ CueAtLoc, B_formula = B ~ 1), "sv_formula")
+  expect_length(mocks$design$calls(), 2L)
 })
 
 test_that("prior means and SDs are taken from the master table in sampled_pars() order", {
-  sampled <- c("t0", "v", "B", "sv_StimulusAtLocD")
+  sampled <- c("t0", "v", "B", "A")
   mocks <- local_build_mocks(sampled)
   build()
 
