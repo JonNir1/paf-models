@@ -107,7 +107,7 @@ The new analysis (new model family) is being set up; the step-by-step plan is a 
 
 The **completed** `model1`–`model5` analysis (through step 4.9: convergence, recovery, GoF, PPC) is archived on branch `analysis1` (tag `analysis1-v1.0`); consult it for the prior 16-step plan and findings.
 
-**Baseline tags**: `analysis1-v1.0` marks the archived model1-5 world; `unified-pipeline-v1.0` marks the earlier unified-pipeline `main` baseline — the first state with the unified pipeline CI-green across all tiers (L1 + L2 build/recovery + L3 smoke A/B/C/D) on real EMC2; **`v1.2`** marks the current `main` baseline, the clean-slate generic pipeline (no model definitions, generic eval knobs), CI-green on all tiers on 2026-11-24. Revert/branch from any of them with `git switch -c <name> <tag>`.
+**Baseline tags**: `analysis1-v1.0` marks the archived model1-5 world; `unified-pipeline-v1.0` marks the earlier unified-pipeline `main` baseline (the first state with the unified pipeline CI-green across all tiers (L1 + L2 build/recovery + L3 smoke A/B/C/D) on real EMC2); **`v1.2`** marks the current `main` baseline, the clean-slate generic pipeline (no model definitions, generic eval knobs), CI-green on all tiers on 2026-11-24. Revert/branch from any of them with `git switch -c <name> <tag>`.
 
 **Asymmetric convergence target** (production default, encoded in `default_convergence_criteria()` reading `R/config.R`):
 
