@@ -38,7 +38,8 @@ source_root("R/eval/helpers/plot.R")             # ggplot2 figures + save_ggplot
 RECOVERY_OUT_DIR <- RECOVERY_EVAL_DIR
 if (!dir.exists(RECOVERY_OUT_DIR)) dir.create(RECOVERY_OUT_DIR, recursive = TRUE)
 
-MODEL_NAMES <- discover_model_names()
+if (!exists("MODEL_NAMES")) MODEL_NAMES <- discover_model_names()   # pre-settable (e.g. a subset)
+check_model_names(MODEL_NAMES)
 if (!exists("N_SIMS")) N_SIMS <- 3L   # pre-settable
 
 # Per-model structural-unidentifiability patterns; any error here is fatal.

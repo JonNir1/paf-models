@@ -22,7 +22,8 @@ source_root("R/eval/helpers/convergence.R")      # create_convergence_table, add
 # ------------------------------
 # Load the active model set (every fitted model in MODELS_FIT_DIR)
 
-MODEL_NAMES <- discover_model_names()
+if (!exists("MODEL_NAMES")) MODEL_NAMES <- discover_model_names()   # pre-settable (e.g. a subset)
+check_model_names(MODEL_NAMES)
 if (length(MODEL_NAMES) == 0)
   stop(sprintf("No fitted models found in %s; fit models before running convergence.", MODELS_FIT_DIR))
 

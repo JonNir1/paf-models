@@ -2,7 +2,7 @@
 
 Significant changes between repo versions. Version `v1.0` is the tag `unified-pipeline-v1.0`.
 
-## v1.2 (2026-11-23)
+## v1.2 (2026-11-24)
 
 `main` is now analysis-agnostic: the model1-5 leftovers are gone and the generic pieces a new analysis needs are added.
 
@@ -79,3 +79,6 @@ Significant changes between repo versions. Version `v1.0` is the tag `unified-pi
 ## v1.0 (`unified-pipeline-v1.0`)
 
 - Baseline: unified fit pipeline (`fit_to_convergence`, `fit_cloud.R`), R-native data loading, CI green on all tiers.
+
+- Eval drivers are reusable on a model subset: every driver honours a pre-set `MODEL_NAMES` (validated by `check_model_names()`), `discover_model_names()` takes a pre-settable `MODEL_EXCLUDE_PATTERN`, and `BF_DIR`, `GOF_DIR` and `LOO_DIR` are pre-settable output dirs (the cache follows), so a separate comparison does not overwrite the main tables.
+- The PPC figure functions default `x_var` (and `plot_ppc_cdf`'s `x_facet`) to `ppc_x_var()`, the first non-`experiment` entry of `PPC_GROUP_VARS` (unchanged output for the default `cue_size`); `.latest_ppc()` escapes the model name in its regex.

@@ -60,6 +60,23 @@ test_that("discover_model_names: unique sorted bare names; empty or missing dir 
   expect_identical(discover_model_names(file.path(tempdir(), "no_such_dir")), character(0))
   empty <- tempfile("fit_empty_"); dir.create(empty)
   expect_identical(discover_model_names(empty), character(0))
+
+  # exclude regex drops matching names; NA (the default) keeps all
+  expect_equal(discover_model_names(dir, exclude = "^z"), "alpha")
+  expect_equal(discover_model_names(dir, exclude = NA_character_), c("alpha", "zeta"))
+  expect_identical(discover_model_names(dir, exclude = "."), character(0))
+
+  # a pre-set MODEL_NAMES is validated against ALL fits (exclude does not apply); unknown names fail clearly
+  expect_silent(check_model_names(c("zeta", "alpha"), dir))
+  expect_error(check_model_names(c("alpha", "nope"), dir), "no fit in.*nope")
+})
+
+test_that("eval drivers honour a pre-set MODEL_NAMES (no unconditional discovery)", {
+  for (f in c("convergence", "goodness_of_fit", "bayes_factors", "recovery", "ppc", "model_recovery")) {
+    src <- readLines(file.path(ROOT, "R", "eval", paste0(f, ".R")))
+    expect_false(any(grepl("^MODEL_NAMES <- discover_model_names", src)), info = f)
+    expect_true(any(startsWith(src, "if (!exists(\"MODEL_NAMES\")) MODEL_NAMES <- discover_model_names")), info = f)
+  }
 })
 
 test_that("save_model -> discover_model_names -> load_model round-trips a model", {

@@ -290,12 +290,24 @@ plot_ppc_dist_stats <- function(stats_df) {
 }
 
 
+#' Default x variable of the PPC figures: the first grouping variable other than
+#' `experiment` (cue_size for the default PPC_GROUP_VARS).
+#'
+#' @param group_vars Grouping columns in use (default PPC_GROUP_VARS).
+#' @return A single column name.
+ppc_x_var <- function(group_vars = PPC_GROUP_VARS) {
+  x <- setdiff(group_vars, "experiment")
+  if (length(x) == 0L) stop("group_vars has no variable besides 'experiment' to use as x.")
+  x[[1L]]
+}
+
+
 #' Predicted (ribbon + line) vs observed (points) saccade proportions.
 #'
 #' @param choice_df Output of compute_choice_proportions().
-#' @param x_var     Grouping column to use as x-axis (default "cue_size").
+#' @param x_var     Grouping column to use as x-axis (default: ppc_x_var()).
 #' @return A ggplot, faceted by model.
-plot_ppc_choice <- function(choice_df, x_var = "cue_size") {
+plot_ppc_choice <- function(choice_df, x_var = ppc_x_var()) {
   library(ggplot2)
   stopifnot(x_var %in% names(choice_df))
   resp_colors <- c(T = "#2c7fb8", D = "#d7301f", E = "#f0a500")
@@ -321,9 +333,9 @@ plot_ppc_choice <- function(choice_df, x_var = "cue_size") {
 #' Marginal QPF overlay: predicted (ribbon + line) vs observed (points) RT quantiles.
 #'
 #' @param qpf_df  Output of compute_qpf_table() with by_response=FALSE (default).
-#' @param x_var   Grouping column for the x-axis (default "cue_size").
+#' @param x_var   Grouping column for the x-axis (default: ppc_x_var()).
 #' @return A ggplot, faceted by model x quantile.
-plot_ppc_qpf <- function(qpf_df, x_var = "cue_size") {
+plot_ppc_qpf <- function(qpf_df, x_var = ppc_x_var()) {
   library(ggplot2)
   stopifnot(x_var %in% names(qpf_df))
   qpf_df$x_val   <- factor(qpf_df[[x_var]])
@@ -349,9 +361,9 @@ plot_ppc_qpf <- function(qpf_df, x_var = "cue_size") {
 #' Each model is shown in a different colour, overlaid on the same axes.
 #'
 #' @param qpf_resp_df  Output of compute_qpf_table(by_response = TRUE).
-#' @param x_var        Grouping column for the x-axis (default "cue_size").
+#' @param x_var        Grouping column for the x-axis (default: ppc_x_var()).
 #' @return A ggplot, faceted by quantile x response_type, coloured by model.
-plot_ppc_qpf_by_response <- function(qpf_resp_df, x_var = "cue_size") {
+plot_ppc_qpf_by_response <- function(qpf_resp_df, x_var = ppc_x_var()) {
   library(ggplot2)
   stopifnot("response_type" %in% names(qpf_resp_df),
             x_var %in% names(qpf_resp_df))
@@ -395,11 +407,11 @@ plot_ppc_qpf_by_response <- function(qpf_resp_df, x_var = "cue_size") {
 #'
 #' @param qpf_resp_df  Output of compute_qpf_table(by_response = TRUE).
 #' @param choice_df    Output of compute_choice_proportions().
-#' @param x_facet      Grouping column to facet columns by (default "cue_size").
+#' @param x_facet      Grouping column to facet columns by (default: ppc_x_var(group_vars)).
 #' @param group_vars   Grouping columns the tables were computed with (default
 #'                     PPC_GROUP_VARS); they are the merge keys of the two tables.
 #' @return A ggplot, faceted by response_type (rows) x x_facet (columns).
-plot_ppc_cdf <- function(qpf_resp_df, choice_df, x_facet = "cue_size",
+plot_ppc_cdf <- function(qpf_resp_df, choice_df, x_facet = ppc_x_var(group_vars),
                          group_vars = PPC_GROUP_VARS) {
   library(ggplot2)
   stopifnot("response_type" %in% names(qpf_resp_df),

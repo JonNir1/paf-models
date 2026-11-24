@@ -261,4 +261,11 @@ test_that("group_vars: the default reproduces the experiment x cue_size x search
                         x_facet = "cue_size", group_vars = gv)
   expect_gt(nrow(ggplot2::ggplot_build(p_cdf)$data[[2L]]), 0L)
   expect_error(plot_ppc_cdf(data.frame(response_type = "T"), data.frame(), x_facet = "experiment", group_vars = gv))
+
+  # default x variable: first non-experiment grouping variable (cue_size for the default PPC_GROUP_VARS)
+  expect_identical(ppc_x_var(), "cue_size")
+  expect_identical(ppc_x_var(c("experiment", "prev", "cue_size")), "prev")
+  expect_error(ppc_x_var("experiment"), "no variable")
+  expect_identical(plot_ppc_choice(compute_choice_proportions(ppc, obs, "m", group_vars = gv),
+                                   x_var = ppc_x_var(gv))$labels$x, "prev")
 })
