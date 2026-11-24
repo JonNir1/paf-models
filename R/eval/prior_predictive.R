@@ -11,15 +11,16 @@
 #'   PP_MODEL_NAMES  models to run (default: every pt_* model script; builds take
 #'                   minutes each, so pass a subset to iterate)
 #'   PP_N_DRAWS      prior draws per model (default 20)
-#' Environment: PT_PRIOR_SD_SCALE as for the fits (see R/fit/helpers/pt_family.R).
+#' Environment: PT_PRIOR_SD_SCALE as for the fits (see R/fit/helpers/pt_family.R); it also scopes
+#'   the model set (names carry the `_sd<scale>` suffix) and so the build cache file.
 #'
 #' Writes (outputs/evaluation/prior_predictive/):
 #'   prior_predictive.{rds,csv}   one row per model x draw (`rejected` = make_data
 #'                                refused: >10% of parameters out of bounds)
 #'   prior_predictive_summary.csv per-model medians over draws
 #'   prior_predictive.png         figure
-#'   builds/<model>.rds           cached built models (valid while newer than the
-#'                                model script and the build code)
+#'   builds/<model>.rds           cached built models (valid while newer than the model
+#'                                script and build code, and built with this EMC2 version)
 #'
 #' Run from the repo root:  source("R/eval/prior_predictive.R")
 #' =============================================================================
@@ -45,12 +46,14 @@ stopifnot(length(PP_MODEL_NAMES) > 0, all(PP_MODEL_NAMES %in% names(model_script
 # Built model, cached per model (design() takes minutes).
 .built_model <- function(name, data) {
   cache <- file.path(PP_DIR, "builds", paste0(name, ".rds"))
-  code  <- c(model_scripts[[name]],
+  code  <- c(model_scripts[[name]], file.path(CODE_DIR, "helpers", "data.R"),
              file.path(CODE_DIR, "fit", c("helpers/build_model.R", "helpers/pt_family.R", "fit_config.R")))
-  if (newer_than_inputs(cache, code)) return(readRDS(cache))
+  key   <- list(emc2 = emc_version())
+  if (eval_cache_fresh(cache, code, key)) return(readRDS(cache))
   build <- new.env()
   sys.source(model_scripts[[name]], envir = build)
   model <- build$build_model(data, n_chains = 1)
+  attr(model, "cache_key") <- key
   dir.create(dirname(cache), recursive = TRUE, showWarnings = FALSE)
   saveRDS(model, cache)
   model
@@ -59,9 +62,11 @@ stopifnot(length(PP_MODEL_NAMES) > 0, all(PP_MODEL_NAMES %in% names(model_script
 RNGkind(RNG_KIND)
 window <- c(MIN_SACCADE_CUTOFF, MAX_SACCADE_CUTOFF)
 rows   <- list()
-for (i in seq_along(PP_MODEL_NAMES)) {
-  nm   <- PP_MODEL_NAMES[[i]]
+obs_rt_q50 <- numeric()
+for (nm in PP_MODEL_NAMES) {
+  i    <- match(nm, names(model_scripts))   # position in the full family: seeds do not depend on the subset
   data <- load_model_data(model_scripts[[nm]])
+  obs_rt_q50[[nm]] <- median(data$rt)
   message(sprintf("Prior predictive: %s (%d draws)", nm, PP_N_DRAWS))
   model <- .built_model(nm, data)
   prior <- model[[1]]$prior
@@ -88,7 +93,10 @@ ok   <- PP_TABLE[!PP_TABLE$rejected, ]
 if (nrow(ok) == 0L) stop("Every prior draw was rejected by make_data(); nothing to plot (see prior_predictive.csv).")
 long <- do.call(rbind, lapply(metrics, function(m)
   data.frame(model = ok$model, draw = ok$draw, metric = m, value = ok[[m]])))
-reference <- c(rt_q50 = median(data$rt), prop_in_window = 1)   # observed (already inside the window)
+if (length(unique(obs_rt_q50)) > 1L)
+  stop("The models' data subsets differ (observed median RT per model: ",
+       paste(sprintf("%s=%.3f", names(obs_rt_q50), obs_rt_q50), collapse = ", "), "); no single reference line.")
+reference <- c(rt_q50 = obs_rt_q50[[1]], prop_in_window = 1)   # observed (already inside the window)
 save_ggplot_png(plot_prior_predictive(long, reference), file.path(PP_DIR, "prior_predictive.png"),
                 width = 12, height = 8)
 

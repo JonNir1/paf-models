@@ -5,12 +5,11 @@
 #'   summarise_prior_predictive() -- RT / window / choice summary of one simulated dataset
 #'   plot_prior_predictive()      -- per-model distribution of those summaries across draws
 #'
-#' A draw is: mu ~ N(theta_mu_mean, theta_mu_var); Sigma = diag(variance) with
-#' variance_j ~ InvGamma(v/2, v / a_j), a_j ~ InvGamma(1/2, 1/A_j^2), the marginal
-#' of EMC2's "standard" half-t / inverse-Wishart prior on the diagonal. The prior
-#' correlations are ignored (zero), so subject spread is slightly understated when
-#' the prior implies correlated parameters. The data are then simulated on the real
-#' trial structure by simulate_recovery_data() (R/fit/helpers/recovery.R).
+#' A draw is EMC2 3.5.0's "standard" prior (get_prior_standard()): mu ~ N(theta_mu_mean,
+#' theta_mu_var); a_k ~ InvGamma(1/2, 1/A_k^2); Sigma ~ InvWishart(df = v + n - 1,
+#' scale = 2 v diag(1/a)). Each variance has the marginal InvGamma(v/2, v/a_k) and
+#' the correlations follow the prior's joint dependence. The data are then simulated
+#' on the real trial structure by simulate_recovery_data() (R/fit/helpers/recovery.R).
 #'
 #' Source chain: prior_predictive.R -> eval/helpers/ppc.R (.response_type)
 #' =============================================================================
@@ -21,16 +20,27 @@ source_root("R/eval/helpers/ppc.R")
 
 #' One draw of group-level parameters from an EMC2 "standard" prior.
 #'
-#' @param prior A prior object (`model[[1]]$prior`): theta_mu_mean, theta_mu_var, v, A.
-#' @return list(mu = named numeric, Sigma = named diagonal matrix), as
+#' Mirrors EMC2:::get_prior_standard() (sigma draw: riwish(v + n - 1, 2 v diag(1/a)) =
+#' solve(rwish(v + n - 1, solve(2 v diag(1/a))))) with stats::rWishart; a draw whose
+#' Wishart matrix is numerically singular (extreme `a`) is redrawn.
+#'
+#' @param prior A prior object (`model[[1]]$prior`): theta_mu_mean, theta_mu_var, v,
+#'   A (scalar or one per parameter).
+#' @return list(mu = named numeric, Sigma = named symmetric matrix), as
 #'   extract_group_params() returns.
 sample_prior_group_params <- function(prior) {
   mu_mean <- prior$theta_mu_mean
   n  <- length(mu_mean)
   mu <- stats::setNames(stats::rnorm(n, mu_mean, sqrt(diag(prior$theta_mu_var))), names(mu_mean))
-  a_half   <- 1 / stats::rgamma(n, shape = 1 / 2, rate = 1 / prior$A^2)
-  variance <- 1 / stats::rgamma(n, shape = prior$v / 2, rate = prior$v / a_half)
-  Sigma <- diag(variance, n)
+  Sigma <- NULL
+  for (attempt in 1:10) {
+    a_half <- 1 / stats::rgamma(n, shape = 1 / 2, rate = 1 / prior$A^2)
+    Sigma  <- tryCatch(solve(stats::rWishart(1, prior$v + n - 1, diag(a_half / (2 * prior$v), n))[, , 1]),
+                       error = function(e) NULL)
+    if (!is.null(Sigma)) break
+  }
+  if (is.null(Sigma)) stop("Could not draw a non-singular Sigma from the prior in 10 attempts", call. = FALSE)
+  Sigma <- (Sigma + t(Sigma)) / 2
   dimnames(Sigma) <- list(names(mu), names(mu))
   list(mu = mu, Sigma = Sigma)
 }
