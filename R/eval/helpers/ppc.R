@@ -38,13 +38,24 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
   substr(clean_S, loc_idx, loc_idx)
 }
 
-# Rows of `df` in the condition cell `cond` (one row of experiment x cue_size x
-# search_difficulty). Compared on labels, so identical labels match even when the
+# Rows of `df` in the condition cell `cond` (one row of the `group_vars`
+# columns). Compared on labels, so identical labels match even when the
 # factors' level sets differ (e.g. an unused NONE cue level in the simulations).
-.in_cell <- function(df, cond) {
-  as.character(df$experiment)          == as.character(cond$experiment) &
-    as.character(df$cue_size)          == as.character(cond$cue_size) &
-    as.character(df$search_difficulty) == as.character(cond$search_difficulty)
+.in_cell <- function(df, cond, group_vars) {
+  Reduce(`&`, lapply(group_vars, function(g) as.character(df[[g]]) == as.character(cond[[g]])))
+}
+
+# Unique condition cells of `data` (one row per combination of `group_vars`).
+.conditions <- function(data, group_vars) {
+  missing <- setdiff(group_vars, names(data))
+  if (length(missing) > 0L)
+    stop(sprintf("Grouping variable(s) not in the data: %s", paste(missing, collapse = ", ")), call. = FALSE)
+  unique(data[, group_vars, drop = FALSE])
+}
+
+# The `group_vars` columns of one cell as a named list, for binding onto a result row.
+.cell_cols <- function(cond, group_vars) {
+  stats::setNames(lapply(group_vars, function(g) cond[[g]]), group_vars)
 }
 
 # Shared model colour map for multi-model plots: assigns palette colours to
@@ -111,32 +122,33 @@ compute_dist_stats <- function(ppc_list, obs_data, model_name) {
 #' Response types: "T" (target), "D" (difficult distractor), "E" (easy distractor),
 #' classified from the stimulus string S at the response location R.
 #'
-#' For each condition cell (experiment x cue_size x search_difficulty), computes
-#' the proportion of saccades to each response type. Prediction is summarised as
+#' For each condition cell (the `group_vars` combinations, default experiment x
+#' cue_size x search_difficulty), computes the proportion of saccades to each response type. Prediction is summarised as
 #' median + 90% CI across T draws.
 #'
 #' @param ppc_list   List of T simulated data frames.
-#' @param obs_data   Observed data frame; must have S, R, cue_size,
-#'                   search_difficulty, experiment.
+#' @param obs_data   Observed data frame; must have S, R and the `group_vars` columns.
 #' @param model_name Character model identifier.
-#' @return Long-format data.frame with columns: model, experiment, cue_size,
-#'   search_difficulty, response_type, obs, pred_median, pred_ci_lo, pred_ci_hi.
-compute_choice_proportions <- function(ppc_list, obs_data, model_name) {
+#' @param group_vars Character vector of grouping columns present in both the
+#'                   observed and simulated data. Default PPC_GROUP_VARS
+#'                   (experiment, cue_size, search_difficulty).
+#' @return Long-format data.frame with columns: model, <group_vars>,
+#'   response_type, obs, pred_median, pred_ci_lo, pred_ci_hi.
+compute_choice_proportions <- function(ppc_list, obs_data, model_name, group_vars = PPC_GROUP_VARS) {
   resp_types <- c("T", "D", "E")
 
   obs_data$response_type <- .response_type(obs_data)
-  conditions <- unique(obs_data[, c("experiment", "cue_size", "search_difficulty"),
-                                drop = FALSE])
+  conditions <- .conditions(obs_data, group_vars)
 
   rows <- lapply(seq_len(nrow(conditions)), function(r) {
     cond <- conditions[r, , drop = FALSE]
-    obs_sel <- .in_cell(obs_data, cond)
+    obs_sel <- .in_cell(obs_data, cond, group_vars)
 
     lapply(resp_types, function(rt) {
       obs_prop <- mean(obs_data$response_type[obs_sel] == rt)
 
       draw_vals <- vapply(ppc_list, function(d) {
-        sim_sel <- .in_cell(d, cond)
+        sim_sel <- .in_cell(d, cond, group_vars)
         if (sum(sim_sel) == 0L) return(NA_real_)
         d$response_type <- .response_type(d)
         mean(d$response_type[sim_sel] == rt)
@@ -144,9 +156,7 @@ compute_choice_proportions <- function(ppc_list, obs_data, model_name) {
 
       data.frame(
         model             = model_name,
-        experiment        = cond$experiment,
-        cue_size          = cond$cue_size,
-        search_difficulty = cond$search_difficulty,
+        .cell_cols(cond, group_vars),
         response_type     = rt,
         obs               = obs_prop,
         pred_median       = median(draw_vals, na.rm = TRUE),
@@ -173,8 +183,8 @@ compute_choice_proportions <- function(ppc_list, obs_data, model_name) {
 #' Predictions are summarised as median + 90% CI across the T draws.
 #'
 #' @param ppc_list    List of T simulated data frames.
-#' @param obs_data    Observed data frame; must have rt, cue_size,
-#'                    search_difficulty, experiment (and S, R when by_response=TRUE).
+#' @param obs_data    Observed data frame; must have rt and the `group_vars`
+#'                    columns (and S, R when by_response=TRUE).
 #' @param model_name  Character model identifier.
 #' @param by_response Logical (default FALSE). When TRUE, stratify by response
 #'                    type (T/D/E); adds a response_type column to the output.
@@ -182,11 +192,13 @@ compute_choice_proportions <- function(ppc_list, obs_data, model_name) {
 #'                    are silently skipped.
 #' @param min_n       Minimum observed trials required per (condition x response_type)
 #'                    cell when by_response=TRUE (default 10).
-#' @return Long-format data.frame. Columns: model, experiment, cue_size,
-#'   search_difficulty, quantile, obs, pred_median, pred_ci_lo, pred_ci_hi.
-#'   Plus response_type when by_response=TRUE.
+#' @param group_vars Character vector of grouping columns present in both the
+#'                    observed and simulated data. Default PPC_GROUP_VARS.
+#' @return Long-format data.frame. Columns: model, <group_vars>, quantile, obs,
+#'   pred_median, pred_ci_lo, pred_ci_hi. Plus response_type when by_response=TRUE.
 compute_qpf_table <- function(ppc_list, obs_data, model_name,
-                               by_response = FALSE, min_n = 10L) {
+                               by_response = FALSE, min_n = 10L,
+                               group_vars = PPC_GROUP_VARS) {
   probs <- c(0.10, 0.25, 0.50, 0.75, 0.90)
 
   # Pre-annotate with response type once (avoids recomputing per draw per cell)
@@ -201,12 +213,11 @@ compute_qpf_table <- function(ppc_list, obs_data, model_name,
     rt_loop <- list(NULL)   # single NULL sentinel: run once without RT filter
   }
 
-  conditions <- unique(obs_data[, c("experiment", "cue_size", "search_difficulty"),
-                                drop = FALSE])
+  conditions <- .conditions(obs_data, group_vars)
 
   rows <- lapply(seq_len(nrow(conditions)), function(r) {
     cond     <- conditions[r, , drop = FALSE]
-    cond_sel <- .in_cell(obs_data, cond)
+    cond_sel <- .in_cell(obs_data, cond, group_vars)
 
     rt_results <- lapply(rt_loop, function(rt) {
       obs_sel <- if (is.null(rt)) cond_sel else cond_sel & obs_data$response_type == rt
@@ -219,7 +230,7 @@ compute_qpf_table <- function(ppc_list, obs_data, model_name,
         obs_q <- quantile(obs_data$rt[obs_sel], p)
 
         draw_vals <- vapply(ppc_list, function(d) {
-          sim_sel <- .in_cell(d, cond)
+          sim_sel <- .in_cell(d, cond, group_vars)
           if (!is.null(rt)) sim_sel <- sim_sel & d$response_type == rt
           if (sum(sim_sel) < 2L) return(NA_real_)
           quantile(d$rt[sim_sel], p)
@@ -227,9 +238,7 @@ compute_qpf_table <- function(ppc_list, obs_data, model_name,
 
         row <- data.frame(
           model             = model_name,
-          experiment        = cond$experiment,
-          cue_size          = cond$cue_size,
-          search_difficulty = cond$search_difficulty,
+          .cell_cols(cond, group_vars),
           quantile          = p,
           obs               = obs_q,
           pred_median       = median(draw_vals, na.rm = TRUE),
@@ -284,11 +293,11 @@ plot_ppc_dist_stats <- function(stats_df) {
 #' Predicted (ribbon + line) vs observed (points) saccade proportions.
 #'
 #' @param choice_df Output of compute_choice_proportions().
-#' @param x_var     Column to use as x-axis: "cue_size" or "search_difficulty".
+#' @param x_var     Grouping column to use as x-axis (default "cue_size").
 #' @return A ggplot, faceted by model.
 plot_ppc_choice <- function(choice_df, x_var = "cue_size") {
   library(ggplot2)
-  stopifnot(x_var %in% c("cue_size", "search_difficulty"))
+  stopifnot(x_var %in% names(choice_df))
   resp_colors <- c(T = "#2c7fb8", D = "#d7301f", E = "#f0a500")
   choice_df$x_val <- factor(choice_df[[x_var]])
   ggplot(choice_df, aes(x_val, group = response_type)) +
@@ -312,11 +321,11 @@ plot_ppc_choice <- function(choice_df, x_var = "cue_size") {
 #' Marginal QPF overlay: predicted (ribbon + line) vs observed (points) RT quantiles.
 #'
 #' @param qpf_df  Output of compute_qpf_table() with by_response=FALSE (default).
-#' @param x_var   Column for x-axis: "cue_size" or "search_difficulty".
+#' @param x_var   Grouping column for the x-axis (default "cue_size").
 #' @return A ggplot, faceted by model x quantile.
 plot_ppc_qpf <- function(qpf_df, x_var = "cue_size") {
   library(ggplot2)
-  stopifnot(x_var %in% c("cue_size", "search_difficulty"))
+  stopifnot(x_var %in% names(qpf_df))
   qpf_df$x_val   <- factor(qpf_df[[x_var]])
   qpf_df$q_label <- sprintf("q%02.0f", qpf_df$quantile * 100)
   ggplot(qpf_df, aes(x_val, group = 1L)) +
@@ -340,12 +349,12 @@ plot_ppc_qpf <- function(qpf_df, x_var = "cue_size") {
 #' Each model is shown in a different colour, overlaid on the same axes.
 #'
 #' @param qpf_resp_df  Output of compute_qpf_table(by_response = TRUE).
-#' @param x_var        Column for x-axis: "cue_size" or "search_difficulty".
+#' @param x_var        Grouping column for the x-axis (default "cue_size").
 #' @return A ggplot, faceted by quantile x response_type, coloured by model.
 plot_ppc_qpf_by_response <- function(qpf_resp_df, x_var = "cue_size") {
   library(ggplot2)
   stopifnot("response_type" %in% names(qpf_resp_df),
-            x_var %in% c("cue_size", "search_difficulty"))
+            x_var %in% names(qpf_resp_df))
 
   resp_labels <- c(T = "target", D = "difficult distractor", E = "easy distractor")
   qpf_resp_df$x_val     <- factor(qpf_resp_df[[x_var]])
@@ -386,16 +395,18 @@ plot_ppc_qpf_by_response <- function(qpf_resp_df, x_var = "cue_size") {
 #'
 #' @param qpf_resp_df  Output of compute_qpf_table(by_response = TRUE).
 #' @param choice_df    Output of compute_choice_proportions().
-#' @param x_facet      Column to facet columns by: "cue_size" or
-#'                     "search_difficulty".
+#' @param x_facet      Grouping column to facet columns by (default "cue_size").
+#' @param group_vars   Grouping columns the tables were computed with (default
+#'                     PPC_GROUP_VARS); they are the merge keys of the two tables.
 #' @return A ggplot, faceted by response_type (rows) x x_facet (columns).
-plot_ppc_cdf <- function(qpf_resp_df, choice_df, x_facet = "cue_size") {
+plot_ppc_cdf <- function(qpf_resp_df, choice_df, x_facet = "cue_size",
+                         group_vars = PPC_GROUP_VARS) {
   library(ggplot2)
   stopifnot("response_type" %in% names(qpf_resp_df),
-            x_facet %in% c("cue_size", "search_difficulty"))
+            x_facet %in% group_vars)
 
   # ---- Merge QPF with choice proportions ----
-  merge_keys <- c("model", "experiment", "cue_size", "search_difficulty", "response_type")
+  merge_keys <- c("model", group_vars, "response_type")
   cp_sub <- choice_df[, c(merge_keys, "obs", "pred_median", "pred_ci_lo", "pred_ci_hi"),
                        drop = FALSE]
   names(cp_sub)[names(cp_sub) == "obs"]        <- "cp_obs"
@@ -416,11 +427,9 @@ plot_ppc_cdf <- function(qpf_resp_df, choice_df, x_facet = "cue_size") {
   cdf_df$facet_x    <- factor(cdf_df[[x_facet]])
 
   # Observed CDF: model-independent -- deduplicate so black line is drawn once
-  obs_cdf <- unique(cdf_df[, c("experiment", x_facet, "search_difficulty",
-                                "response_type", "resp_label", "facet_x",
+  obs_cdf <- unique(cdf_df[, c(group_vars, "response_type", "resp_label", "facet_x",
                                 "quantile", "obs", "y_obs")])
-  obs_cdf$group_id <- interaction(obs_cdf$experiment, obs_cdf[[x_facet]],
-                                   obs_cdf$search_difficulty, obs_cdf$response_type)
+  obs_cdf$group_id <- interaction(c(obs_cdf[group_vars], list(obs_cdf$response_type)))
 
   # ---- Plot ----
   ggplot() +

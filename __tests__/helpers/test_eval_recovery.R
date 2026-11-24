@@ -42,7 +42,7 @@ test_that("add_convergence_verdict: block verdicts across descriptive / pass / m
     row("correlation", 1.40,  50,   80,   "descriptive", "never gated"),
     row("mu",          1.010, 1200, 5,    "pass",        "clean mu"),
     row("alpha",       1.020, 900,  6,    "pass",        "clean alpha"),
-    row("mu",          1.023, 1047, 7.1,  "pass",        "real model1 mu"),
+    row("mu",          1.023, 1047, 7.1,  "pass",        "clean mu, high ESS"),
     row("mu",          1.060, 1200, 5,    "fail",        "mu Rhat > 1.05"),
     row("mu",          1.010, 480,  5,    "fail",        "mu ESS < 500"),
     row("alpha",       1.120, 900,  5,    "fail",        "alpha Rhat > 1.10"),
@@ -53,7 +53,7 @@ test_that("add_convergence_verdict: block verdicts across descriptive / pass / m
     row("mu",          1.010, 540,  5,    "marginal",    "ESS within 10% of 500"),
     row("mu",          1.010, 1200, 30,   "marginal",    "> 25% of Rhat > 1.01"),
     row("mu",          1.010, 1200, 25,   "pass",        "exactly 25% of Rhat > 1.01"),
-    row("alpha",       1.097, 423,  14.4, "marginal",    "real model4 alpha"),
+    row("alpha",       1.097, 423,  14.4, "marginal",    "alpha, Rhat near the ceiling"),
     row("alpha",       1.020, 430,  5,    "marginal",    "alpha ESS within 10% of 400"),
     row("theta",       1.000, 9999, 0,    NA_character_, "unknown group")
   )
@@ -64,7 +64,7 @@ test_that("add_convergence_verdict: block verdicts across descriptive / pass / m
 })
 
 test_that("add_convergence_verdict: Rhat and ESS verdicts split; combined is the worse", {
-  out <- verdict_table(list(row("mu", 1.048, 1001, 40, NA, "real model5 mu"),
+  out <- verdict_table(list(row("mu", 1.048, 1001, 40, NA, "mu, Rhat near the ceiling"),
                             row("alpha", 1.01, 390, 0, NA, "ESS fail only")))
   expect_equal(out$verdict_rhat, c("marginal", "pass"))
   expect_equal(out$verdict_ess,  c("pass", "fail"))
@@ -212,22 +212,20 @@ test_that("recovery_subject_stats pools sims per (model, parameter) with closed-
 # flag_identifiable() / recovery_model_summary()
 # =============================================================================
 
-PAT <- "^v_StimulusAtLoc[DE](:SearchDifficulty(MIXED|DIFFICULT))?$"
+PAT <- "^v_StimulusAtLoc[DE]$"   # fixture-model parameter names (test_model.R)
 
 test_that("flag_identifiable applies each model's own pattern; NA = all identifiable; stale pattern errors", {
   pars <- c("v", "v_PrevTargetAtLocTRUE", "B",
-            "v_StimulusAtLocD", "v_StimulusAtLocE",
-            "v_StimulusAtLocD:SearchDifficultyMIXED",
-            "v_StimulusAtLocE:SearchDifficultyDIFFICULT")
+            "v_StimulusAtLocD", "v_StimulusAtLocE")
   one <- rep("m1", length(pars))
   expect_equal(flag_identifiable(pars, one, c(m1 = PAT)),
-               c(TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE))
+               c(TRUE, TRUE, TRUE, FALSE, FALSE))
   expect_true(all(flag_identifiable(pars, one, c(m1 = NA_character_))))
 
   # two models stacked: m1 uses PAT, m2 only flags "B"
   two <- flag_identifiable(c(pars, "v", "B"), c(one, "m2", "m2"),
                            c(m1 = PAT, m2 = "^B$"))
-  expect_equal(two, c(TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE, TRUE, FALSE))
+  expect_equal(two, c(TRUE, TRUE, TRUE, FALSE, FALSE, TRUE, FALSE))
 
   # interleaved rows with shared names: each row follows its own model only, order kept
   mix_par <- c("B", "v", "B", "v")
@@ -252,32 +250,32 @@ test_that("flag_identifiable applies each model's own pattern; NA = all identifi
 
 test_that("recovery_model_summary computes full and core means, per-model patterns", {
   ss <- data.frame(
-    model     = "model4",
-    parameter = c("v", "v_StimulusAtLocD", "v_StimulusAtLocE:SearchDifficultyDIFFICULT"),
+    model     = "model_a",
+    parameter = c("v", "v_StimulusAtLocD", "v_StimulusAtLocE"),
     n         = 10,
     rmse      = c(0.2, 0.9, 8.0),
     r         = c(0.9, -0.3, -0.7),
     stringsAsFactors = FALSE
   )
-  out <- recovery_model_summary(ss, c(model4 = PAT))
+  out <- recovery_model_summary(ss, c(model_a = PAT))
   expect_equal(out$n_all, 3)
   expect_equal(out$n_core, 1)              # only "v" survives
   expect_equal(out$r_core, 0.9)            # core mean = just v
   expect_equal(round(out$r_all, 4), round(mean(c(0.9, -0.3, -0.7)), 4))
 
   ss2 <- rbind(ss, transform(ss, model = "model_na"))
-  out2 <- recovery_model_summary(ss2, c(model4 = PAT, model_na = NA_character_))
-  expect_equal(out2$n_core[match(c("model4", "model_na"), out2$model)], c(1, 3))   # model4 flagged, model_na untouched
+  out2 <- recovery_model_summary(ss2, c(model_a = PAT, model_na = NA_character_))
+  expect_equal(out2$n_core[match(c("model_a", "model_na"), out2$model)], c(1, 3))   # model_a flagged, model_na untouched
   na_row <- out2[out2$model == "model_na", ]
   expect_equal(na_row$rmse_core, na_row$rmse_all)   # NA pattern: core == full exactly
   expect_equal(na_row$r_core, na_row$r_all)
 
-  # changing model_na's pattern leaves model4's stats untouched, and vice versa
-  out3 <- recovery_model_summary(ss2, c(model4 = PAT, model_na = "^v$"))
-  expect_equal(out3[out3$model == "model4", ], out2[out2$model == "model4", ])
+  # changing model_na's pattern leaves model_a's stats untouched, and vice versa
+  out3 <- recovery_model_summary(ss2, c(model_a = PAT, model_na = "^v$"))
+  expect_equal(out3[out3$model == "model_a", ], out2[out2$model == "model_a", ])
   expect_equal(out3$rmse_core[out3$model == "model_na"], mean(c(0.9, 8.0)))   # hand computation on the 2 rows left
 
-  expect_error(recovery_model_summary(ss, c(model4 = ".*")), "model4.*matches all of its parameters")
+  expect_error(recovery_model_summary(ss, c(model_a = ".*")), "model_a.*matches all of its parameters")
 })
 
 test_that("model_unidentifiable_pattern reads the script's declaration in isolation and rejects bad ones", {

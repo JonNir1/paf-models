@@ -227,3 +227,64 @@ test_that("load_data: missing data_dir or an inverted RT range throws error", {
   expect_error(load_data(data_dir = file.path(tempdir(), "no_such_dir")), "not found")
   expect_error(load_data(data_dir = tempdir(), min_rt = 0.8, max_rt = 0.2), "Invalid range")
 })
+
+
+# =============================================================================
+# model_data_args / load_model_data (per-model data subset)
+# =============================================================================
+
+test_that("model_data_args: reads a declared list without executing the script, rejects every bad declaration", {
+  dir <- withr::local_tempdir()
+  put <- function(file, ...) { writeLines(c(...), file.path(dir, file)); file.path(dir, file) }
+  expect_identical(model_data_args(put("none.R", "stop('executed')")), list())
+  expect_identical(model_data_args(put("empty.R", "MODEL_DATA_ARGS <- list()")), list())
+  expect_identical(model_data_args(put("ok.R", "stop('executed')",
+                                       "MODEL_DATA_ARGS = list(difficulties = c('EASY', 'DIFFICULT'))")),
+                   list(difficulties = c("EASY", "DIFFICULT")))
+
+  bad <- list(
+    reserved_min_rt  = c("MODEL_DATA_ARGS <- list(min_rt = 0)",                    "may not set min_rt"),
+    reserved_many    = c("MODEL_DATA_ARGS <- list(data_dir = 'x', max_rt = 2, allow_target_repeats = FALSE)",
+                         "data_dir, max_rt, allow_target_repeats"),
+    unknown_arg      = c("MODEL_DATA_ARGS <- list(difficultes = 'EASY')",           "unknown load_data\\(\\) argument.*difficultes"),
+    unnamed          = c("MODEL_DATA_ARGS <- list('EASY')",                         "unique, non-empty name"),
+    duplicate_name   = c("MODEL_DATA_ARGS <- list(difficulties = 'EASY', difficulties = 'MIXED')", "unique, non-empty name"),
+    not_a_list       = c("MODEL_DATA_ARGS <- c(difficulties = 'EASY')",             "must be a list"),
+    non_self_contain = c("MODEL_DATA_ARGS <- list(difficulties = some_global)",     "MODEL_DATA_ARGS")
+  )
+  for (case in names(bad))
+    expect_error(model_data_args(put(paste0(case, ".R"), bad[[case]][1])), bad[[case]][2], info = case)
+})
+
+test_that("load_model_data: project RT cutoffs and target-repeat rule always win, the model's declared args are added", {
+  source(file.path(ROOT, "R", "config.R"))   # cutoffs the runners have in scope
+  rec <- call_recorder(function(...) "loaded")
+  # Same formals as load_data(): model_data_args() validates declared names against them.
+  local_mocks(load_data = function(data_dir = NULL, min_rt = NULL, max_rt = NULL,
+                                   allow_target_repeats = NULL, difficulties = NULL)
+    rec$fn(min_rt = min_rt, max_rt = max_rt, allow_target_repeats = allow_target_repeats,
+           difficulties = difficulties))
+  script <- withr::local_tempfile(fileext = ".R")
+  writeLines("MODEL_DATA_ARGS <- list(difficulties = c('EASY', 'DIFFICULT'))", script)
+
+  expect_identical(suppressMessages(load_model_data(script)), "loaded")
+  args <- rec$calls()[[1L]]
+  expect_identical(args$min_rt, MIN_SACCADE_CUTOFF)
+  expect_identical(args$max_rt, MAX_SACCADE_CUTOFF)
+  expect_identical(args$allow_target_repeats, ALLOW_TARGET_REPEAT)
+  expect_identical(args$difficulties, c("EASY", "DIFFICULT"))
+
+  writeLines("MODEL_NAME <- 'plain'", script)
+  load_model_data(script)
+  expect_null(rec$calls()[[2L]]$difficulties)
+})
+
+test_that("every runner loads model data through load_model_data(), never load_data() directly", {
+  runners <- file.path(ROOT, "R", c("fit/fit_cloud.R", "fit/fit_recovery_cloud.R",
+                                    "fit/fit_ppc_cloud.R", "eval/ppc.R"))
+  for (path in runners) {
+    code <- grep("^\\s*#", readLines(path), value = TRUE, invert = TRUE)
+    expect_true(any(grepl("load_model_data\\(", code)), info = path)
+    expect_false(any(grepl("\\bload_data\\(", code)), info = path)
+  }
+})

@@ -19,6 +19,7 @@ emc_make_emc            <- function(...) EMC2::make_emc(...)
 emc_sampled_pars        <- function(...) EMC2::sampled_pars(...)
 emc_compare             <- function(...) EMC2::compare(...)
 emc_recovery            <- function(...) EMC2::recovery(...)
+emc_bridge_sampling     <- function(...) EMC2::run_bridge_sampling(...)
 emc_version             <- function() as.character(utils::packageVersion("EMC2"))
 
 

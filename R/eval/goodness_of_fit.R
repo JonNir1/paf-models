@@ -14,8 +14,8 @@
 #'                  is written first; the pairwise comparison (which requires the
 #'                  same subjects and trial counts) follows and may fail on its own.
 #'
-#' No Bayes Factors (priors not grounded enough to trust marginal-likelihood
-#' ratios -- pre-registered).
+#' No Bayes factors here (compare() is called without them); marginal-likelihood
+#' based Bayes factors are in R/eval/bayes_factors.R.
 #'
 #' Set PAF_LOO_CORES to parallelise LOO extraction over subjects (default 1;
 #' on Windows mclapply falls back to serial regardless).

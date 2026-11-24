@@ -17,76 +17,30 @@ source_root("R/config.R")
 # REMOVING or CHANGING this will silently make the model non-identifiable.
 CONSTANTS <- c(sv = log(1))
 
-# --- V (drift rate) ---
-V_BASELINE_MU      <- 2;     V_BASELINE_SD      <- 2
-V_PREVTAR_TRUE_MU  <- 0.75;  V_PREVTAR_TRUE_SD  <- 1
-V_CUE_S_MU         <- 0.1;   V_CUE_S_SD         <- 1
-V_CUE_M_MU         <- 0.5;   V_CUE_M_SD         <- 1
-V_CUE_L_MU         <- 1;     V_CUE_L_SD         <- 1
-V_STIM_D_MU        <- -0.5;  V_STIM_D_SD        <- 1
-V_STIM_E_MU        <- -1.5;  V_STIM_E_SD        <- 1
-V_SEARCH_MIX_MU    <- -0.1;  V_SEARCH_MIX_SD    <- 1
-V_SEARCH_DIF_MU    <- -0.2;  V_SEARCH_DIF_SD    <- 1
-
-V_STIM_D_SEARCH_MIX_MU <- 0;    V_STIM_D_SEARCH_MIX_SD <- 0.5
-V_STIM_D_SEARCH_DIF_MU <- 0.1;  V_STIM_D_SEARCH_DIF_SD <- 0.5
-V_STIM_E_SEARCH_MIX_MU <- 0.1;  V_STIM_E_SEARCH_MIX_SD <- 0.5
-V_STIM_E_SEARCH_DIF_MU <- 0;    V_STIM_E_SEARCH_DIF_SD <- 0.5
-
-
-# --- SV (between-trial variability in v); SV_BASELINE is the sv=log(1) anchor ---
-SV_STIM_D_MU <- log(1);  SV_STIM_D_SD <- 1
-SV_STIM_E_MU <- log(1);  SV_STIM_E_SD <- 1
-
-
-# --- B (threshold) ---
-B_BASELINE_MU    <- log(1);    B_BASELINE_SD    <- 1
-B_SEARCH_MIX_MU  <- log(1.5);  B_SEARCH_MIX_SD  <- 1
-B_SEARCH_DIF_MU  <- log(2);    B_SEARCH_DIF_SD  <- 1
-
-
-# --- A (start-point variability) and t0 (non-decision time) ---
-A_MU  <- log(0.5);                       A_SD  <- 1
+# --- Intercept priors (log scale for B, A, t0) ---
+# Only the parameters every model samples live here. Effect priors (slopes,
+# interactions, sv terms) belong to the model script and are passed to
+# build_lba_model() via extra_mu/extra_sd.
+V_BASELINE_MU <- 2;           V_BASELINE_SD <- 2
+B_BASELINE_MU <- log(1);      B_BASELINE_SD <- 1
+A_MU          <- log(0.5);    A_SD          <- 1
 T0_MU <- log(0.5 * MIN_SACCADE_CUTOFF);  T0_SD <- 1   # use saccade cutoff as initial t0 estimate
 
 
 # ----------------------------------------------------------------------------
-# Master prior table
+# Master prior table (intercepts only)
 # ----------------------------------------------------------------------------
-# Single source of truth mapping every POSSIBLE sampled parameter name to its
-# (mean, sd). build_lba_model() selects the entries matching the design's
-# `sampled_pars()` and errors on any sampled parameter with no entry here, so a
-# model family simply adds its parameter names below. Per-model `extra_mu`/
-# `extra_sd` override or extend these. Derived from the scalar constants above
-# (which remain the editable values and are referenced directly by tests).
-PRIOR_MU <- c(
-  v                     = V_BASELINE_MU,
-  v_PrevTargetAtLocTRUE = V_PREVTAR_TRUE_MU,
-  v_CueAtLocSMALL       = V_CUE_S_MU,
-  v_CueAtLocMEDIUM      = V_CUE_M_MU,
-  v_CueAtLocLARGE       = V_CUE_L_MU,
-  v_StimulusAtLocD      = V_STIM_D_MU,
-  v_StimulusAtLocE      = V_STIM_E_MU,
-  sv_StimulusAtLocD     = SV_STIM_D_MU,
-  sv_StimulusAtLocE     = SV_STIM_E_MU,
-  B                     = B_BASELINE_MU,
-  A                     = A_MU,
-  t0                    = T0_MU
-)
-PRIOR_SD <- c(
-  v                     = V_BASELINE_SD,
-  v_PrevTargetAtLocTRUE = V_PREVTAR_TRUE_SD,
-  v_CueAtLocSMALL       = V_CUE_S_SD,
-  v_CueAtLocMEDIUM      = V_CUE_M_SD,
-  v_CueAtLocLARGE       = V_CUE_L_SD,
-  v_StimulusAtLocD      = V_STIM_D_SD,
-  v_StimulusAtLocE      = V_STIM_E_SD,
-  sv_StimulusAtLocD     = SV_STIM_D_SD,
-  sv_StimulusAtLocE     = SV_STIM_E_SD,
-  B                     = B_BASELINE_SD,
-  A                     = A_SD,
-  t0                    = T0_SD
-)
+# Maps the intercept names to (mean, sd). build_lba_model() merges a model's
+# `extra_mu`/`extra_sd` over these, selects the entries matching the design's
+# `sampled_pars()` and errors on any sampled parameter with no entry, so a model
+# must supply a prior for every effect it samples.
+PRIOR_MU <- c(v = V_BASELINE_MU, B = B_BASELINE_MU, A = A_MU, t0 = T0_MU)
+PRIOR_SD <- c(v = V_BASELINE_SD, B = B_BASELINE_SD, A = A_SD, t0 = T0_SD)
+
+# Window (c(min, max) in seconds, inclusive) that simulated RTs are truncated
+# to in the recovery and PPC simulations; NULL = untruncated. The likelihood is
+# unaffected (observed RTs are filtered by MIN/MAX_SACCADE_CUTOFF).
+SIM_RT_WINDOW <- NULL
 
 
 # ============================================================================

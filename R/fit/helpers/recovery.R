@@ -5,6 +5,7 @@
 #'   1. extract_group_params()      -- posterior mean (mu, Sigma) from a fitted model
 #'   2. extract_design()            -- design object embedded in a fitted model
 #'   3. simulate_recovery_data()    -- draw fresh alpha_i; generate synthetic data
+#'   4. truncate_to_window()        -- optional RT-window truncation of simulated data
 #'
 #' Used by fit_recovery_cloud.R and examine_recovery.R.
 #'
@@ -167,24 +168,110 @@ sample_posterior_alphas <- function(model, n_draws, seed = NULL) {
 
 
 # -------------------------
+#' Validate an RT window: NULL (untruncated) or c(min, max) with min <= max.
+.validate_rt_window <- function(rt_window) {
+  if (is.null(rt_window)) return(invisible(NULL))
+  if (!is.numeric(rt_window) || length(rt_window) != 2L || anyNA(rt_window) || rt_window[1] > rt_window[2])
+    stop("rt_window must be NULL or numeric c(min, max) with min <= max.", call. = FALSE)
+  invisible(NULL)
+}
+
+
+# -------------------------
+#' Truncate simulated data to an RT window (inclusive, like filter_data()).
+#'
+#' Rows with `rt` outside `[rt_window[1], rt_window[2]]` are dropped; rows with
+#' a missing rt are kept. The window is applied to the simulated data only: the
+#' likelihood of the refit is still the untruncated LBA.
+#'
+#' @param sim_data  Simulated data frame with `rt` and `subjects` columns.
+#' @param rt_window NULL (no truncation) or c(min, max) in seconds.
+#' @return list(data = the (possibly truncated) data frame, dropped = NULL when
+#'   `rt_window` is NULL, else a data frame with one row per subject:
+#'   subjects, n, n_dropped, frac_dropped).
+truncate_to_window <- function(sim_data, rt_window) {
+  .validate_rt_window(rt_window)
+  if (is.null(rt_window)) return(list(data = sim_data, dropped = NULL))
+
+  keep <- !(sim_data$rt < rt_window[1] | sim_data$rt > rt_window[2]) | is.na(sim_data$rt)
+  subj <- as.character(sim_data$subjects)
+  n    <- table(subj)
+  nd   <- table(factor(subj[!keep], levels = names(n)))
+  list(data = sim_data[keep, , drop = FALSE],
+       dropped = data.frame(subjects = names(n), n = as.integer(n), n_dropped = as.integer(nd),
+                            frac_dropped = as.integer(nd) / as.integer(n), stringsAsFactors = FALSE))
+}
+
+
+#' Fingerprint of a data frame: row count and md5 of its uncompressed serialization.
+#'
+#' @param data A data frame (e.g. the template data of a simulation).
+#' @return list(nrow, md5).
+data_fingerprint <- function(data) {
+  path <- tempfile(fileext = ".rds")
+  on.exit(unlink(path))
+  saveRDS(data, path, compress = FALSE)
+  list(nrow = nrow(data), md5 = unname(tools::md5sum(path)))
+}
+
+
+#' Tag simulated output with the RT window it was truncated to (NA = untruncated).
+#'
+#' @param x         Object to tag (e.g. the list of PPC simulations).
+#' @param rt_window NULL or c(min, max).
+#' @return `x` with attribute "rt_window".
+with_rt_window <- function(x, rt_window) {
+  attr(x, "rt_window") <- if (is.null(rt_window)) NA_real_ else rt_window
+  x
+}
+
+
+#' Log the dropped fraction of a truncation, overall and per subject.
+#'
+#' @param dropped   `$dropped` of truncate_to_window() (or per-subject counts
+#'   summed over draws); NULL logs nothing.
+#' @param rt_window The window that was applied.
+#' @param log_file  Log path (NULL = console only).
+log_truncation <- function(dropped, rt_window, log_file) {
+  if (is.null(dropped)) return(invisible(NULL))
+  n_total <- sum(dropped$n)
+  pct     <- if (n_total == 0L) 0 else 100 * sum(dropped$n_dropped) / n_total
+  log_msg(sprintf("RT window [%s, %s]: dropped %d of %d simulated trials (%.2f%%)",
+                  rt_window[1], rt_window[2], sum(dropped$n_dropped), n_total, pct),
+          log_file, console_print = TRUE)
+  frac <- ifelse(dropped$n == 0L, 0, dropped$n_dropped / dropped$n)
+  log_msg(sprintf("  per-subject dropped fraction: %s",
+                  paste(sprintf("%s=%.3f", dropped$subjects, frac), collapse = ", ")),
+          log_file)
+  invisible(NULL)
+}
+
+
+# -------------------------
 #' Draw fresh subject parameters and simulate a recovery dataset.
 #'
 #' Implements Strickland et al. (2026) Supplementary protocol:
 #'   - make_random_effects() draws n_subj alpha_i ~ MVN(mu_hat, Sigma_hat)
 #'   - make_data() replaces real RTs/responses with model-generated values,
 #'     preserving the exact trial structure of the empirical data.
-#'   - Simulated RTs are deliberately NOT truncated to the observed-RT window
-#'     (MIN/MAX_SACCADE_CUTOFF); the same holds for the PPC simulations.
+#'   - Simulated RTs are NOT truncated unless `rt_window` is given (e.g. the
+#'     observed-RT window MIN/MAX_SACCADE_CUTOFF); the PPC simulations work the
+#'     same way. The truncation happens after make_data(), so `subject_pars`
+#'     (the true alpha) is unaffected.
 #'
 #' @param model        Fitted EMC2 model (used only to extract the design).
 #' @param group_params List returned by extract_group_params(): $mu and $Sigma.
 #' @param template_data Data frame (filtered empirical data) providing trial
 #'   structure; RTs and responses are replaced by simulated values.
 #' @param seed         Integer RNG seed for reproducibility.
+#' @param rt_window     NULL (default, untruncated) or c(min, max) in seconds
+#'   (inclusive); simulated trials outside it are dropped.
 #' @return Named list:
 #'   $data         -- simulated data frame (same structure as template_data)
 #'   $subject_pars -- matrix of true alpha_i (subjects x parameters)
-simulate_recovery_data <- function(model, group_params, template_data, seed) {
+#'   $dropped      -- per-subject drop counts (truncate_to_window()); only present when truncated
+simulate_recovery_data <- function(model, group_params, template_data, seed, rt_window = NULL) {
+  .validate_rt_window(rt_window)
   set.seed(seed)
 
   design_obj <- extract_design(model)
@@ -225,5 +312,8 @@ simulate_recovery_data <- function(model, group_params, template_data, seed) {
     )
   }
 
-  list(data = sim_data, subject_pars = subject_pars)
+  truncated <- truncate_to_window(sim_data, rt_window)
+  out <- list(data = truncated$data, subject_pars = subject_pars)
+  if (!is.null(truncated$dropped)) out$dropped <- truncated$dropped
+  out
 }

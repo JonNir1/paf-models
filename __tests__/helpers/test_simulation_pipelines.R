@@ -110,6 +110,57 @@ test_that("simulate_recovery_data stops when make_data() rejects the draws", {
 })
 
 
+test_that("truncate_to_window: inclusive bounds, NA rt kept, per-subject drop log, NULL window untouched, bad windows rejected", {
+  d <- data.frame(subjects = c("a", "a", "a", "b", "b", "c"),
+                  rt       = c(0.23, 1.0, 1.01, 0.229, NA, 0.5))
+  out <- truncate_to_window(d, c(0.23, 1.0))
+  expect_identical(out$data$rt, c(0.23, 1.0, NA, 0.5))                  # both bounds kept, NA kept
+  expect_identical(out$dropped$subjects, c("a", "b", "c"))
+  expect_identical(out$dropped$n,         c(3L, 2L, 1L))
+  expect_identical(out$dropped$n_dropped, c(1L, 1L, 0L))
+  expect_equal(out$dropped$frac_dropped, c(1 / 3, 1 / 2, 0))
+
+  all_out <- truncate_to_window(d, c(5, 6))                              # nothing survives except NA
+  expect_identical(nrow(all_out$data), 1L)
+  expect_identical(sum(all_out$dropped$n_dropped), 5L)
+
+  expect_identical(truncate_to_window(d, NULL), list(data = d, dropped = NULL))
+  for (bad in list(c(1, 0.5), 1, c(0, NA), c("a", "b"), c(0, 1, 2)))
+    expect_error(truncate_to_window(d, bad), "rt_window must be NULL or numeric")
+
+  # log_truncation: no simulated trials at all reports 0% (not NaN) in the headline; NULL logs nothing.
+  log <- withr::local_tempfile(fileext = ".log")
+  quietly(log_truncation(NULL, c(0.23, 1), log))
+  expect_false(file.exists(log))
+  empty <- truncate_to_window(d[0, ], c(0.23, 1))$dropped
+  quietly(log_truncation(empty, c(0.23, 1), log))
+  expect_match(readLines(log)[1L], "dropped 0 of 0 simulated trials \\(0\\.00%\\)")
+  quietly(log_truncation(out$dropped, c(0.23, 1), log))
+  expect_match(tail(readLines(log), 2L)[1L], "dropped 2 of 6 simulated trials \\(33\\.33%\\)")
+  quietly(log_truncation(data.frame(subjects = c("x", "y"), n = c(0L, 4L), n_dropped = c(0L, 1L),
+                                    frac_dropped = c(NaN, 0.25)), c(0.23, 1), log))
+  expect_match(tail(readLines(log), 1L), "x=0\\.000, y=0\\.250")        # a 0-trial subject prints 0, never NaN
+})
+
+test_that("simulate_recovery_data(rt_window) truncates the data only, reports $dropped, and leaves the untruncated shape unchanged", {
+  sim <- data.frame(subjects = c("s1", "s1", "s2"), rt = c(0.1, 0.5, 2))
+  local_simulate_mocks(sim = sim)
+  gp <- list(mu = c(a = 1), Sigma = diag(1))
+
+  plain <- simulate_recovery_data(NULL, gp, data.frame(), seed = 1L)
+  expect_named(plain, c("data", "subject_pars"))                         # no $dropped without a window
+  expect_identical(plain$data, sim)
+
+  cut <- simulate_recovery_data(NULL, gp, data.frame(), seed = 1L, rt_window = c(0.23, 1))
+  expect_named(cut, c("data", "subject_pars", "dropped"))
+  expect_identical(cut$data$rt, 0.5)
+  expect_identical(cut$dropped$n_dropped, c(1L, 1L))
+  expect_identical(cut$subject_pars, plain$subject_pars)                 # true alpha unaffected
+
+  expect_error(simulate_recovery_data(NULL, gp, data.frame(), seed = 1L, rt_window = c(1, 0)), "rt_window")
+})
+
+
 # =============================================================================
 # run_ppc_simulation()
 # =============================================================================
@@ -181,6 +232,33 @@ test_that("run_ppc_simulation drops failed draws and checkpoints every save_ever
   }
 })
 
+test_that("run_ppc_simulation(rt_window) truncates every draw, sums the drops over successful draws only, and defaults to untruncated", {
+  dir <- withr::local_tempdir()
+  local_mocks(
+    sample_posterior_alphas = function(model, n_draws, seed) lapply(seq_len(n_draws), function(i) matrix(i, 1, 1)),
+    extract_design          = function(model) "design",
+    emc_make_data           = function(pars, design, data) {
+      if (pars[1, 1] == 2) stop("out of bounds")
+      data.frame(subjects = c("s1", "s2"), rt = c(0.1, 0.5))
+    })
+  template <- data.frame(subjects = c("s1", "s2"))
+  run <- function(...) quietly(run_ppc_simulation(NULL, template, ppc_name = "m", out_dir = dir, n_draws = 3L,
+                                                  log_file = file.path(dir, "ppc.log"), ...))
+
+  out <- run(rt_window = c(0.23, 1))
+  expect_length(out, 2L)
+  expect_true(all(vapply(out, function(d) identical(d$rt, 0.5), logical(1))))
+  expect_identical(attr(out, "rt_window"), c(0.23, 1))                    # outputs record their window
+  expect_identical(attr(readRDS(list.files(dir, "_ppc\\.rds$", full.names = TRUE)), "rt_window"), c(0.23, 1))
+  log <- readLines(file.path(dir, "ppc.log"))
+  expect_match(log, "dropped 2 of 4 simulated trials", all = FALSE)       # draw 2 failed: not counted
+
+  untruncated <- run()
+  expect_identical(attr(untruncated, "rt_window"), NA_real_)             # NA = untruncated
+  expect_true(all(vapply(untruncated, nrow, integer(1)) == 2L))
+  expect_error(run(rt_window = c(1, 0.23)), "rt_window must be NULL or numeric")
+})
+
 test_that("run_ppc_simulation with save_every = 0 saves once at the end", {
   dir   <- withr::local_tempdir()
   hook  <- call_recorder()
@@ -246,6 +324,7 @@ test_that("run_recovery_fit forwards the relaxed recovery config and refits a fr
 
   expect_length(mocks$extract$calls(), 0L)
   expect_identical(mocks$simulate$calls()[[1L]][[2L]], gp)
+  expect_identical(mocks$simulate$calls()[[1L]]$rt_window, SIM_RT_WINDOW)   # default window is forwarded
   args <- mocks$fit$calls()[[1L]]
   expect_identical(args[[1L]], list(data = SIM, n_chains = N_CHAINS))
   expect_identical(args$convergence_criteria, default_convergence_criteria("recovery"))
@@ -273,9 +352,38 @@ test_that("run_recovery_fit saves and hooks true_alpha before the fit starts", {
   run_recovery(dir, local_model_script(), post_save_hook = hook$fn)
 
   expect_match(hook$calls()[[1L]][[1L]], "_rec_true_alpha\\.rds$")
-  expect_identical(readRDS(hook$calls()[[1L]][[1L]]), matrix(2))
+  saved <- readRDS(hook$calls()[[1L]][[1L]])
+  expect_identical(`attr<-`(saved, "provenance", NULL), matrix(2))
+  expect_named(attr(saved, "provenance"), c("source_fit", "sim_seed", "rt_window", "template"))
+
+  # An explicit window and source fit reach the simulation and the provenance that model recovery compares.
+  run_recovery(dir, local_model_script(), source_fit = "260101_m.rds", rt_window = c(0.23, 1))
+  expect_identical(mocks$simulate$calls()[[2L]]$rt_window, c(0.23, 1))
+  expect_identical(attr(readRDS(list.files(dir, "true_alpha\\.rds$", full.names = TRUE)), "provenance"),
+                   list(source_fit = "260101_m.rds", sim_seed = 5L, rt_window = c(0.23, 1), template = data_fingerprint(SIM)))
   expect_equal(mocks$at_fit$hooks, 1L)
   expect_equal(mocks$at_fit$true_alpha, 1L)
+
+  # data_fingerprint: a changed template (a value or a row) changes the provenance, so model recovery rejects the pair.
+  source_root("R/eval/helpers/model_recovery.R")
+  edited  <- SIM; edited$rt[2L] <- 0.41
+  dropped <- SIM[1L, ]
+  expect_identical(data_fingerprint(SIM), data_fingerprint(SIM))
+  expect_identical(data_fingerprint(SIM)$nrow, 2L)
+  expect_false(identical(data_fingerprint(SIM)$md5, data_fingerprint(edited)$md5))
+  expect_identical(data_fingerprint(dropped)$nrow, 1L)
+  dir2 <- withr::local_tempdir()
+  local_recovery_mocks(dir2, function() list())
+  run_recovery(dir2, local_model_script())
+  base <- readRDS(list.files(dir2, "true_alpha\\.rds$", full.names = TRUE))
+  for (template in list(edited, dropped)) {
+    dir3 <- withr::local_tempdir()
+    local_recovery_mocks(dir3, function() list())
+    quietly(run_recovery_fit("fitted", template, local_model_script(), recovery_name = "rec",
+                             log_file = file.path(dir3, "rec.log"), out_dir = dir3, sim_seed = 5L))
+    other <- readRDS(list.files(dir3, "true_alpha\\.rds$", full.names = TRUE))
+    expect_match(recovery_group_problem(c(a = "f1", b = "f2"), list(a = base, b = other)), "different simulated data")
+  }
 })
 
 test_that("run_recovery_fit errors on a missing model script before any fit", {

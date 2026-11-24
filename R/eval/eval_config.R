@@ -32,8 +32,7 @@ discover_model_names <- function(dir_path = MODELS_FIT_DIR) {
 
 
 #' Assign a stable plotting colour to each model name from a base palette.
-#' Replaces the old model1/2/4/5-specific named vector so plots work for any
-#' model family. Recycles the palette if there are more models than colours.
+#' Generic over the model family (no fixed model names). Recycles the palette if there are more models than colours.
 #' @param model_names Character vector of model names.
 #' @return Named character vector (names = model_names, values = hex colours).
 model_colors <- function(model_names) {
@@ -54,9 +53,21 @@ PPC_EVAL_DIR <- file.path(EVAL_DIR, "ppc")
 PPC_N_DRAWS  <- 500L    # posterior predictive draws per model
 PPC_KS_ALPHA <- 0.05    # FDR-adjusted significance threshold for the per-subject KS test
 PPC_MODELS_DIR <- file.path(MODELS_DIR, "fit_ppc")  # where fit_ppc_cloud.R writes .rds files
+# Condition cells of the PPC tables: one cell per combination of these columns (the
+# figures' x variables are all of them except `experiment`). Pre-settable by the caller.
+if (!exists("PPC_GROUP_VARS")) PPC_GROUP_VARS <- c("experiment", "cue_size", "search_difficulty")
 
 
 # --- Step 3: LOO / WAIC thresholds (loo package / Vehtari et al. 2017 convention) ---
 PARETO_K_THRESHOLD <- 0.7    # k > 0.7 = "bad"; k > 0.5 = "ok but cautious"
 PARETO_K_BAD_FRAC  <- 0.10   # >10% bad k triggers PI flag at step 3.9
 LOO_DIR <- file.path(EVAL_DIR, "loo")
+
+
+# --- Bayes factors (bridge sampling) ---
+if (!exists("BF_REPS")) BF_REPS <- 5L                    # bridge-sampling repetitions per fit (spread = stability); pre-settable
+BF_DIR        <- file.path(EVAL_DIR, "bayes_factors")     # BF tables
+MODELS_BF_DIR <- file.path(MODELS_DIR, "fit_bf")          # per-fit MLL files written by fit_bf_cloud.R
+
+# --- Model recovery (generating x selected model) ---
+MODEL_RECOVERY_EVAL_DIR <- file.path(EVAL_DIR, "model_recovery")

@@ -216,3 +216,47 @@ test_that("choice proportions and QPF tables depend on labels only, not factor l
   expect_equal(.response_type(encode_sim(ppc[[1]])), .response_type(ppc[[1]]))
   expect_equal(.response_type(encode_obs(obs)), .response_type(obs))
 })
+
+
+# =============================================================================
+# group_vars: configurable condition cells
+# =============================================================================
+
+test_that("group_vars: the default reproduces the experiment x cue_size x search_difficulty cells; custom and missing columns are honoured", {
+  set.seed(41L)
+  obs <- .mk_obs_mixed(n_subj = 2L, n_per_type = 20L)
+  obs$cue_size   <- rep(c("NONE", "SMALL"), length.out = nrow(obs))
+  obs$experiment <- rep(c("exp_1", "exp_2"), each = 3L, length.out = nrow(obs))
+  obs$prev       <- rep(c("old", "new"), each = 2L, length.out = nrow(obs))
+  ppc <- .mk_ppc(obs, T = 5L)
+
+  old_cells <- c("experiment", "cue_size", "search_difficulty")
+  expect_identical(PPC_GROUP_VARS, old_cells)
+  for (fn in list(compute_choice_proportions, compute_qpf_table)) {
+    default  <- fn(ppc, obs, "m")
+    explicit <- fn(ppc, obs, "m", group_vars = old_cells)
+    expect_identical(default, explicit)
+    expect_identical(names(default)[2:4], old_cells)                    # column order as before
+  }
+
+  custom <- compute_choice_proportions(ppc, obs, "m", group_vars = c("prev", "cue_size"))
+  expect_identical(names(custom)[2:3], c("prev", "cue_size"))
+  expect_false(any(c("experiment", "search_difficulty") %in% names(custom)))
+  expect_identical(nrow(custom), 4L * 3L)                               # 4 cells x T/D/E
+  expect_equal(as.numeric(tapply(custom$obs, custom[c("prev", "cue_size")], sum)), rep(1, 4))
+  qpf <- compute_qpf_table(ppc, obs, "m", group_vars = "prev")
+  expect_identical(nrow(qpf), 2L * 5L)
+
+  expect_error(compute_choice_proportions(ppc, obs, "m", group_vars = c("cue_size", "nope")),
+               "Grouping variable.*not in the data: nope")
+  expect_error(compute_qpf_table(ppc, obs, "m", group_vars = "nope"), "not in the data: nope")
+
+  # plot_ppc_cdf merges the two tables on the supplied grouping, so a custom grouping must build.
+  skip_if_not_installed("ggplot2")
+  gv    <- c("prev", "cue_size")
+  p_cdf <- plot_ppc_cdf(compute_qpf_table(ppc, obs, "m", by_response = TRUE, group_vars = gv),
+                        compute_choice_proportions(ppc, obs, "m", group_vars = gv),
+                        x_facet = "cue_size", group_vars = gv)
+  expect_gt(nrow(ggplot2::ggplot_build(p_cdf)$data[[2L]]), 0L)
+  expect_error(plot_ppc_cdf(data.frame(response_type = "T"), data.frame(), x_facet = "experiment", group_vars = gv))
+})

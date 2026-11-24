@@ -64,8 +64,8 @@ filter_data <- function(data,
 
   # Drop factor levels left empty by row filtering. Critical for EMC2: design()
   # harvests factor levels from each data column's levels() attribute (not from
-  # row contents), so an empty level (e.g. a MIXED-display S string after the
-  # MIXED exclusion) would otherwise seed unidentifiable structural-zero
+  # row contents), so an empty level (e.g. a difficulty level removed by the
+  # `difficulties` subset) would otherwise seed unidentifiable structural-zero
   # parameters in the design grid.
   data_filtered <- droplevels(data_filtered)
 
@@ -111,9 +111,9 @@ PrevTargetAtLoc <- function(df) {
 
 
 #' Boolean factor "FALSE" < "TRUE": whether the TARGET is at accumulator location lR.
-#' A binary collapse of StimulusAtLoc (T vs {D,E}); used by the prevtarget-locus
-#' family, where MIXED trials are excluded so distractor type is redundant with
-#' the trial-level SearchDifficulty factor.
+#' A binary collapse of StimulusAtLoc (T vs {D,E}); suited to models on a
+#' difficulty subset where distractor type is redundant with the trial-level
+#' SearchDifficulty factor.
 TargetAtLoc <- function(df) {
   factor(StimulusAtLoc(df) == "T", levels = c("FALSE", "TRUE"))
 }
@@ -228,7 +228,7 @@ TargetAtLoc <- function(df) {
 #' @param allow_target_repeats If FALSE, drops repeated-target trials. Default TRUE.
 #' @param difficulties         Character vector of search-difficulty levels to
 #'   keep (subset of EASY/MIXED/DIFFICULT, case-insensitive). NULL (default)
-#'   keeps all. E.g. `c("EASY","DIFFICULT")` for the prevtarget-locus family.
+#'   keeps all. E.g. `c("EASY","DIFFICULT")` drops the MIXED trials.
 #' @return Filtered tibble ready for EMC2::design().
 load_data <- function(data_dir             = DATA_DIR,
                       min_rt               = 0,
@@ -265,7 +265,7 @@ load_data <- function(data_dir             = DATA_DIR,
 
   data <- .encode_factors(data)
 
-  # Optional difficulty subset (e.g. exclude MIXED for the prevtarget-locus family).
+  # Optional difficulty subset (e.g. c("EASY","DIFFICULT") to exclude MIXED).
   if (!is.null(difficulties)) {
     difficulties <- toupper(as.character(difficulties))
     valid <- c("EASY", "MIXED", "DIFFICULT")
@@ -278,6 +278,56 @@ load_data <- function(data_dir             = DATA_DIR,
 
   # Filtering — delegates to existing filter_data()
   filter_data(data, min_rt = min_rt, max_rt = max_rt, allow_target_repeats = allow_target_repeats)
+}
+
+
+# -------------------------
+# Per-model data subset: a model script may declare a top-level
+# `MODEL_DATA_ARGS <- list(difficulties = c("EASY", "DIFFICULT"))`, i.e. extra
+# load_data() arguments, read WITHOUT executing the script (same contract as
+# STRUCTURAL_UNIDENTIFIABLE_PATTERN: top-level assignment, self-contained RHS).
+# The runners own the data location, RT cutoffs and target-repeat rule (project
+# config), so declaring any of those is an error; no declaration = list().
+MODEL_DATA_RESERVED_ARGS <- c("data_dir", "min_rt", "max_rt", "allow_target_repeats")
+
+#' Extra load_data() arguments a model script declares via `MODEL_DATA_ARGS`.
+#'
+#' @param model_script Path of the model script (parsed, never executed).
+#' @return Named list (possibly empty) of load_data() arguments.
+model_data_args <- function(model_script) {
+  fail <- function(why) stop(sprintf("Model script %s: %s", model_script, why), call. = FALSE)
+
+  declaration <- read_top_level(parse(model_script, keep.source = FALSE), "MODEL_DATA_ARGS", fail)
+  if (is.null(declaration)) return(list())
+
+  args <- declaration$value
+  if (!is.list(args)) fail("MODEL_DATA_ARGS must be a list of load_data() arguments")
+  if (length(args) == 0L) return(list())
+  if (is.null(names(args)) || anyNA(names(args)) || !all(nzchar(names(args))) || anyDuplicated(names(args)))
+    fail("MODEL_DATA_ARGS must have a unique, non-empty name for every entry")
+
+  reserved <- intersect(names(args), MODEL_DATA_RESERVED_ARGS)
+  if (length(reserved) > 0L)
+    fail(sprintf("MODEL_DATA_ARGS may not set %s (project config owns them)", paste(reserved, collapse = ", ")))
+  unknown <- setdiff(names(args), names(formals(load_data)))
+  if (length(unknown) > 0L)
+    fail(sprintf("MODEL_DATA_ARGS has unknown load_data() argument(s): %s", paste(unknown, collapse = ", ")))
+  args
+}
+
+
+#' load_data() with the project RT cutoffs and target-repeat rule plus a model's
+#' declared MODEL_DATA_ARGS. The one call every runner uses to load a model's data.
+#'
+#' @param model_script Path of the model script (see model_data_args()).
+#' @return Filtered tibble, as load_data().
+load_model_data <- function(model_script) {
+  extra <- model_data_args(model_script)
+  if (length(extra) > 0L)
+    message(sprintf("MODEL_DATA_ARGS of %s: %s", basename(model_script), paste(deparse(extra), collapse = "")))
+  do.call(load_data, c(list(min_rt = MIN_SACCADE_CUTOFF, max_rt = MAX_SACCADE_CUTOFF,
+                            allow_target_repeats = ALLOW_TARGET_REPEAT),
+                       extra))
 }
 
 
@@ -301,7 +351,7 @@ load_data <- function(data_dir             = DATA_DIR,
 #' Ordinal factor "EASY" < "MIXED" < "DIFFICULT": derived from the stimulus string S
 #' (T=target, D=distractor, E=easy-distractor; 4 stimuli per display).
 #' droplevels() removes any of the three levels absent from the data (e.g. MIXED
-#' when the prevtarget-locus family excludes MIXED trials): EMC2 design() reads
+#' when a model's data subset excludes MIXED trials): EMC2 design() reads
 #' the returned factor's levels() attribute, so a hardcoded-but-empty level would
 #' seed unidentifiable structural-zero parameters. Order of remaining levels is
 #' preserved. Classifies each distinct S once: design() calls this on grids of

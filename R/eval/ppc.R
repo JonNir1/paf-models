@@ -6,7 +6,7 @@
 #'
 #'   A. Distribution fit      -- per-subject KS + BH FDR
 #'   B. Choice proportions    -- T / D / E fractions: predicted vs observed
-#'      by cue_size and search_difficulty
+#'      by the PPC_GROUP_VARS cells (default experiment x cue_size x search_difficulty)
 #'   C. Marginal QPF          -- 10/25/50/75/90th-percentile RT by condition:
 #'      predicted ribbon (90% CI) vs observed points
 #'   D. QPF by response type  -- same as C but stratified by T/D/E
@@ -15,7 +15,10 @@
 #'      (Stevenson et al. 2026 paper 1 Figs 6/9 canonical EMC2 visualization)
 #'
 #' All computation lives in R/eval/helpers/ppc.R; save helpers in helpers/plot.R.
-#' Outputs land in PPC_EVAL_DIR (outputs/evaluation/ppc/).
+#' Outputs land in PPC_EVAL_DIR (outputs/evaluation/ppc/). The condition cells and
+#' the figures' x variables follow PPC_GROUP_VARS (eval_config.R; pre-settable).
+#' Each model's observed data are loaded with its script's MODEL_DATA_ARGS (script
+#' found by declared MODEL_NAME in MODEL_SCRIPT_DIR, default R/fit).
 #'
 #' Run from the repo root after downloading the ppc .rds files from S3:
 #'   source("R/eval/ppc.R")
@@ -29,7 +32,7 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/eval/eval_config.R")      # PPC_EVAL_DIR, PPC_MODELS_DIR, PPC_N_DRAWS, ...
 source_root("R/eval/helpers/ppc.R")      # compute_* + plot_ppc_*
 source_root("R/eval/helpers/plot.R")     # save_ggplot_png
-source_root("R/helpers/data.R")          # load_data
+source_root("R/helpers/data.R")          # load_model_data, model_data_args
 
 if (!dir.exists(PPC_EVAL_DIR)) dir.create(PPC_EVAL_DIR, recursive = TRUE)
 
@@ -49,15 +52,23 @@ if (!exists("ALLOW_PARTIAL_PPC")) ALLOW_PARTIAL_PPC <- FALSE
 
 
 # =============================================================================
-#  Load observed data
+#  Observed data: per model (its script's MODEL_DATA_ARGS), loaded once per distinct subset
 # =============================================================================
 
-message("Loading observed data...")
-obs_data  <- load_data(min_rt               = MIN_SACCADE_CUTOFF,
-                       max_rt               = MAX_SACCADE_CUTOFF,
-                       allow_target_repeats = ALLOW_TARGET_REPEAT)
-message(sprintf("Observed data: %d trials, %d subjects",
-                nrow(obs_data), dplyr::n_distinct(obs_data$subjects)))
+.observed_data <- local({
+  cache <- list()
+  function(model_name) {
+    script <- find_model_script(model_name, MODEL_SCRIPT_DIR)
+    key    <- paste(deparse(model_data_args(script)), collapse = "")
+    if (is.null(cache[[key]])) {
+      message(sprintf("Loading observed data for %s...", model_name))
+      cache[[key]] <<- load_model_data(script)
+      message(sprintf("Observed data: %d trials, %d subjects",
+                      nrow(cache[[key]]), dplyr::n_distinct(cache[[key]]$subjects)))
+    }
+    cache[[key]]
+  }
+})
 
 
 # =============================================================================
@@ -94,15 +105,17 @@ for (mn in MODEL_NAMES) {
   message(sprintf("  Loading PPC sims for %s: %s", mn, basename(rds_path)))
   ppc_list <- readRDS(rds_path)
   message(sprintf("    %d draws loaded", length(ppc_list)))
+  obs_data <- .observed_data(mn)
 
   dist_rows[[mn]]     <- .try_metric(mn, "dist_stats",
                                      compute_dist_stats(ppc_list, obs_data, mn))
   choice_rows[[mn]]   <- .try_metric(mn, "choice_proportions",
-                                     compute_choice_proportions(ppc_list, obs_data, mn))
+                                     compute_choice_proportions(ppc_list, obs_data, mn, group_vars = PPC_GROUP_VARS))
   qpf_rows[[mn]]      <- .try_metric(mn, "qpf_table",
-                                     compute_qpf_table(ppc_list, obs_data, mn))
+                                     compute_qpf_table(ppc_list, obs_data, mn, group_vars = PPC_GROUP_VARS))
   qpf_resp_rows[[mn]] <- .try_metric(mn, "qpf_by_response",
-                                     compute_qpf_table(ppc_list, obs_data, mn, by_response = TRUE))
+                                     compute_qpf_table(ppc_list, obs_data, mn, by_response = TRUE,
+                                                      group_vars = PPC_GROUP_VARS))
   rm(ppc_list)   # free memory before next model
 }
 
@@ -165,42 +178,40 @@ print(fdr_summary)
 save_ggplot_png(plot_ppc_dist_stats(dist_df),
                 file.path(PPC_EVAL_DIR, "ppc_dist_stats.png"))
 
+# x variables = the grouping variables other than experiment. File-name tags: the
+# default cue_size / search_difficulty keep their historical "cue" / "difficulty".
+x_vars <- setdiff(PPC_GROUP_VARS, "experiment")
+.tag   <- function(x) switch(x, cue_size = "cue", search_difficulty = "difficulty", x)
+
 # B. Choice proportions
 if (has_rows(choice_df)) {
-  save_ggplot_png(plot_ppc_choice(choice_df, x_var = "cue_size"),
-                  file.path(PPC_EVAL_DIR, "ppc_choice_cue.png"))
-  save_ggplot_png(plot_ppc_choice(choice_df, x_var = "search_difficulty"),
-                  file.path(PPC_EVAL_DIR, "ppc_choice_difficulty.png"))
+  for (x in x_vars)
+    save_ggplot_png(plot_ppc_choice(choice_df, x_var = x),
+                    file.path(PPC_EVAL_DIR, sprintf("ppc_choice_%s.png", .tag(x))))
 }
 
 # C. Marginal QPF
 if (has_rows(qpf_df)) {
-  save_ggplot_png(plot_ppc_qpf(qpf_df, x_var = "cue_size"),
-                  file.path(PPC_EVAL_DIR, "ppc_qpf_cue.png"),
-                  width = 12, height = 10)
-  save_ggplot_png(plot_ppc_qpf(qpf_df, x_var = "search_difficulty"),
-                  file.path(PPC_EVAL_DIR, "ppc_qpf_difficulty.png"),
-                  width = 12, height = 10)
+  for (x in x_vars)
+    save_ggplot_png(plot_ppc_qpf(qpf_df, x_var = x),
+                    file.path(PPC_EVAL_DIR, sprintf("ppc_qpf_%s.png", .tag(x))),
+                    width = 12, height = 10)
 }
 
 # D. QPF by response type
 if (has_rows(qpf_resp_df)) {
-  save_ggplot_png(plot_ppc_qpf_by_response(qpf_resp_df, x_var = "cue_size"),
-                  file.path(PPC_EVAL_DIR, "ppc_qpf_resp_cue.png"),
-                  width = 14, height = 10)
-  save_ggplot_png(plot_ppc_qpf_by_response(qpf_resp_df, x_var = "search_difficulty"),
-                  file.path(PPC_EVAL_DIR, "ppc_qpf_resp_difficulty.png"),
-                  width = 14, height = 10)
+  for (x in x_vars)
+    save_ggplot_png(plot_ppc_qpf_by_response(qpf_resp_df, x_var = x),
+                    file.path(PPC_EVAL_DIR, sprintf("ppc_qpf_resp_%s.png", .tag(x))),
+                    width = 14, height = 10)
 }
 
 # E. Defective CDFs (requires both qpf_resp_df and choice_df)
 if (has_rows(qpf_resp_df) && has_rows(choice_df)) {
-  save_ggplot_png(plot_ppc_cdf(qpf_resp_df, choice_df, x_facet = "cue_size"),
-                  file.path(PPC_EVAL_DIR, "ppc_cdf_cue.png"),
-                  width = 14, height = 8)
-  save_ggplot_png(plot_ppc_cdf(qpf_resp_df, choice_df, x_facet = "search_difficulty"),
-                  file.path(PPC_EVAL_DIR, "ppc_cdf_difficulty.png"),
-                  width = 14, height = 8)
+  for (x in x_vars)
+    save_ggplot_png(plot_ppc_cdf(qpf_resp_df, choice_df, x_facet = x, group_vars = PPC_GROUP_VARS),
+                    file.path(PPC_EVAL_DIR, sprintf("ppc_cdf_%s.png", .tag(x))),
+                    width = 14, height = 8)
 }
 
 message("===== ppc.R complete; outputs in ", PPC_EVAL_DIR, " =====")

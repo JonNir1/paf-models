@@ -8,7 +8,9 @@
 #'   1. Load a previously-extended model (.rds from outputs/models/fit/)
 #'   2. Sample T sets of subject parameters directly from the posterior via
 #'      sample_posterior_alphas() -- no MVN approximation
-#'   3. For each draw, simulate a full dataset via make_data()
+#'   3. For each draw, simulate a full dataset via make_data(), truncated to
+#'      SIM_RT_WINDOW (fit_config.R; NULL = untruncated) with the dropped
+#'      fraction logged
 #'   4. Save the list of T simulated data frames to .rds; sync to S3/GCS
 #'
 #' The simulation pipeline (steps 2-4) is exposed as run_ppc_simulation() so
@@ -16,7 +18,7 @@
 #'
 #' Usage (called by scripts/run_ppc.sh, or directly for local testing):
 #'   Rscript R/fit/fit_ppc_cloud.R <extended_rds> [options]
-#'   e.g.: Rscript R/fit/fit_ppc_cloud.R 260525_model1_extended.rds
+#'   e.g.: Rscript R/fit/fit_ppc_cloud.R 260618_mymodel.rds
 #'
 #' Optional overrides (default to eval_config.R / fit_config.R globals):
 #'   --n-draws N     Number of posterior draws to simulate (default: PPC_N_DRAWS)
@@ -25,11 +27,24 @@
 #'
 #' Cloud sync: reads CP_CMD and DEST_PREFIX from the environment (set by
 #' scripts/run_ppc.sh). No-op if either is unset (safe for local use).
+#'
+#' The model's script must live in R/fit/ (found by its declared MODEL_NAME, the
+#' fit file's model name): the template data are loaded with its MODEL_DATA_ARGS.
 #' =============================================================================
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/fit/helpers/recovery.R")   # sample_posterior_alphas, extract_design
 source_root("R/eval/eval_config.R")       # PPC_N_DRAWS, PPC_MODELS_DIR
+
+
+# Per-subject drop counts of two draws added up (NULL = nothing accumulated yet).
+sum_dropped <- function(total, one) {
+  if (is.null(one)) return(total)
+  if (is.null(total)) return(one)
+  total$n         <- total$n + one$n
+  total$n_dropped <- total$n_dropped + one$n_dropped
+  total
+}
 
 
 # =============================================================================
@@ -49,6 +64,9 @@ source_root("R/eval/eval_config.R")       # PPC_N_DRAWS, PPC_MODELS_DIR
 #' @param sim_seed        Integer RNG seed for sample_posterior_alphas().
 #' @param name_suffix     Suffix appended to output filename.
 #' @param post_save_hook  Optional function(rds_path, log_path) for cloud sync.
+#' @param rt_window       NULL (untruncated) or c(min, max) seconds (inclusive):
+#'                         simulated trials outside it are dropped from every draw.
+#'                         Default SIM_RT_WINDOW.
 #' @return List of n_draws simulated data frames (same structure as template_data,
 #'   with rt and R replaced by simulated values). Side effect: writes output .rds.
 run_ppc_simulation <- function(extended_model, template_data,
@@ -57,8 +75,10 @@ run_ppc_simulation <- function(extended_model, template_data,
                                save_every    = 100L,
                                sim_seed      = NULL,
                                name_suffix   = "",
-                               post_save_hook = NULL) {
+                               post_save_hook = NULL,
+                               rt_window     = SIM_RT_WINDOW) {
 
+  .validate_rt_window(rt_window)
   if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   run_date <- format(Sys.Date(), "%y%m%d")
   if (is.null(post_save_hook)) post_save_hook <- function(...) invisible(NULL)
@@ -90,6 +110,7 @@ run_ppc_simulation <- function(extended_model, template_data,
   log_msg("Simulating posterior predictive datasets...", log_file, console_print = TRUE)
   sim_list <- vector("list", length(alpha_list))
   n_failed <- 0L
+  dropped  <- NULL   # per-subject drop counts summed over draws
 
   for (i in seq_along(alpha_list)) {
     sim_i <- tryCatch(
@@ -103,7 +124,9 @@ run_ppc_simulation <- function(extended_model, template_data,
     if (isFALSE(sim_i)) {
       n_failed <- n_failed + 1L   # slot i stays NULL: draw i always sits at index i
     } else {
-      sim_list[[i]] <- sim_i
+      truncated <- truncate_to_window(sim_i, rt_window)
+      sim_list[[i]] <- truncated$data
+      dropped <- sum_dropped(dropped, truncated$dropped)
     }
 
     # Progress log every 10 draws
@@ -117,7 +140,7 @@ run_ppc_simulation <- function(extended_model, template_data,
     is_checkpoint <- (save_every > 0L && i %% save_every == 0L) ||
                      i == length(alpha_list)
     if (is_checkpoint) {
-      completed_so_far <- Filter(Negate(is.null), sim_list[seq_len(i)])
+      completed_so_far <- with_rt_window(Filter(Negate(is.null), sim_list[seq_len(i)]), rt_window)
       saveRDS(completed_so_far, out_path)
       log_msg(sprintf("  Checkpoint: %d draws -> %s", length(completed_so_far), out_path),
               log_file, console_print = TRUE)
@@ -125,7 +148,9 @@ run_ppc_simulation <- function(extended_model, template_data,
     }
   }
 
-  completed <- Filter(Negate(is.null), sim_list)
+  completed <- with_rt_window(Filter(Negate(is.null), sim_list), rt_window)
+  if (!is.null(dropped)) dropped$frac_dropped <- dropped$n_dropped / dropped$n
+  log_truncation(dropped, rt_window, log_file)
   log_msg(sprintf("Simulation complete: %d successful draws (of %d requested).",
                   length(completed), n_draws),
           log_file, console_print = TRUE)
@@ -150,8 +175,8 @@ if (length(args) == 0L) {
 } else if (length(args) < 1L) {
   stop(
     "Usage: Rscript fit_ppc_cloud.R <extended_rds> [options]\n",
-    "Example: Rscript R/fit/fit_ppc_cloud.R 260525_model1_extended.rds\n",
-    "Smoke:   Rscript R/fit/fit_ppc_cloud.R 260525_model1_extended.rds ",
+    "Example: Rscript R/fit/fit_ppc_cloud.R 260618_mymodel.rds\n",
+    "Smoke:   Rscript R/fit/fit_ppc_cloud.R 260618_mymodel.rds ",
     "--n-draws 5 --suffix _smoke"
   )
 } else {
@@ -201,6 +226,9 @@ if (length(args) == 0L) {
     log_msg(sprintf("Override: --suffix %s", suffix), log_file, console_print = TRUE)
 
   result <- tryCatch({
+    # Fail fast, before loading the fit or data
+    model_script <- find_model_script(ppc_name, file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "fit"))
+
     ext_path <- file.path(MODELS_FIT_DIR, extended_rds)
     log_msg(sprintf("Loading fitted model from: %s", ext_path),
             log_file, console_print = TRUE)
@@ -208,9 +236,7 @@ if (length(args) == 0L) {
 
     log_msg(sprintf("Loading template data from raw CSVs in: %s", DATA_DIR),
             log_file, console_print = TRUE)
-    template_data <- load_data(min_rt               = MIN_SACCADE_CUTOFF,
-                               max_rt               = MAX_SACCADE_CUTOFF,
-                               allow_target_repeats = ALLOW_TARGET_REPEAT)
+    template_data <- load_model_data(model_script)
 
     run_ppc_simulation(
       extended_model = extended_model,
