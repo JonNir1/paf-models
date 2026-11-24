@@ -43,7 +43,8 @@ source_root("R/eval/helpers/plot.R")       # plot_pareto_k, plot_loo_comparison,
 # ------------------------------
 # Load active model set (every fitted model in MODELS_FIT_DIR)
 
-MODEL_NAMES <- discover_model_names()
+if (!exists("MODEL_NAMES")) MODEL_NAMES <- discover_model_names()   # pre-settable (e.g. a subset)
+check_model_names(MODEL_NAMES)
 if (length(MODEL_NAMES) == 0)
   stop(sprintf("No fitted models found in %s; fit models before running goodness_of_fit.", MODELS_FIT_DIR))
 
@@ -57,7 +58,7 @@ names(MODEL_LIST) <- MODEL_NAMES
 # DIC / BPIC  (fast; no caching)
 
 DIC_BPIC_TABLE <- create_goodness_of_fit_table(MODEL_LIST)
-save_eval_table(DIC_BPIC_TABLE, "dic_bpic")
+save_eval_table(DIC_BPIC_TABLE, "dic_bpic", dir = GOF_DIR)
 print(DIC_BPIC_TABLE)
 
 
