@@ -37,7 +37,8 @@ source_root("R/eval/helpers/bf.R")                 # get_mll
 source_root("R/eval/helpers/model_recovery.R")     # select_by_mll, confusion_table
 source_root("R/eval/helpers/plot.R")               # plot_confusion_matrix, save_ggplot_png
 
-MODEL_NAMES <- discover_model_names()
+if (!exists("MODEL_NAMES")) MODEL_NAMES <- discover_model_names()   # pre-settable (e.g. a subset)
+check_model_names(MODEL_NAMES)
 if (length(MODEL_NAMES) < 2L)
   stop(sprintf("Model recovery needs at least two fitted models in %s.", MODELS_FIT_DIR))
 if (!exists("N_SIMS")) N_SIMS <- 3L

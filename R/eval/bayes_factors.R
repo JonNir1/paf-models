@@ -32,7 +32,8 @@ source_root("R/eval/helpers/bf.R")         # get_mll, bf_table
 
 if (!exists("BF_REFERENCE")) BF_REFERENCE <- NULL
 
-MODEL_NAMES <- discover_model_names()
+if (!exists("MODEL_NAMES")) MODEL_NAMES <- discover_model_names()   # pre-settable (e.g. a subset)
+check_model_names(MODEL_NAMES)
 if (length(MODEL_NAMES) == 0)
   stop(sprintf("No fitted models found in %s; fit models before running bayes_factors.", MODELS_FIT_DIR))
 MODEL_PATHS <- vapply(MODEL_NAMES, latest_model_path, character(1), dir_path = MODELS_FIT_DIR)

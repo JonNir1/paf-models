@@ -38,7 +38,8 @@ if (!dir.exists(PPC_EVAL_DIR)) dir.create(PPC_EVAL_DIR, recursive = TRUE)
 
 # Active set = every fitted model. A model without a PPC .rds is an error unless
 # ALLOW_PARTIAL_PPC <- TRUE is set before sourcing (then it is skipped).
-MODEL_NAMES <- discover_model_names()
+if (!exists("MODEL_NAMES")) MODEL_NAMES <- discover_model_names()   # pre-settable (e.g. a subset)
+check_model_names(MODEL_NAMES)
 if (!exists("ALLOW_PARTIAL_PPC")) ALLOW_PARTIAL_PPC <- FALSE
 
 
@@ -47,7 +48,7 @@ if (!exists("ALLOW_PARTIAL_PPC")) ALLOW_PARTIAL_PPC <- FALSE
 # =============================================================================
 
 .latest_ppc <- function(model_name, dir = PPC_MODELS_DIR) {
-  latest_dated_file(dir, sprintf("^[0-9]{6}_%s_ppc\\.rds$", model_name))
+  latest_dated_file(dir, sprintf("^[0-9]{6}_%s_ppc\\.rds$", regex_escape(model_name)))
 }
 
 
