@@ -9,11 +9,12 @@ library(testthat)
 library(dplyr)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
-# Pin the cells these tests (and their mock data) use; the branch default of PPC_GROUP_VARS differs.
-assign("PPC_GROUP_VARS", c("experiment", "cue_size", "search_difficulty"), envir = globalenv())
+# These tests (and their mock data) use the cue-size cells; the branch default of PPC_GROUP_VARS differs.
+# File-local, sourced locally (no global leak): the functions' default argument resolves to this.
+PPC_GROUP_VARS <- c("experiment", "cue_size", "search_difficulty")
 # eval_config.R is needed for PPC_KS_ALPHA; source directly to avoid EMC2 load
-source(file.path(ROOT, "R", "eval", "eval_config.R"))
-source(file.path(ROOT, "R", "eval", "helpers", "ppc.R"))
+source(file.path(ROOT, "R", "eval", "eval_config.R"), local = TRUE)
+source(file.path(ROOT, "R", "eval", "helpers", "ppc.R"), local = TRUE)
 
 
 # =============================================================================
@@ -268,4 +269,13 @@ test_that("group_vars: the default reproduces the experiment x cue_size x search
   expect_error(ppc_x_var("experiment"), "no variable")
   expect_identical(plot_ppc_choice(compute_choice_proportions(ppc, obs, "m", group_vars = gv),
                                    x_var = ppc_x_var(gv))$labels$x, "prev")
+
+  # analysis2 cells (the eval_config default): experiment x difficulty x target repeat
+  obs$is_target_repeated <- rep(c(TRUE, FALSE), length.out = nrow(obs))
+  gv2 <- c("experiment", "search_difficulty", "is_target_repeated")
+  cp  <- compute_choice_proportions(.mk_ppc(obs, T = 5L), obs, "m", group_vars = gv2)
+  expect_identical(names(cp)[2:4], gv2)
+  cell_sums <- tapply(cp$obs, cp[gv2], sum)
+  expect_equal(as.numeric(cell_sums[!is.na(cell_sums)]), rep(1, sum(!is.na(cell_sums))))
+  expect_identical(ppc_x_var(gv2), "search_difficulty")
 })
