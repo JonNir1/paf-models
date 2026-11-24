@@ -1,6 +1,6 @@
 # paf-models
 
-Bayesian hierarchical modeling of the **Priority Accumulation Framework (PAF)** theory of visual attention. Saccade-latency data from two visual-search experiments (exp1, exp2) are fit with hierarchical Linear Ballistic Accumulator (LBA) models using R + `EMC2`. A third experiment (exp3) is held out for out-of-distribution testing.
+Bayesian hierarchical modeling of the **Priority Accumulation Framework (PAF)** theory of visual attention. Saccade-latency data from two visual-search experiments (exp1, exp2) are fit with hierarchical Linear Ballistic Accumulator (LBA) models using R + `EMC2`. On the generic `main`, a third experiment (exp3) is held out for out-of-distribution testing; the `analysis2` branch does not use exp3 (no out-of-distribution step is planned).
 
 A previous analysis (the `model1`–`model5` LBA family, evaluated through step 4.9) is archived; this `analysis2` branch (on top of the generic `main` v1.2) holds analysis 2, the PrevTarget-locus family; see [Analysis plan](#analysis-plan-analysis-2-prevtarget-locus). See [Archived analysis](#archived-analysis).
 

@@ -11,6 +11,12 @@ Conventions used below:
 - Bucket root: `s3://jon-nir/paf-models/` (`BUCKET=jon-nir/paf-models` for the scripts).
 - Cores are auto-detected per process, so run **one job at a time per instance** (loops below are
   sequential); spread work over several instances for parallelism.
+- Later PowerShell blocks assume the session of "Local R session" below (cwd = main checkout,
+  `$env:R_LIBS_USER` set); bash blocks assume `cd /opt/paf-models` (see "Instance setup").
+- Several fit dates can coexist per model (reruns, resumes). Wherever a step must act on "the" fit of a
+  model, the snippets pick the LATEST `YYMMDD_` file per model (names sort chronologically): in bash,
+  `sort | awk '{ f[substr($0, 8)] = $0 } END { for (k in f) print f[k] }'` keeps the last name per
+  model (everything after the 7-character date prefix).
 
 ---
 
@@ -37,7 +43,8 @@ aws s3 cp data\exp2\Exp2_clean.csv s3://jon-nir/paf-models/inputs/data/exp2/Exp2
 
 ### Local R session for the eval steps (PowerShell)
 
-Data and outputs live in the main checkout, so switch it to `analysis2` there:
+Data and outputs live in the main checkout, so switch it to `analysis2` there. This only works while no
+other worktree has `analysis2` checked out (check with `git worktree list`; release it there first):
 
 ```powershell
 cd C:\Users\nirjo\Documents\University\PhD\Projects\paf-models
@@ -116,11 +123,18 @@ aws s3 sync s3://jon-nir/paf-models/results/fit/ outputs\models\fit\ --exclude "
 Rscript -e "source('R/eval/convergence.R')"
 ```
 
-**1.9 STOP:** flag severe non-convergence. Then promote each converged fit to `inputs/fit/` (the
-recovery, BF and PPC scripts read from there):
+**1.9 STOP:** flag severe non-convergence. Then promote the LATEST-dated fit of each main model to
+`inputs/fit/` (the recovery, BF and PPC scripts read from there). The pipeline groups the listing by
+model (name after the date prefix) and copies only the newest file of each, so stale earlier dates and
+pre-resume fits stay behind (PowerShell; `_sd` sensitivity fits are excluded by the pattern):
 
 ```powershell
-aws s3 cp s3://jon-nir/paf-models/results/fit/ s3://jon-nir/paf-models/inputs/fit/ --recursive --exclude "*" --include "*_pt_*.rds"
+$src = "s3://jon-nir/paf-models/results/fit/"
+aws s3 ls $src | ForEach-Object { ($_ -split '\s+')[-1] } |
+  Where-Object { $_ -match '^\d{6}_pt_[A-Za-z]+\.rds$' } |
+  Group-Object { $_.Substring(7) } |
+  ForEach-Object { ($_.Group | Sort-Object)[-1] } |
+  ForEach-Object { aws s3 cp "$src$_" "s3://jon-nir/paf-models/inputs/fit/$_" }
 ```
 
 ---
@@ -153,25 +167,37 @@ effects material (if yes: custom truncated likelihood, F5); how many simulations
 ## Step 3: model recovery, 8 x 8 (cloud + local)
 
 For one generating model, refit each simulation with every candidate (the same-model fits from step 2
-are reused, so the loop skips the generating model). One generating model per instance (bash):
+are reused, so the loop skips the generating model).
+
+**Wall time:** each refit is a full fit to convergence (hours), and the loop is sequential: 7 candidates x
+`N` simulations = 21 refits per generating model at `N = 3`, on one instance. Split the work by listing a
+subset of candidates in `CANDS` per instance (the subsets together must cover all 8 models; the
+generating model is skipped wherever it appears), e.g. instance 1 `CANDS="pt_null pt_v pt_A pt_B"`,
+instance 2 `CANDS="pt_vA pt_vB pt_AB pt_vAB"`. Each instance runs (bash):
 
 ```bash
 GEN=pt_vB; FIT=<DATE>_pt_vB.rds; N=3
-nohup bash -c "for k in \$(seq 1 $N); do for c in pt_null pt_v pt_A pt_B pt_vA pt_vB pt_AB pt_vAB; do
+CANDS="pt_null pt_v pt_A pt_B"
+nohup bash -c "for k in \$(seq 1 $N); do for c in $CANDS; do
   [ \"\$c\" = \"$GEN\" ] && continue
   env BUCKET=jon-nir/paf-models CLOUD=aws ./scripts/run_recovery.sh $FIT \$k --fit-model-script R/fit/\$c.R
-done; done" > ~/modelrec_$GEN.log 2>&1 &
+done; done" > ~/modelrec_${GEN}_1.log 2>&1 &
 ```
 
-Marginal likelihood of every recovery fit of that generating model (bash; skips `true_alpha` files):
+Marginal likelihood of the LATEST-dated recovery fit of every simulation x candidate of that generating
+model (bash; a script file avoids nested quoting; `true_alpha` files do not match the pattern):
 
 ```bash
 GEN=pt_vB
-nohup bash -c "for f in \$(aws s3 ls s3://jon-nir/paf-models/results/recovery/ | awk '{print \$4}' \
-    | grep -E \"^[0-9]{6}_${GEN}_recovery_sim[0-9]+(_fit_pt_[A-Za-z]+)?\.rds\$\"); do
-  env BUCKET=jon-nir/paf-models CLOUD=aws FIT_PREFIX=results/recovery FIT_DIR=outputs/models/fit_recovery \
+cat > ~/bf_recovery.sh <<EOF
+for f in \$(aws s3 ls s3://jon-nir/paf-models/results/recovery/ | awk '{print \$4}' \\
+    | grep -E '^[0-9]{6}_${GEN}_recovery_sim[0-9]+(_fit_pt_[A-Za-z]+)?\.rds\$' \\
+    | sort | awk '{ f[substr(\$0, 8)] = \$0 } END { for (k in f) print f[k] }'); do
+  env BUCKET=jon-nir/paf-models CLOUD=aws FIT_PREFIX=results/recovery FIT_DIR=outputs/models/fit_recovery \\
     ./scripts/run_bf.sh \$f
-done" > ~/bf_recovery_$GEN.log 2>&1 &
+done
+EOF
+nohup bash ~/bf_recovery.sh > ~/bf_recovery_$GEN.log 2>&1 &
 ```
 
 Download and evaluate (PowerShell; the 8 main fits must also be in `outputs\models\fit\`):
@@ -189,13 +215,18 @@ Check `margin` vs `spread` and `n_split_warnings`.
 
 ## Step 4: model comparison (cloud + local)
 
-Marginal likelihood of each main fit (bash):
+Marginal likelihood of the LATEST-dated fit of each main model (bash; the pattern excludes the `_sd`
+sensitivity fits; `bf_main.sh` is written with a quoted heredoc, so it is stored verbatim):
 
 ```bash
-nohup bash -c 'for f in $(aws s3 ls s3://jon-nir/paf-models/inputs/fit/ | awk "{print \$4}" \
-    | grep -E "^[0-9]{6}_pt_[A-Za-z]+\.rds$"); do
+cat > ~/bf_main.sh <<'EOF'
+for f in $(aws s3 ls s3://jon-nir/paf-models/inputs/fit/ | awk '{print $4}' \
+    | grep -E '^[0-9]{6}_pt_[A-Za-z]+\.rds$' \
+    | sort | awk '{ f[substr($0, 8)] = $0 } END { for (k in f) print f[k] }'); do
   env BUCKET=jon-nir/paf-models CLOUD=aws ./scripts/run_bf.sh $f
-done' > ~/bf_main.log 2>&1 &
+done
+EOF
+nohup bash ~/bf_main.sh > ~/bf_main.log 2>&1 &
 ```
 
 Bayes factors, then DIC/BPIC/LOO (PowerShell):
@@ -208,8 +239,19 @@ Rscript -e "source('R/eval/goodness_of_fit.R')"
 
 ### Prior sensitivity (top models)
 
-`PT_PRIOR_SD_SCALE` scales the effect-prior SDs and appends `_sd<scale>` to the model name, so these fits
-never clobber the main ones. Set it on **every** command that builds or looks up these models (bash):
+`PT_PRIOR_SD_SCALE` (an environment variable, set before R starts) multiplies the SDs of all EFFECT priors
+(`PT_PRIOR_SD`, including the shared nuisance effect `sv_TargetAtLocTRUE`; never the `v`/`B`/`A`/`t0`
+intercepts) and appends `_sd<scale>` to the model name (`1`, `1.0` or unset = no suffix; `.5` and `0.5` =
+`_sd0.5`; `2` = `_sd2`; anything non-numeric or <= 0 is an error), so these fits never clobber the main ones.
+
+It must be set on every command that **builds or looks up a model by name**: `run_fit.sh --model-script`,
+`run_recovery.sh`, `run_ppc.sh` (`fit_recovery_cloud.R` / `fit_ppc_cloud.R` find the script by model name),
+and locally `R/eval/ppc.R`, `R/eval/recovery.R` (finds the script for `model_unidentifiable_pattern()`) and
+`R/eval/prior_predictive.R`. It is not needed by `run_bf.sh`, `bayes_factors.R`, `convergence.R`,
+`goodness_of_fit.R` or `model_recovery.R`, which only read fitted files (bayes_factors does not look up
+scripts).
+
+1. Fit the scaled variants (bash; one model, two scales, sequential):
 
 ```bash
 MODEL=pt_vB
@@ -218,9 +260,34 @@ nohup bash -c "for s in 0.5 2; do
 done" > ~/sens_$MODEL.log 2>&1 &
 ```
 
-Then promote the converged `*_sd*.rds` fits to `inputs/fit/` and run `run_bf.sh` on each, as above.
-Keep sensitivity fits out of `outputs\models\fit\` during the main eval (they would be discovered as extra
-models): sync them to a separate folder and compare there.
+2. Marginal likelihood of the latest-dated scaled fits (bash; they are on `results/fit/`, so promote
+them to `inputs/fit/` first from PowerShell with the step 1.9 pipeline, changing the pattern to
+`'^\d{6}_pt_[A-Za-z]+_sd[0-9.]+\.rds$'`; no `PT_PRIOR_SD_SCALE` needed):
+
+```bash
+cat > ~/bf_sens.sh <<'EOF'
+for f in $(aws s3 ls s3://jon-nir/paf-models/inputs/fit/ | awk '{print $4}' \
+    | grep -E '^[0-9]{6}_pt_[A-Za-z]+_sd[0-9.]+\.rds$' \
+    | sort | awk '{ f[substr($0, 8)] = $0 } END { for (k in f) print f[k] }'); do
+  env BUCKET=jon-nir/paf-models CLOUD=aws ./scripts/run_bf.sh $f
+done
+EOF
+nohup bash ~/bf_sens.sh > ~/bf_sens.log 2>&1 &
+```
+
+3. Compare (PowerShell). The scaled fits may sit in `outputs\models\fit\` next to the main ones: the eval
+default `MODEL_EXCLUDE_PATTERN = "_sd[0-9.]+$"` (`R/eval/eval_config.R`) keeps them out of every
+`discover_model_names()` default, while an explicit `MODEL_NAMES` may name them. Writing to a separate
+`BF_DIR` keeps this comparison from overwriting the main `bayes_factors.{rds,csv}`:
+
+```powershell
+aws s3 sync s3://jon-nir/paf-models/inputs/fit/ outputs\models\fit\ --exclude "*" --include "*pt_vB*"
+aws s3 sync s3://jon-nir/paf-models/results/bf/ outputs\models\fit_bf\ --exclude "*" --include "*pt_vB*"
+Rscript -e "MODEL_NAMES <- c('pt_vB', 'pt_vB_sd0.5', 'pt_vB_sd2'); BF_REFERENCE <- 'pt_vB'; BF_DIR <- 'outputs/evaluation/bayes_factors_sensitivity'; source('R/eval/bayes_factors.R')"
+```
+
+Repeat per top model (a different `MODEL_NAMES` triplet), or pass all of them at once. The ranking is
+robust if the log Bayes factors between the structural variants keep their order across the scales.
 
 **4.9 STOP (PI):** model ranking (co-winners allowed).
 
