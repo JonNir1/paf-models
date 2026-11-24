@@ -16,7 +16,9 @@ RECOVERY_EVAL_DIR <- file.path(EVAL_DIR, "parameter_recovery")
 
 # Pre-settable by the caller before sourcing a driver: a regex of model names that
 # discover_model_names() drops (NA = none), e.g. to keep sensitivity fits out of the main set.
-if (!exists("MODEL_EXCLUDE_PATTERN")) MODEL_EXCLUDE_PATTERN <- NA_character_
+# analysis2: the prior-sensitivity fits (`<model>_sd<scale>`, see R/fit/helpers/pt_family.R) are
+# excluded by default; an explicit MODEL_NAMES may still name them (check_model_names()).
+if (!exists("MODEL_EXCLUDE_PATTERN")) MODEL_EXCLUDE_PATTERN <- "_sd[0-9.]+$"
 
 
 #' Discover fitted-model names in a directory (the active model set).

@@ -12,16 +12,24 @@
 #' prior is in PT_PRIOR_MU/PT_PRIOR_SD below (log scale for A, B, sv).
 #'
 #' Prior sensitivity (BF): set the environment variable PT_PRIOR_SD_SCALE (e.g.
-#' 0.5 or 2) BEFORE R starts; it multiplies the EFFECT SDs only (never the
-#' intercepts). It must be an env var, not an R variable, because each model
-#' script derives its MODEL_NAME from it without being executed (see pt_null.R):
-#' a scaled fit is named `<model>_sd<scale>` (e.g. pt_vAB_sd0.5), so its .rds,
-#' recovery, PPC and BF files never clobber the main fits (scale 1 or unset =
-#' unsuffixed name). Every runner that rebuilds or looks up a model by name
-#' (fit_cloud.R --model-script, fit_recovery_cloud.R, fit_ppc_cloud.R,
-#' R/eval/ppc.R) must run with the same PT_PRIOR_SD_SCALE as the fit. Eval
-#' drivers discover every model in the fit directory, so keep sensitivity fits
-#' in a separate directory (or set MODEL_NAMES) when ranking the main family.
+#' 0.5 or 2) BEFORE R starts; it multiplies the EFFECT SDs only, never the
+#' intercepts (sv_TargetAtLocTRUE, the shared nuisance effect, is scaled too).
+#' It must be an env var, not an R variable, because each model script derives
+#' its MODEL_NAME from it without being executed (see pt_null.R). The value is
+#' normalised ("1", "1.0", "" = unscaled; ".5" = "0.5"; whitespace trimmed;
+#' non-numeric or <= 0 is an error) identically for the name (inline in each
+#' script) and for the priors (pt_prior_sd_scale(), read at call time). A scaled
+#' fit is named `<model>_sd<scale>` (e.g. pt_vAB_sd0.5), so its .rds, recovery,
+#' PPC and BF files never clobber the main fits.
+#'
+#' Needs the SAME env var as the fit, because they find a model by its declared
+#' name or rebuild it: fit_cloud.R --model-script, fit_recovery_cloud.R,
+#' fit_ppc_cloud.R, R/eval/ppc.R, R/eval/recovery.R (model_unidentifiable_pattern()
+#' looks the script up by name) and R/eval/prior_predictive.R. NOT needed by
+#' convergence.R, goodness_of_fit.R, bayes_factors.R, model_recovery.R or the
+#' run_bf.sh / fit_bf_cloud.R path: they work on fitted files and never look up
+#' scripts (pass explicit MODEL_NAMES). The eval default MODEL_EXCLUDE_PATTERN
+#' (eval_config.R) hides `_sd<scale>` fits from discover_model_names().
 #' =============================================================================
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
@@ -54,11 +62,15 @@ PT_PRIOR_SD <- c(
   A_PrevTargetAtLocTRUE                                             = 1
 )
 
-# Multiplier on the effect SDs (BF prior-sensitivity refits). Env var only: see header.
-PT_PRIOR_SD_SCALE <- suppressWarnings(as.numeric(Sys.getenv("PT_PRIOR_SD_SCALE", "1")))
-if (!is.finite(PT_PRIOR_SD_SCALE) || PT_PRIOR_SD_SCALE <= 0)
-  stop(sprintf("PT_PRIOR_SD_SCALE must be a positive number, got '%s'",
-               Sys.getenv("PT_PRIOR_SD_SCALE")), call. = FALSE)
+#' Multiplier on the effect SDs from the PT_PRIOR_SD_SCALE env var (read at call time).
+#' Same normalisation as the MODEL_NAME expression of the pt_*.R scripts.
+#' @return Positive finite number (1 when unset or empty).
+pt_prior_sd_scale <- function() {
+  raw <- trimws(Sys.getenv("PT_PRIOR_SD_SCALE", "1"))
+  s   <- suppressWarnings(as.numeric(if (nzchar(raw)) raw else "1"))
+  if (!is.finite(s) || s <= 0) stop("PT_PRIOR_SD_SCALE must be a positive number", call. = FALSE)
+  s
+}
 
 PT_PARAMS <- c("v", "A", "B")
 
@@ -100,7 +112,7 @@ pt_param_names <- function(pt_on = character()) {
 
 
 #' Effect priors with the SDs scaled by PT_PRIOR_SD_SCALE (intercepts untouched).
-pt_effect_priors <- function(scale = PT_PRIOR_SD_SCALE) {
+pt_effect_priors <- function(scale = pt_prior_sd_scale()) {
   list(mu = PT_PRIOR_MU, sd = PT_PRIOR_SD * scale)
 }
 

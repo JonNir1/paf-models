@@ -28,7 +28,8 @@ pt_data <- local({
   d <- load_fixture_data()
   droplevels(d[d$search_difficulty != "MIXED", ])
 })
-pt_emc <- pt_vAB$build_model(pt_data, n_chains = 2L)
+# design() prints its parameter vector (no quiet argument through build_lba_model()); keep the log clean
+invisible(capture.output(pt_emc <- pt_vAB$build_model(pt_data, n_chains = 2L)))
 
 
 test_that("pt_vAB builds with exactly the 14 expected parameters (and pt_param_names agrees)", {
@@ -41,7 +42,9 @@ test_that("pt_vAB prior means/SDs are the PT table for effects and fit_config fo
   prior <- pt_emc[[1]]$prior
   mu <- prior$theta_mu_mean
   sd <- sqrt(diag(prior$theta_mu_var))
-  expect_equal(mu[names(PT_PRIOR_MU)], PT_PRIOR_MU * 1, ignore_attr = TRUE)
-  expect_equal(unname(sd[names(PT_PRIOR_SD)]), unname(PT_PRIOR_SD * PT_PRIOR_SD_SCALE))
-  expect_equal(unname(mu[c("v", "B", "A", "t0")]), unname(PRIOR_MU[c("v", "B", "A", "t0")]))
+  intercepts <- c("v", "B", "A", "t0")
+  expect_equal(mu[names(PT_PRIOR_MU)], PT_PRIOR_MU, ignore_attr = TRUE)
+  expect_equal(unname(sd[names(PT_PRIOR_SD)]), unname(PT_PRIOR_SD * pt_prior_sd_scale()))
+  expect_equal(unname(mu[intercepts]), unname(PRIOR_MU[intercepts]))
+  expect_equal(unname(sd[intercepts]), unname(PRIOR_SD[intercepts]))   # intercept SDs are never scaled
 })

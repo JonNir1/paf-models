@@ -2,12 +2,14 @@
 #' pt_null: PrevTarget-locus family member, PrevTargetAtLoc on: none.
 #' See R/fit/helpers/pt_family.R. MODEL_NAME gains a "_sd<scale>" suffix when the
 #' PT_PRIOR_SD_SCALE env var is not 1 (prior-sensitivity refits; names stay unique).
+#' The scale is normalised like pt_prior_sd_scale() (it cannot be called here: the
+#' declaration is read without executing the script); same expression in all 8 scripts.
 #' =============================================================================
 
 source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/fit/helpers/pt_family.R")
 
-MODEL_NAME <- paste0("pt_null", if (Sys.getenv("PT_PRIOR_SD_SCALE", "1") %in% c("", "1")) "" else paste0("_sd", Sys.getenv("PT_PRIOR_SD_SCALE")))
+MODEL_NAME <- paste0("pt_null", local({ s <- suppressWarnings(as.numeric(sub("^$", "1", trimws(Sys.getenv("PT_PRIOR_SD_SCALE", "1"))))); if (!is.finite(s) || s <= 0) stop("PT_PRIOR_SD_SCALE must be a positive number"); if (s == 1) "" else paste0("_sd", format(s, scientific = FALSE)) }))
 
 MODEL_DATA_ARGS <- list(difficulties = c("EASY", "DIFFICULT"))
 
