@@ -9,6 +9,8 @@ library(testthat)
 library(dplyr)
 
 ROOT <- Sys.getenv("PAF_REPO_ROOT", unset = getwd())
+# Pin the cells these tests (and their mock data) use; the branch default of PPC_GROUP_VARS differs.
+assign("PPC_GROUP_VARS", c("experiment", "cue_size", "search_difficulty"), envir = globalenv())
 # eval_config.R is needed for PPC_KS_ALPHA; source directly to avoid EMC2 load
 source(file.path(ROOT, "R", "eval", "eval_config.R"))
 source(file.path(ROOT, "R", "eval", "helpers", "ppc.R"))

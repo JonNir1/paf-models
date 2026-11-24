@@ -2,9 +2,9 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, analysis2]
   pull_request:
-    branches: [main]
+    branches: [main, analysis2]
   workflow_dispatch:
 
 # Only Level-1 unit tests run on push/PR (fast, no EMC2); also on manual dispatch. Level-2 model-build

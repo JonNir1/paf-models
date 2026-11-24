@@ -27,7 +27,8 @@ test_that("run_ppc_simulation simulates n_draws datasets with the template's tri
   n_draws <- 5L
   sims <- quietly(run_ppc_simulation(FITTED, DATA, ppc_name = "test_model",
                                      log_file = file.path(dir, "ppc.log"), out_dir = dir,
-                                     n_draws = n_draws, sim_seed = RNG_SEED))
+                                     n_draws = n_draws, sim_seed = RNG_SEED,
+                                     rt_window = NULL))   # template-shaped output: no truncation
 
   expect_length(sims, n_draws)
   for (sim in sims) {

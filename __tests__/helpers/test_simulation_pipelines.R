@@ -182,10 +182,10 @@ local_ppc_mocks <- function(fail = integer(), env = parent.frame()) {
   rec
 }
 
-run_ppc <- function(dir, ...) {
+run_ppc <- function(dir, rt_window = NULL, ...) {   # untruncated: the mock data has no rt
   quietly(run_ppc_simulation(NULL, data.frame(subjects = c("s1", "s2")),
                              ppc_name = "m", log_file = file.path(dir, "ppc.log"),
-                             out_dir = dir, ...))
+                             out_dir = dir, rt_window = rt_window, ...))
 }
 
 test_that("run_ppc_simulation drops failed draws and checkpoints every save_every draws and at the end", {
@@ -232,7 +232,7 @@ test_that("run_ppc_simulation drops failed draws and checkpoints every save_ever
   }
 })
 
-test_that("run_ppc_simulation(rt_window) truncates every draw, sums the drops over successful draws only, and defaults to untruncated", {
+test_that("run_ppc_simulation(rt_window) truncates every draw, sums the drops over successful draws only, and NULL means untruncated", {
   dir <- withr::local_tempdir()
   local_mocks(
     sample_posterior_alphas = function(model, n_draws, seed) lapply(seq_len(n_draws), function(i) matrix(i, 1, 1)),
@@ -253,7 +253,7 @@ test_that("run_ppc_simulation(rt_window) truncates every draw, sums the drops ov
   log <- readLines(file.path(dir, "ppc.log"))
   expect_match(log, "dropped 2 of 4 simulated trials", all = FALSE)       # draw 2 failed: not counted
 
-  untruncated <- run()
+  untruncated <- run(rt_window = NULL)
   expect_identical(attr(untruncated, "rt_window"), NA_real_)             # NA = untruncated
   expect_true(all(vapply(untruncated, nrow, integer(1)) == 2L))
   expect_error(run(rt_window = c(1, 0.23)), "rt_window must be NULL or numeric")

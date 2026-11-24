@@ -2,7 +2,7 @@
 
 Bayesian hierarchical modeling of the **Priority Accumulation Framework (PAF)** theory of visual attention. Saccade-latency data from two visual-search experiments (exp1, exp2) are fit with hierarchical Linear Ballistic Accumulator (LBA) models using R + `EMC2`. A third experiment (exp3) is held out for out-of-distribution testing.
 
-A previous analysis (the `model1`–`model5` LBA family, evaluated through step 4.9) is archived; this `main` is set up for a new analysis with a fresh model family. See [Archived analysis](#archived-analysis).
+A previous analysis (the `model1`–`model5` LBA family, evaluated through step 4.9) is archived; this `analysis2` branch (on top of the generic `main` v1.2) holds analysis 2, the PrevTarget-locus family; see [Analysis plan](#analysis-plan-analysis-2-prevtarget-locus). See [Archived analysis](#archived-analysis).
 
 ---
 
@@ -222,29 +222,54 @@ logic tests at L1 (mocking the `emc_*` seam) and real-EMC2 coverage at L2 or L3.
 
 ---
 
-## Analysis plan
+## Analysis plan (analysis 2: PrevTarget locus)
 
-> **Skeleton for the new analysis.** The model family and step-by-step plan are TBD pending the new
-> model specifications. Steps marked **STOP & REVIEW** are checkpoints requiring human judgment;
-> *(PI)* marks PI sign-off. Fill in as the analysis is designed.
+> This branch (`analysis2`, built on `main` v1.2) asks through which LBA parameter the previous target's
+> location acts: drift `v` (online rate), threshold distance `B` (head start, equivalently lower caution;
+> PAF predicts `B_PrevTargetAtLocTRUE < 0`) or start-point variability `A` (exploratory), any combination,
+> or none. Rationale, decisions and the prior table live in the local (untracked) notes
+> `docs/analysis2_prevtarget_locus_findings.md` and `docs/analysis2_literature_positioning.md`.
+> Commands for every step: [`scripts/analysis2_cookbook.md`](scripts/analysis2_cookbook.md).
+> Steps marked **STOP** are checkpoints requiring human judgment; *(PI)* marks PI sign-off.
 
-| Step | Description | Status |
-|------|-------------|--------|
-| 0 | Pre-register predictions; define pre-hoc exclusions (RT cutoffs 0.23-1.0 s) | |
-| 1 | **Fit** each model to convergence via `fit_to_convergence()` (`$mu`: Rhat < 1.05, ESS > 500; `$alpha`: Rhat < 1.1, ESS > 400; `$sigma2`/`$correlation` descriptive) | |
-| 1.9 | *Sanity check*: flag severe non-convergence before proceeding | |
-| 2 | **Parameter recovery** -- extract (μ̂, Σ̂); simulate on the real trial structure; refit; evaluate (RMSE + correlation, z-scores + contraction) | |
-| 2.9 | **STOP & REVIEW *(PI)***: convergence + recovery review; decide which models survive | |
-| 3 | **Goodness of fit** -- BPIC (screening), DIC (reporting only), PSIS-LOO-CV (primary), WAIC (confirmatory); Bayes factors (bridge sampling) where the model comparison calls for them | |
-| 3.9 | **STOP & REVIEW *(PI)***: Pareto-k diagnostics, LOO/WAIC agreement, candidate winner(s) | |
-| 4 | **Posterior predictive checks** -- per-subject KS + theory-relevant contrasts on exp1+2 | |
-| 4.9 | **STOP & REVIEW**: PPC quality + exp1+2 vs exp3 population-shift check | |
-| 5 | **Out-of-distribution test** -- predict exp3 from trained `$alpha` | |
-| 5.9 | **STOP & REVIEW *(PI)***: define pass/fail rule, interpret OOD results | |
-| ... | final synthesis; write-up | |
+**Data:** exp1 + exp2 pooled, MIXED search trials dropped (`MODEL_DATA_ARGS`), RT window 0.23-1.0 s,
+target repeats kept: 11,971 trials, 42 subjects. `CueAtLoc` is not modeled.
 
-**No forced single winner**: GoF and OOD rankings are reported jointly. The analysis may end with
-co-winners or different best models per criterion.
+**Models** (`R/fit/pt_*.R`, built by `build_pt_model()` in `R/fit/helpers/pt_family.R`): the 2^3 family
+over `PrevTargetAtLoc` on {`v`, `A`, `B`}. All share `sv ~ TargetAtLoc`, `t0 ~ 1` and `sv = log(1)`.
+
+| Model | `v` | `A` | `B` | Params |
+|---|---|---|---|---|
+| `pt_null` | `TargetAtLoc * SearchDifficulty` | `~ 1` | `~ 1` | 8 |
+| `pt_v` | `TargetAtLoc * SearchDifficulty * PrevTargetAtLoc` | `~ 1` | `~ 1` | 12 |
+| `pt_A` | `TargetAtLoc * SearchDifficulty` | `~ PrevTargetAtLoc` | `~ 1` | 9 |
+| `pt_B` | `TargetAtLoc * SearchDifficulty` | `~ 1` | `~ PrevTargetAtLoc` | 9 |
+| `pt_vA` | `TargetAtLoc * SearchDifficulty * PrevTargetAtLoc` | `~ PrevTargetAtLoc` | `~ 1` | 13 |
+| `pt_vB` | `TargetAtLoc * SearchDifficulty * PrevTargetAtLoc` | `~ 1` | `~ PrevTargetAtLoc` | 13 |
+| `pt_AB` | `TargetAtLoc * SearchDifficulty` | `~ PrevTargetAtLoc` | `~ PrevTargetAtLoc` | 10 |
+| `pt_vAB` | `TargetAtLoc * SearchDifficulty * PrevTargetAtLoc` | `~ PrevTargetAtLoc` | `~ PrevTargetAtLoc` | 14 |
+
+**Selection:** Bayes factor (bridge sampling) primary; PSIS-LOO-CV with Pareto-k secondary; DIC and BPIC
+reported. Priors are directional and hand-set (`PT_PRIOR_MU`/`PT_PRIOR_SD`).
+
+| Step | Description | Where | Status |
+|------|-------------|-------|--------|
+| 0 | **Prior predictive check** per model (`R/eval/prior_predictive.R`) | local | |
+| 0.9 | **STOP**: confirm the prior table | | |
+| 1 | **Fit** the 8 models to convergence (`$mu`: Rhat < 1.05, ESS > 500; `$alpha`: Rhat < 1.1, ESS > 400) | cloud | |
+| 1.9 | *Sanity check*: flag severe non-convergence | local | |
+| 2 | **Parameter recovery** from each fit's posterior, simulations truncated to the RT window; includes the truncation bias on `B`, `A`, `t0` and the PrevTar effects | cloud + local | |
+| 2.9 | **STOP *(PI)***: is the `B` locus recoverable; is the truncation bias material (then a custom truncated likelihood); simulation count for step 3 | | |
+| 3 | **Model recovery** 8 x 8 with BF selection (`R/eval/model_recovery.R`) | cloud + local | |
+| 3.9 | **STOP**: confusion matrix; can the BF separate `v`, `B` and `A`? | | |
+| 4 | **Model comparison**: BF (repeated bridge sampling) + prior sensitivity (effect SDs x0.5 and x2, top models); LOO + Pareto-k; DIC/BPIC | cloud + local | |
+| 4.9 | **STOP *(PI)***: model ranking (co-winners allowed) | | |
+| 5 | **Posterior predictive checks** (truncated): per-subject KS + PrevTar x difficulty cells | cloud + local | |
+| 5.9 | **STOP**: interpretation; Phase 2 (cue as a second priority source) decision | | |
+
+**Open:** Phase 2 design (decided when it starts). exp3 / out-of-distribution testing is not planned.
+
+**No forced single winner**: the analysis may end with co-winners or different best models per criterion.
 
 ---
 

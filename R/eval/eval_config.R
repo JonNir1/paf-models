@@ -55,7 +55,8 @@ PPC_KS_ALPHA <- 0.05    # FDR-adjusted significance threshold for the per-subjec
 PPC_MODELS_DIR <- file.path(MODELS_DIR, "fit_ppc")  # where fit_ppc_cloud.R writes .rds files
 # Condition cells of the PPC tables: one cell per combination of these columns (the
 # figures' x variables are all of them except `experiment`). Pre-settable by the caller.
-if (!exists("PPC_GROUP_VARS")) PPC_GROUP_VARS <- c("experiment", "cue_size", "search_difficulty")
+# analysis2: target-repeat (target at the previous target location) x difficulty; cue is not modelled.
+if (!exists("PPC_GROUP_VARS")) PPC_GROUP_VARS <- c("experiment", "search_difficulty", "is_target_repeated")
 
 
 # --- Step 3: LOO / WAIC thresholds (loo package / Vehtari et al. 2017 convention) ---

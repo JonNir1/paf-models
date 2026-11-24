@@ -40,7 +40,7 @@ PRIOR_SD <- c(v = V_BASELINE_SD, B = B_BASELINE_SD, A = A_SD, t0 = T0_SD)
 # Window (c(min, max) in seconds, inclusive) that simulated RTs are truncated
 # to in the recovery and PPC simulations; NULL = untruncated. The likelihood is
 # unaffected (observed RTs are filtered by MIN/MAX_SACCADE_CUTOFF).
-SIM_RT_WINDOW <- NULL
+SIM_RT_WINDOW <- c(MIN_SACCADE_CUTOFF, MAX_SACCADE_CUTOFF)
 
 
 # ============================================================================
