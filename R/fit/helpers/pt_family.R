@@ -40,8 +40,9 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/fit/helpers/build_model.R")
 
 
-# Intercept priors (override fit_config.R's generic ones for this analysis).
-PT_INTERCEPT_MU <- c(v = 2, B = log(1), A = log(0.5), t0 = log(0.5 * MIN_SACCADE_CUTOFF))
+# Intercept priors (override fit_config.R's generic ones for this analysis). t0 mean: updated prior
+# (step 0.9). RT t = 0 is the search-display (stimulus) onset, which is also the accumulation onset.
+PT_INTERCEPT_MU <- c(v = 2, B = log(1), A = log(0.5), t0 = log(0.150))
 PT_INTERCEPT_SD <- c(v = 0.5, B = 0.5,  A = 0.5,      t0 = 0.5)
 
 # Effect priors (directional, hand-set from theory).
