@@ -240,7 +240,7 @@ Rscript -e "source('R/eval/goodness_of_fit.R')"
 ### Prior sensitivity (top models)
 
 `PT_PRIOR_SD_SCALE` (an environment variable, set before R starts) multiplies the SDs of all EFFECT priors
-(`PT_PRIOR_SD`, including the shared nuisance effect `sv_TargetAtLocTRUE`; never the `v`/`B`/`A`/`t0`
+(`PT_PRIOR_SD`, including the shared nuisance effect `sv_TargetAtLocTRUE`; never the `v`/`B`/`A`/`t0` (`PT_INTERCEPT_SD`)
 intercepts) and appends `_sd<scale>` to the model name (`1`, `1.0` or unset = no suffix; `.5` and `0.5` =
 `_sd0.5`; `2` = `_sd2`; anything non-numeric or <= 0 is an error), so these fits never clobber the main ones.
 

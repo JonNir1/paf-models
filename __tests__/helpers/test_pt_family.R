@@ -64,8 +64,8 @@ test_that("pt family: per-model parameter table, and every sampled parameter has
     got     <- captured_build(script)
     sampled <- PT_EXPECTED[[model]]
     expect_setequal(pt_param_names(on), sampled)
-    # the extra priors are exactly the sampled parameters that are not intercepts
-    expect_setequal(names(got$extra_mu), setdiff(sampled, names(PRIOR_MU)))
+    # the passed priors (intercept overrides + effects) are exactly the sampled parameters
+    expect_setequal(names(got$extra_mu), sampled)
     expect_identical(names(got$extra_mu), names(got$extra_sd), label = model)
     expect_setequal(names(got$functions), c("TargetAtLoc", "SearchDifficulty", "PrevTargetAtLoc"))
   }
@@ -85,14 +85,17 @@ test_that("pt family: PrevTargetAtLoc enters exactly the parameters named in the
 
 test_that("PT_PRIOR_SD_SCALE scales the effect SDs only (every script's build), never the intercepts", {
   expect_identical(names(PT_PRIOR_MU), names(PT_PRIOR_SD))
-  expect_identical(PRIOR_SD, c(v = 2, B = 1, A = 1, t0 = 1))
+  expect_identical(names(PT_INTERCEPT_MU), names(PRIOR_MU))
+  expect_identical(names(PT_INTERCEPT_SD), names(PRIOR_MU))
   base_mu <- pt_effect_priors(1)$mu
   expect_identical(pt_effect_priors(2)$mu, base_mu)
   withr::with_envvar(c(PT_PRIOR_SD_SCALE = "2"), for (script in PT_SCRIPTS) {
     got <- captured_build(script)
-    expect_false(any(names(got$extra_sd) %in% names(PRIOR_SD)), label = basename(script))
-    expect_equal(got$extra_sd, PT_PRIOR_SD[names(got$extra_sd)] * 2, label = basename(script))
-    expect_equal(got$extra_mu, base_mu[names(got$extra_mu)], label = basename(script))
+    fx <- setdiff(names(got$extra_sd), names(PT_INTERCEPT_SD))
+    expect_equal(got$extra_sd[names(PT_INTERCEPT_SD)], PT_INTERCEPT_SD, label = basename(script))
+    expect_equal(got$extra_sd[fx], PT_PRIOR_SD[fx] * 2, label = basename(script))
+    expect_equal(got$extra_mu[names(PT_INTERCEPT_MU)], PT_INTERCEPT_MU, label = basename(script))
+    expect_equal(got$extra_mu[fx], base_mu[fx], label = basename(script))
   })
 })
 

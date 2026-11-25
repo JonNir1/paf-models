@@ -4,7 +4,7 @@
 #' One build (design() is minutes) on the committed sample fixture restricted to
 #' EASY/DIFFICULT trials, like the MODEL_DATA_ARGS of the pt scripts. Checks that
 #' EMC2 samples exactly the 14 expected parameters and that the prior object
-#' carries the PT_PRIOR_MU/SD values (an implicit check that every name in the
+#' carries the PT_INTERCEPT_* and PT_PRIOR_MU/SD values (an implicit check that every name in the
 #' prior table matches EMC2's labels). No MCMC.
 #' =============================================================================
 
@@ -38,13 +38,13 @@ test_that("pt_vAB builds with exactly the 14 expected parameters (and pt_param_n
   expect_setequal(pt_param_names(c("v", "A", "B")), PT_VAB_PARAMS)
 })
 
-test_that("pt_vAB prior means/SDs are the PT table for effects and fit_config for the intercepts", {
+test_that("pt_vAB prior means/SDs are the PT tables (effects and analysis2 intercepts)", {
   prior <- pt_emc[[1]]$prior
   mu <- prior$theta_mu_mean
   sd <- sqrt(diag(prior$theta_mu_var))
   intercepts <- c("v", "B", "A", "t0")
   expect_equal(mu[names(PT_PRIOR_MU)], PT_PRIOR_MU, ignore_attr = TRUE)
   expect_equal(unname(sd[names(PT_PRIOR_SD)]), unname(PT_PRIOR_SD * pt_prior_sd_scale()))
-  expect_equal(unname(mu[intercepts]), unname(PRIOR_MU[intercepts]))
-  expect_equal(unname(sd[intercepts]), unname(PRIOR_SD[intercepts]))   # intercept SDs are never scaled
+  expect_equal(unname(mu[intercepts]), unname(PT_INTERCEPT_MU[intercepts]))
+  expect_equal(unname(sd[intercepts]), unname(PT_INTERCEPT_SD[intercepts]))   # intercept SDs are never scaled
 })

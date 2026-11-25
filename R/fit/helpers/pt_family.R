@@ -8,8 +8,12 @@
 #' named parameters: v gets the full 3-way TargetAtLoc * SearchDifficulty *
 #' PrevTargetAtLoc, B and A get `~ PrevTargetAtLoc`.
 #'
-#' Priors: the intercepts (v, B, A, t0) come from fit_config.R; every effect
-#' prior is in PT_PRIOR_MU/PT_PRIOR_SD below (log scale for A, B, sv).
+#' Priors: all analysis2 priors are defined below (log scale for A, B, sv, t0):
+#' the intercepts (PT_INTERCEPT_MU/SD, passed via extra_mu/extra_sd so they
+#' override the generic fit_config.R intercepts) and the effects
+#' (PT_PRIOR_MU/PT_PRIOR_SD). Every SD is half of the first-draft table (set at
+#' the step 0.9 prior check); means and SD ratios are unchanged. The hierarchical
+#' variance prior stays at the EMC2 default.
 #'
 #' Prior sensitivity (BF): set the environment variable PT_PRIOR_SD_SCALE (e.g.
 #' 0.5 or 2) BEFORE R starts; it multiplies the EFFECT SDs only, never the
@@ -36,7 +40,11 @@ source(file.path(Sys.getenv("PAF_REPO_ROOT", getwd()), "R", "utils.R"))
 source_root("R/fit/helpers/build_model.R")
 
 
-# Effect priors (directional, hand-set from theory); intercepts: fit_config.R.
+# Intercept priors (override fit_config.R's generic ones for this analysis).
+PT_INTERCEPT_MU <- c(v = 2, B = log(1), A = log(0.5), t0 = log(0.5 * MIN_SACCADE_CUTOFF))
+PT_INTERCEPT_SD <- c(v = 1, B = 0.5,    A = 0.5,      t0 = 0.5)
+
+# Effect priors (directional, hand-set from theory).
 PT_PRIOR_MU <- c(
   v_TargetAtLocTRUE                                                 =  1,
   v_SearchDifficultyDIFFICULT                                       = -0.2,
@@ -50,16 +58,16 @@ PT_PRIOR_MU <- c(
   A_PrevTargetAtLocTRUE                                             = log(0.9)
 )
 PT_PRIOR_SD <- c(
-  v_TargetAtLocTRUE                                                 = 1,
-  v_SearchDifficultyDIFFICULT                                       = 1,
-  v_PrevTargetAtLocTRUE                                             = 1,
-  `v_TargetAtLocTRUE:SearchDifficultyDIFFICULT`                     = 0.5,
-  `v_TargetAtLocTRUE:PrevTargetAtLocTRUE`                           = 0.5,
-  `v_SearchDifficultyDIFFICULT:PrevTargetAtLocTRUE`                 = 0.5,
-  `v_TargetAtLocTRUE:SearchDifficultyDIFFICULT:PrevTargetAtLocTRUE` = 0.5,
-  sv_TargetAtLocTRUE                                                = 1,
-  B_PrevTargetAtLocTRUE                                             = 1,
-  A_PrevTargetAtLocTRUE                                             = 1
+  v_TargetAtLocTRUE                                                 = 0.5,
+  v_SearchDifficultyDIFFICULT                                       = 0.5,
+  v_PrevTargetAtLocTRUE                                             = 0.5,
+  `v_TargetAtLocTRUE:SearchDifficultyDIFFICULT`                     = 0.25,
+  `v_TargetAtLocTRUE:PrevTargetAtLocTRUE`                           = 0.25,
+  `v_SearchDifficultyDIFFICULT:PrevTargetAtLocTRUE`                 = 0.25,
+  `v_TargetAtLocTRUE:SearchDifficultyDIFFICULT:PrevTargetAtLocTRUE` = 0.25,
+  sv_TargetAtLocTRUE                                                = 0.5,
+  B_PrevTargetAtLocTRUE                                             = 0.5,
+  A_PrevTargetAtLocTRUE                                             = 0.5
 )
 
 #' Multiplier on the effect SDs from the PT_PRIOR_SD_SCALE env var (read at call time).
@@ -128,7 +136,7 @@ pt_effect_priors <- function(scale = pt_prior_sd_scale()) {
 build_pt_model <- function(data, n_chains, pt_on = character()) {
   f       <- pt_formulas(pt_on)
   priors  <- pt_effect_priors()
-  effects <- setdiff(pt_param_names(pt_on), names(PRIOR_MU))
+  effects <- setdiff(pt_param_names(pt_on), names(PT_INTERCEPT_MU))
   missing <- setdiff(effects, intersect(names(priors$mu), names(priors$sd)))
   if (length(missing) > 0L)
     stop(sprintf("No PT prior for parameter(s): %s", paste(missing, collapse = ", ")), call. = FALSE)
@@ -140,8 +148,8 @@ build_pt_model <- function(data, n_chains, pt_on = character()) {
     sv_formula = f$sv,
     B_formula  = f$B,
     A_formula  = f$A,
-    extra_mu   = priors$mu[effects],
-    extra_sd   = priors$sd[effects],
+    extra_mu   = c(PT_INTERCEPT_MU, priors$mu[effects]),
+    extra_sd   = c(PT_INTERCEPT_SD, priors$sd[effects]),
     functions  = LBA_FUNCTIONS[c("TargetAtLoc", "SearchDifficulty", "PrevTargetAtLoc")]
   )
 }
