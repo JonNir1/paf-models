@@ -250,7 +250,7 @@ over `PrevTargetAtLoc` on {`v`, `A`, `B`}. All share `sv ~ TargetAtLoc`, `t0 ~ 1
 | `pt_vAB` | `TargetAtLoc * SearchDifficulty * PrevTargetAtLoc` | `~ PrevTargetAtLoc` | `~ PrevTargetAtLoc` | 14 |
 
 **Selection:** Bayes factor (bridge sampling) primary; PSIS-LOO-CV with Pareto-k secondary; DIC and BPIC
-reported. Priors are directional and hand-set (`PT_INTERCEPT_MU`/`SD`, `PT_PRIOR_MU`/`PT_PRIOR_SD`; SDs halved at step 0.9).
+reported. Priors are directional and hand-set (`PT_INTERCEPT_MU`/`SD`, `PT_PRIOR_MU`/`PT_PRIOR_SD`; at step 0.9 all intercepts and main effects SD 0.5, interactions SD 0.25).
 
 | Step | Description | Where | Status |
 |------|-------------|-------|--------|

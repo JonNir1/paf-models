@@ -42,7 +42,7 @@ source_root("R/fit/helpers/build_model.R")
 
 # Intercept priors (override fit_config.R's generic ones for this analysis).
 PT_INTERCEPT_MU <- c(v = 2, B = log(1), A = log(0.5), t0 = log(0.5 * MIN_SACCADE_CUTOFF))
-PT_INTERCEPT_SD <- c(v = 1, B = 0.5,    A = 0.5,      t0 = 0.5)
+PT_INTERCEPT_SD <- c(v = 0.5, B = 0.5,  A = 0.5,      t0 = 0.5)
 
 # Effect priors (directional, hand-set from theory).
 PT_PRIOR_MU <- c(
