@@ -254,8 +254,8 @@ reported. Priors are directional and hand-set (`PT_INTERCEPT_MU`/`SD`, `PT_PRIOR
 
 | Step | Description | Where | Status |
 |------|-------------|-------|--------|
-| 0 | **Prior predictive check** per model (`R/eval/prior_predictive.R`) | local | |
-| 0.9 | **STOP**: confirm the prior table | | |
+| 0 | **Prior predictive check** per model (`R/eval/prior_predictive.R`) | local | done 2026-11-25 (3 runs) |
+| 0.9 | **STOP**: confirm the prior table | | done 2026-11-25: SDs halved, `t0` mean updated |
 | 1 | **Fit** the 8 models to convergence (`$mu`: Rhat < 1.05, ESS > 500; `$alpha`: Rhat < 1.1, ESS > 400) | cloud | |
 | 1.9 | *Sanity check*: flag severe non-convergence | local | |
 | 2 | **Parameter recovery** from each fit's posterior, simulations truncated to the RT window; includes the truncation bias on `B`, `A`, `t0` and the PrevTar effects | cloud + local | |
