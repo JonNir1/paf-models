@@ -22,7 +22,7 @@
 #   ppc      -> run_ppc.sh $PAF_ARGS
 #   smoke    -> L1 tests + report to S3 + check the job role is prefix-scoped
 #
-# Spot retry: when AWS_BATCH_JOB_ATTEMPT > 1 and the kind is `fit`, the newest
+# Spot retry: when AWS_BATCH_JOB_ATTEMPT > 1 and the kind is `fit` or `resume`, the newest
 # results/fit/<YYMMDD>_<model>.rds checkpoint is copied to inputs/fit/ and the
 # job resumes from it. This needs s3:ListBucket on the results/fit/ prefix; if
 # listing fails the job warns and refits from scratch.
@@ -109,9 +109,26 @@ newest_checkpoint() {
   printf '%s\n' "$listing" | awk '{print $4}' | { grep -E "$re" || true; } | sort | tail -n 1
 }
 
+# Model name of a fit file, as model_name_from_rds() (R/eval/helpers/io.R): no dir,
+# no .rds, no YYMMDD_ prefix, no trailing _extended.
+rds_model_name() {
+  local name
+  name="$(basename "$1" .rds)"
+  name="${name#[0-9][0-9][0-9][0-9][0-9][0-9]_}"
+  while [[ "$name" == *_extended ]]; do name="${name%_extended}"; done
+  printf '%s' "$name"
+}
+
+# fit and resume kinds. On a spot retry (attempt > 1) both continue from the newest
+# results/fit/<YYMMDD>_<model><suffix>.rds checkpoint (fit_cloud.R's save name), so
+# the paid iterations of earlier attempts are kept. A resume only switches to a
+# checkpoint dated on or after its input, never back to an older fit. --suffix is
+# dropped on that path: the checkpoint name already carries it.
 run_fit_kind() {
-  local script="${ARGS[0]}" attempt="${AWS_BATCH_JOB_ATTEMPT:-1}"
+  local first="${ARGS[0]}" attempt="${AWS_BATCH_JOB_ATTEMPT:-1}"
   local rest=("${ARGS[@]:1}")
+  local fresh_flag="--model-script"
+  [ "$PAF_KIND" = "resume" ] && fresh_flag="--resume"
 
   if [[ "$attempt" =~ ^[0-9]+$ ]] && (( attempt > 1 )); then
     local suffix="" kept=() i
@@ -125,18 +142,29 @@ run_fit_kind() {
     done
 
     local stem ckpt
-    stem="$(model_name_of "$REPO_DIR/$script")$suffix"
+    if [ "$PAF_KIND" = "resume" ]; then
+      stem="$(rds_model_name "$first")$suffix"
+    else
+      stem="$(model_name_of "$REPO_DIR/$first")$suffix"
+    fi
     ckpt="$(newest_checkpoint "$stem")"
+    if [ -n "$ckpt" ] && [ "$PAF_KIND" = "resume" ]; then
+      local in_date="${first:0:6}"
+      if [[ "$in_date" =~ ^[0-9]{6}$ ]] && (( 10#${ckpt:0:6} < 10#$in_date )); then
+        echo ">>> Attempt $attempt: newest checkpoint $ckpt predates input $first; keeping the input"
+        ckpt=""
+      fi
+    fi
     if [ -n "$ckpt" ]; then
       echo ">>> Attempt $attempt: resuming from checkpoint s3://$BUCKET/results/fit/$ckpt"
       aws s3 cp "s3://$BUCKET/results/fit/$ckpt" "s3://$BUCKET/inputs/fit/$ckpt" --only-show-errors
       "$REPO_DIR/scripts/run_fit.sh" --resume "$ckpt" ${kept[@]+"${kept[@]}"}
       return
     fi
-    echo ">>> Attempt $attempt: no checkpoint found for '$stem'; fitting from scratch"
+    echo ">>> Attempt $attempt: no usable checkpoint for '$stem'; restarting from the original arguments"
   fi
 
-  "$REPO_DIR/scripts/run_fit.sh" --model-script "${ARGS[@]}"
+  "$REPO_DIR/scripts/run_fit.sh" "$fresh_flag" "${ARGS[@]}"
 }
 
 run_smoke() {
@@ -196,7 +224,7 @@ run_job() {
   case "$PAF_KIND" in
     smoke)    run_smoke ;;
     fit)      run_fit_kind ;;
-    resume)   "$REPO_DIR/scripts/run_fit.sh" --resume "${ARGS[@]}" ;;
+    resume)   run_fit_kind ;;
     recovery) "$REPO_DIR/scripts/run_recovery.sh" "${ARGS[@]}" ;;
     bf)       "$REPO_DIR/scripts/run_bf.sh" "${ARGS[@]}" ;;
     ppc)      "$REPO_DIR/scripts/run_ppc.sh" "${ARGS[@]}" ;;
