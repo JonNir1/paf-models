@@ -3,3 +3,4 @@ readr
 dplyr
 testthat
 loo
+jsonlite

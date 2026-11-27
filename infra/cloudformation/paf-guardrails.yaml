@@ -1,0 +1,349 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  PAF guardrails: CloudTrail audit trail, monthly cost budget with email alerts, and a
+  budget kill switch that disables the PAF Batch queues and compute environments (and
+  optionally terminates their jobs) when actual spend reaches 100% of the budget.
+  Deploy from AWS CloudShell as an admin; agents have no permissions on anything here.
+
+Parameters:
+  AlertEmail:
+    Type: String
+    Description: Address for budget alerts (you confirm the SNS subscription by email).
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 50
+    MinValue: 1
+    Description: Monthly cost budget for the whole account, in USD.
+  QueueNames:
+    Type: CommaDelimitedList
+    Default: "paf-spot,paf-ondemand"
+    Description: Batch job queues the kill switch disables.
+  ComputeEnvironmentNames:
+    Type: CommaDelimitedList
+    Default: "paf-spot-ce,paf-ondemand-ce"
+    Description: Batch compute environments the kill switch disables.
+  KillRunningJobs:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      true = also terminate queued and running PAF jobs at 100% (fits resume from their
+      last S3 checkpoint); false = only stop new work from starting.
+  TrailRetentionDays:
+    Type: Number
+    Default: 365
+    MinValue: 30
+
+Resources:
+  # ---------------------------------------------------------------- CloudTrail
+  TrailBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "paf-cloudtrail-${AWS::AccountId}"
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-trail-logs
+            Status: Enabled
+            ExpirationInDays: !Ref TrailRetentionDays
+      Tags:
+        - Key: Project
+          Value: paf
+
+  TrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TrailBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudTrailAclCheck
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt TrailBucket.Arn
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub "arn:aws:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/paf-audit"
+          - Sid: CloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${TrailBucket.Arn}/AWSLogs/${AWS::AccountId}/*"
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub "arn:aws:cloudtrail:${AWS::Region}:${AWS::AccountId}:trail/paf-audit"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt TrailBucket.Arn
+              - !Sub "${TrailBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  Trail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: TrailBucketPolicy
+    Properties:
+      TrailName: paf-audit
+      S3BucketName: !Ref TrailBucket
+      IsLogging: true
+      IsMultiRegionTrail: true
+      IncludeGlobalServiceEvents: true
+      EnableLogFileValidation: true
+      Tags:
+        - Key: Project
+          Value: paf
+
+  # ---------------------------------------------------------------- Budget
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: paf-budget-alerts
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlertEmail
+      Tags:
+        - Key: Project
+          Value: paf
+
+  KillTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: paf-budget-kill
+      Tags:
+        - Key: Project
+          Value: paf
+
+  BudgetTopicsPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref AlertTopic
+        - !Ref KillTopic
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowBudgetsPublishAlert
+            Effect: Allow
+            Principal:
+              Service: budgets.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref AlertTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: AllowBudgetsPublishKill
+            Effect: Allow
+            Principal:
+              Service: budgets.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref KillTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  Budget:
+    Type: AWS::Budgets::Budget
+    DependsOn: BudgetTopicsPolicy
+    Properties:
+      Budget:
+        BudgetName: paf-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref MonthlyBudgetUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 50
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlertTopic
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlertTopic
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlertTopic
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref AlertTopic
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 99.9
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: SNS
+              Address: !Ref KillTopic
+
+  # ---------------------------------------------------------------- Kill switch
+  KillLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/paf-budget-kill
+      RetentionInDays: 30
+
+  KillRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: paf-budget-kill-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: paf-budget-kill
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - batch:UpdateJobQueue
+                  - batch:UpdateComputeEnvironment
+                  - batch:TerminateJob
+                Resource:
+                  - !Sub "arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job-queue/paf-*"
+                  - !Sub "arn:aws:batch:${AWS::Region}:${AWS::AccountId}:compute-environment/paf-*"
+                  - !Sub "arn:aws:batch:${AWS::Region}:${AWS::AccountId}:job/*"
+              - Effect: Allow
+                Action:
+                  - batch:ListJobs
+                  - batch:DescribeJobQueues
+                  - batch:DescribeComputeEnvironments
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "${KillLogGroup.Arn}:*"
+      Tags:
+        - Key: Project
+          Value: paf
+
+  KillFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: KillLogGroup
+    Properties:
+      FunctionName: paf-budget-kill
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 120
+      MemorySize: 128
+      Role: !GetAtt KillRole.Arn
+      Environment:
+        Variables:
+          QUEUES: !Join [",", !Ref QueueNames]
+          COMPUTE_ENVS: !Join [",", !Ref ComputeEnvironmentNames]
+          KILL_RUNNING: !Ref KillRunningJobs
+      Code:
+        ZipFile: |
+          import os
+          import boto3
+          from botocore.exceptions import ClientError
+
+          batch = boto3.client("batch")
+          ACTIVE = ("SUBMITTED", "PENDING", "RUNNABLE", "STARTING", "RUNNING")
+
+
+          def _names(var):
+              return [n.strip() for n in os.environ.get(var, "").split(",") if n.strip()]
+
+
+          def handler(event, context):
+              queues, envs = _names("QUEUES"), _names("COMPUTE_ENVS")
+              for q in queues:
+                  try:
+                      batch.update_job_queue(jobQueue=q, state="DISABLED")
+                      print(f"disabled queue {q}")
+                  except ClientError as e:
+                      print(f"queue {q}: {e}")
+              for ce in envs:
+                  try:
+                      batch.update_compute_environment(computeEnvironment=ce, state="DISABLED")
+                      print(f"disabled compute environment {ce}")
+                  except ClientError as e:
+                      print(f"compute environment {ce}: {e}")
+              if os.environ.get("KILL_RUNNING", "true") != "true":
+                  return {"terminated": 0}
+              n = 0
+              for q in queues:
+                  for status in ACTIVE:
+                      try:
+                          pages = batch.get_paginator("list_jobs").paginate(jobQueue=q, jobStatus=status)
+                          for page in pages:
+                              for job in page["jobSummaryList"]:
+                                  batch.terminate_job(jobId=job["jobId"], reason="paf budget limit reached")
+                                  n += 1
+                      except ClientError as e:
+                          print(f"list/terminate {q} {status}: {e}")
+              print(f"terminated {n} jobs")
+              return {"terminated": n}
+      Tags:
+        - Key: Project
+          Value: paf
+
+  KillPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref KillFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref KillTopic
+
+  KillSubscription:
+    Type: AWS::SNS::Subscription
+    DependsOn: KillPermission
+    Properties:
+      TopicArn: !Ref KillTopic
+      Protocol: lambda
+      Endpoint: !GetAtt KillFunction.Arn
+
+Outputs:
+  TrailBucketName:
+    Value: !Ref TrailBucket
+  KillFunctionName:
+    Value: !Ref KillFunction
+  AlertTopicArn:
+    Value: !Ref AlertTopic

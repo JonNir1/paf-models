@@ -1,0 +1,58 @@
+name: Image
+
+# Builds infra/docker/ and pushes ghcr.io/jonnir1/paf-r:<git sha> and :latest.
+# Manual only: the image holds the toolchain, not the repo code (the container
+# clones the repo at PAF_GIT_SHA when it starts), so it rarely needs a rebuild.
+# Run: Actions tab -> "Image" -> "Run workflow". Then point the Batch job
+# definition at the digest printed in the job summary.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: "Build and push paf-r"
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/jonnir1/paf-r
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: infra/docker
+          file: infra/docker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+
+      - name: Print the pushed digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### paf-r image pushed"
+            echo
+            echo "- Digest: \`${DIGEST}\`"
+            echo "- Reference: \`${IMAGE}@${DIGEST}\`"
+            echo "- Tags: \`${GITHUB_SHA}\`, \`latest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "${IMAGE}@${DIGEST}"

@@ -161,7 +161,8 @@ Evaluation (`R/eval/`):
 
 Other:
 - `scripts/helpers.sh` - shared config defaults and cloud copy helpers (sourced by the scripts below)
-- `scripts/vm_setup.sh` - one-time R + EMC2 install on a fresh Ubuntu VM
+- `infra/` - agent-safe cloud setup, applied by the user: `cloudformation/paf-guardrails.yaml` (CloudTrail, budget, kill switch), `cloudformation/paf-batch.yaml` (Batch CEs/queues/`paf-job`, roles, reaper), `iam/` (PafAgent permission set, narrowed `paf-ec2-role`), `agent-rules/` (shared hook gate + AGENTS.md text), `README.md` (apply order + verification)
+- `scripts/vm_setup.sh` - one-time R + EMC2 install on a fresh Ubuntu VM (legacy manual EC2 path)
 - `scripts/run_fit.sh` - build-fresh OR resume a fit on a VM via `fit_cloud.R`, sync results
 - `scripts/run_recovery.sh` - download a fit, run `fit_recovery_cloud.R`, sync results
 - `scripts/run_ppc.sh` - download a fit, run `fit_ppc_cloud.R`, sync results
@@ -218,25 +219,24 @@ Other:
 
 ## Cloud infrastructure (AWS, us-east-1)
 
-### Credentials & access
-- SSH key path (local): `$HOME\Documents\projects\__secrets__\paf-key.pem`
-- SSH key name (AWS): `paf-key`
-- IAM user: `paf-cli` (EC2FullAccess, S3FullAccess, IAMFullAccess)
+### Agent path: AWS Batch through the wrapper (see `infra/README.md`)
+- Agents reach AWS **only** through `scripts/paf-aws.ps1` (R driver `R/cloud/paf_aws.R`), which uses the SSO profile `paf-agent` (permission set `PafAgent`, 1 h role sessions, policy `infra/iam/paf-agent-permission-set.json`). Raw `aws` and credential reads are denied by the shared hook `infra/agent-rules/paf-aws-gate.ps1`; `launch`/`terminate`/`promote` prompt the user, and each needs the user's chat approval of the printed plan (jobs, type, spot/on-demand, count, est. cost and wall time, teardown). The user runs `aws sso login --profile paf-agent` once a day; agents never do.
+- Jobs run on AWS Batch (`infra/cloudformation/paf-batch.yaml`): queues `paf-spot` (default; max 64 vCPU = 4 x c6a.4xlarge) and `paf-ondemand` (max 16 vCPU, approval only), job definition `paf-job` (image `ghcr.io/jonnir1/paf-r` pinned by digest; container clones the repo at the pinned SHA and runs `scripts/batch_entrypoint.sh`, which calls the `run_*.sh` scripts below). Compute scales to zero; jobs retry only on spot reclaim (fits resume from their S3 checkpoint); default timeout 48 h; a reaper Lambda ends longer jobs and paf instances older than 7 days. Keyless: no SSH key, no inbound port, IMDSv2 hop limit 1, debug via SSM (user only).
+- Guardrails (`infra/cloudformation/paf-guardrails.yaml`): CloudTrail trail `paf-audit`, budget `paf-monthly` ($50/month default, raised per heavy step on the user's approval) with email alerts at 50/80/100%, and a kill switch at 100% that disables the paf queues/CEs and terminates their jobs. Run ledger: `s3://jon-nir/paf-models/ledger/`, mirrored to the gitignored `.paf-aws/ledger.jsonl`.
+- Admin work (IAM, Identity Center, stacks, quotas, budgets) is done by the user in AWS CloudShell; agents write the change and give the commands.
 
 ### AWS resources
-- S3 bucket: `jon-nir` — PAF files live under the `paf-models/` prefix (i.e. `s3://jon-nir/paf-models/`). The cloud scripts use `$BUCKET` as the path root in `s3://$BUCKET/...`, so set **`BUCKET=jon-nir/paf-models`** (no script change needed; helpers.sh's default is still a placeholder).
-- Security group: `paf-sg` (inbound SSH port 22 open); resolve ID at runtime (see boilerplate below)
-- IAM instance profile: `paf-ec2-profile` (role: `paf-ec2-role`, S3FullAccess) — attach to every EC2 launch
-- AMI: `ami-00403f401ee6a4b98` (Ubuntu 22.04 LTS, us-east-1)
+- S3 bucket: `jon-nir` — PAF files live under the `paf-models/` prefix (i.e. `s3://jon-nir/paf-models/`). The cloud scripts use `$BUCKET` as the path root in `s3://$BUCKET/...`, so set **`BUCKET=jon-nir/paf-models`** (no script change needed; helpers.sh's default is still a placeholder; the `paf-job` definition sets it).
+- Batch roles: `paf-batch-job-role` (get/put under `jon-nir/paf-models/*` only, no deletes), `paf-batch-instance-role` (ECS + SSM). Security group `paf-batch-sg` (HTTPS egress only).
+- Legacy manual path (fallback only, `scripts/aws_cookbook.md`): security group `paf-sg`, instance profile `paf-ec2-profile` (role `paf-ec2-role`, narrowed to the bucket prefix by `infra/iam/paf-ec2-role-s3.json`), AMI `ami-00403f401ee6a4b98` (Ubuntu 22.04 LTS). The IAM user `paf-cli` is being retired (keys deactivated after the Batch smoke run); never use it from an agent.
 
 ### Instance types
 - **Recovery / production**: `c6a.4xlarge` (16 vCPU, 32 GB, ~$0.30/hr spot)
 - **Smoke test**: `c5.xlarge` (4 vCPU, 8 GB, ~$0.17/hr on-demand)
 
-### Spot quotas
-- Standard spot: 64 vCPUs (approved)
-- On-demand standard: 16 vCPUs (default)
-- **Always ask the user whether to use On-Demand or Spot before launching any instance.**
+### Quotas
+- Standard spot: 64 vCPUs (approved); on-demand standard: 16 vCPUs (default).
+- Spot is the default. Propose on-demand only for long runs, and only with the user's approval per launch.
 
 ### S3 bucket layout (`s3://jon-nir/paf-models/`)
 ```
@@ -250,34 +250,12 @@ results/
   fit/                              ← fit outputs (written by scripts/run_fit.sh)
   recovery/                         ← recovery outputs (written by scripts/run_recovery.sh)
   ppc/                              ← PPC outputs (written by scripts/run_ppc.sh)
+  bf/                               ← marginal-likelihood files (written by scripts/run_bf.sh)
+  smoke/                            ← Batch smoke-run reports
+  logs/                             ← per-job logs (written by scripts/batch_entrypoint.sh)
+ledger/                             ← run ledger, one object per event (written by the wrapper)
 ```
-`run_fit.sh --model-script ...` builds fresh from `inputs/data/`; `run_fit.sh --resume <rds>` pulls from `inputs/fit/`.
-
-### PowerShell session boilerplate
-Run at the start of each AWS session:
-```powershell
-# Resolve security group ID
-$SG_ID = aws ec2 describe-security-groups --filters "Name=group-name,Values=paf-sg" `
-           --query "SecurityGroups[0].GroupId" --output text
-
-# Write spot-options file (avoids PowerShell JSON quoting issues)
-'{"MarketType":"spot"}' | Out-File -Encoding ascii "$env:TEMP\spot-options.json"
-```
-
-Then launch a spot instance with:
-```powershell
-aws ec2 run-instances `
-  --image-id ami-00403f401ee6a4b98 `
-  --instance-type <type> `
-  --key-name paf-key `
-  --subnet-id <subnet-id> `
-  --security-group-ids $SG_ID `
-  --iam-instance-profile Name=paf-ec2-profile `
-  --associate-public-ip-address `
-  --instance-market-options "file://$env:TEMP\spot-options.json" `
-  --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=<name>}]" `
-  --query "Instances[0].InstanceId" --output text
-```
+`run_fit.sh --model-script ...` builds fresh from `inputs/data/`; `run_fit.sh --resume <rds>` pulls from `inputs/fit/`. Agents may write only `inputs/fit/` (promote) and `ledger/`; jobs write `results/`.
 
 **JSON args in PowerShell**: inline JSON strings are mangled by PowerShell's quote handling. Always write to a file with `-Encoding ascii` (not `utf8` — that adds a BOM) and pass via `file://`.
 

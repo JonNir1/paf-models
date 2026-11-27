@@ -1,5 +1,14 @@
 # AWS Cookbook
 
+> **Default path: AWS Batch via the wrapper.** Jobs are planned, launched, monitored and torn
+> down with `scripts/paf-aws.ps1` (`plan` -> your approval -> `launch` -> `status`/`logs` ->
+> `sync`/`promote`), on the Batch stack in `infra/` (setup and verification: `infra/README.md`).
+> Compute scales to zero and nothing needs SSH. Agents use only that wrapper.
+>
+> The manual EC2 recipe below is the **fallback** for a human (e.g. while Batch is not set up).
+> It needs an SSH key and an inbound port 22 on `paf-sg`, both retired once the Batch smoke run
+> passes, and you must terminate the instance yourself.
+
 End-to-end recipe for running a fit / recovery / PPC job on a throwaway EC2 instance and
 syncing results through S3. Three phases: **launch** (PowerShell, local), **run** (bash,
 on the instance), **terminate** (PowerShell, local).

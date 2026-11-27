@@ -1,0 +1,123 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SubmitPafJobs",
+      "Effect": "Allow",
+      "Action": "batch:SubmitJob",
+      "Resource": [
+        "arn:aws:batch:us-east-1:*:job-queue/paf-spot",
+        "arn:aws:batch:us-east-1:*:job-queue/paf-ondemand",
+        "arn:aws:batch:us-east-1:*:job-definition/paf-job",
+        "arn:aws:batch:us-east-1:*:job-definition/paf-job:*"
+      ],
+      "Condition": {
+        "StringEquals": { "aws:RequestTag/Project": "paf", "aws:RequestTag/Owner": "agent" },
+        "ForAllValues:StringEquals": { "aws:TagKeys": ["Project", "Owner", "PlanId", "Kind"] }
+      }
+    },
+    {
+      "Sid": "TagOwnJobsOnSubmit",
+      "Effect": "Allow",
+      "Action": "batch:TagResource",
+      "Resource": "arn:aws:batch:us-east-1:*:job/*",
+      "Condition": {
+        "StringEquals": { "aws:RequestTag/Project": "paf" },
+        "ForAllValues:StringEquals": { "aws:TagKeys": ["Project", "Owner", "PlanId", "Kind"] }
+      }
+    },
+    {
+      "Sid": "StopOwnJobs",
+      "Effect": "Allow",
+      "Action": ["batch:TerminateJob", "batch:CancelJob"],
+      "Resource": "arn:aws:batch:us-east-1:*:job/*",
+      "Condition": { "StringEquals": { "aws:ResourceTag/Project": "paf" } }
+    },
+    {
+      "Sid": "ReadBatchAndEc2",
+      "Effect": "Allow",
+      "Action": [
+        "batch:DescribeJobs",
+        "batch:ListJobs",
+        "batch:DescribeJobQueues",
+        "batch:DescribeComputeEnvironments",
+        "batch:DescribeJobDefinitions",
+        "ec2:DescribeInstances",
+        "ec2:DescribeInstanceTypes",
+        "ec2:DescribeSpotPriceHistory"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadJobLogs",
+      "Effect": "Allow",
+      "Action": ["logs:GetLogEvents", "logs:FilterLogEvents", "logs:DescribeLogStreams"],
+      "Resource": [
+        "arn:aws:logs:us-east-1:*:log-group:/aws/batch/job",
+        "arn:aws:logs:us-east-1:*:log-group:/aws/batch/job:*"
+      ]
+    },
+    {
+      "Sid": "ListPafPrefix",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::jon-nir",
+      "Condition": { "StringLike": { "s3:prefix": ["paf-models", "paf-models/*"] } }
+    },
+    {
+      "Sid": "ReadPafPrefix",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::jon-nir/paf-models/*"
+    },
+    {
+      "Sid": "WritePromotedFitsAndLedger",
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": [
+        "arn:aws:s3:::jon-nir/paf-models/inputs/fit/*",
+        "arn:aws:s3:::jon-nir/paf-models/ledger/*"
+      ]
+    },
+    {
+      "Sid": "ReadCostAndBudget",
+      "Effect": "Allow",
+      "Action": ["ce:GetCostAndUsage", "budgets:ViewBudget"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyAdminAndInfraChanges",
+      "Effect": "Deny",
+      "Action": [
+        "iam:*", "sts:AssumeRole", "organizations:*", "account:*",
+        "sso:*", "sso-directory:*", "identitystore:*",
+        "ec2:RunInstances", "ec2:RequestSpotInstances", "ec2:RequestSpotFleet", "ec2:CreateFleet",
+        "ec2:CreateLaunchTemplate", "ec2:CreateLaunchTemplateVersion", "ec2:ModifyInstanceAttribute",
+        "ec2:AuthorizeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupEgress",
+        "batch:CreateComputeEnvironment", "batch:UpdateComputeEnvironment", "batch:DeleteComputeEnvironment",
+        "batch:CreateJobQueue", "batch:UpdateJobQueue", "batch:DeleteJobQueue",
+        "batch:RegisterJobDefinition", "batch:DeregisterJobDefinition",
+        "batch:CreateSchedulingPolicy", "batch:UpdateSchedulingPolicy", "batch:DeleteSchedulingPolicy",
+        "cloudformation:*", "lambda:*", "events:*", "scheduler:*", "sns:*", "ssm:*",
+        "cloudtrail:StopLogging", "cloudtrail:DeleteTrail", "cloudtrail:UpdateTrail",
+        "cloudtrail:PutEventSelectors", "cloudtrail:PutInsightSelectors",
+        "budgets:ModifyBudget", "budgets:CreateBudgetAction", "budgets:UpdateBudgetAction",
+        "budgets:DeleteBudgetAction", "budgets:ExecuteBudgetAction",
+        "logs:DeleteLogGroup", "logs:DeleteLogStream", "logs:PutRetentionPolicy",
+        "servicequotas:*", "support:*",
+        "s3:DeleteObject", "s3:DeleteObjectVersion", "s3:DeleteBucket", "s3:DeleteBucketPolicy",
+        "s3:PutBucketPolicy", "s3:PutBucketAcl", "s3:PutObjectAcl", "s3:PutLifecycleConfiguration",
+        "s3:PutBucketVersioning", "s3:PutBucketPublicAccessBlock", "s3:PutEncryptionConfiguration",
+        "s3:PutReplicationConfiguration", "s3:CreateBucket"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyOtherRegions",
+      "Effect": "Deny",
+      "NotAction": ["ce:*", "budgets:*", "sts:GetCallerIdentity"],
+      "Resource": "*",
+      "Condition": { "StringNotEquals": { "aws:RequestedRegion": "us-east-1" } }
+    }
+  ]
+}

@@ -51,3 +51,10 @@ paf-models.Rproj
 ##### Misc local artifacts #####
 __pycache__/
 R/EMC2_ARTICLE__replication_code.R
+
+##### Cloud infra (never commit credentials or account-specific values) #####
+*.pem
+infra/**/*.local.*
+
+##### AWS wrapper local state (plans, ledger, caches) #####
+.paf-aws/
