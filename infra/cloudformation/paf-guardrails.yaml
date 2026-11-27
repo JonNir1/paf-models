@@ -143,14 +143,21 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
-          - Sid: AllowBudgetsPublish
+          - Sid: AllowBudgetsPublishAlert
             Effect: Allow
             Principal:
               Service: budgets.amazonaws.com
             Action: sns:Publish
-            Resource:
-              - !Ref AlertTopic
-              - !Ref KillTopic
+            Resource: !Ref AlertTopic
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+          - Sid: AllowBudgetsPublishKill
+            Effect: Allow
+            Principal:
+              Service: budgets.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref KillTopic
             Condition:
               StringEquals:
                 aws:SourceAccount: !Ref AWS::AccountId
