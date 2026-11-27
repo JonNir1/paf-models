@@ -12,24 +12,47 @@ New-Item -ItemType Directory -Force "$HOME\.agents\hooks" | Out-Null
 Copy-Item infra\agent-rules\paf-aws-gate.ps1 "$HOME\.agents\hooks\paf-aws-gate.ps1"
 ```
 
-Behavior (checked against 14 sample commands in both payload formats):
+Behavior (checked against 41 sample commands in both payload formats plus 2 malformed payloads; the
+first version of this script failed 29 of those checks, see the commit log):
 
 | Command | Claude | Antigravity |
 |---|---|---|
-| raw `aws ...`, also inside quotes (`system('aws ...')`) | deny | deny |
-| reads of `~/.aws`, SSO cache, `export-credentials`, `$env:AWS_*` | deny | deny |
-| `scripts/paf-aws.ps1 whoami/plan/status/logs/cost/sync/help` alone | allow | allow |
+| raw `aws ...`: any position, quoted, full path (`...\aws.exe`), `aws.cmd`, or as a process argument (`system2("aws", ..)`, `["aws", ..]`) | deny | deny |
+| AWS SDKs on the command line (`boto3`, `botocore`, `paws`, `aws.s3`, `AWS.Tools`) | deny | deny |
+| reads of `~/.aws`, SSO cache, `export-credentials`, `AWS_*` credential/profile variables, `--profile paf-agent` | deny | deny |
+| `Rscript`/`R` running `R/cloud/` or `paf_aws.R` directly (bypassing the shim) | ask | force_ask |
+| `scripts/paf-aws.ps1 whoami/plan/status/logs/cost/sync`, alone on one line | allow | allow |
 | `scripts/paf-aws.ps1 launch/terminate/promote` | ask | force_ask |
-| `paf-aws.ps1` in a compound command, or unknown subcommand | ask | force_ask |
+| `paf-aws.ps1` in a compound or multi-line command, or an unknown subcommand | ask | force_ask |
 | wrapper files changed since pinned (only with a pin file) | deny | deny |
+| the gate itself errors on a payload that mentions AWS | deny (fail closed) | deny |
 | anything else | no decision | allow (same as the current hook) |
+
+What it cannot see: code an agent writes to a file and then runs (the hook reads only the command
+line). The hard boundary for that is IAM: within `PafAgent`, an agent could at worst submit tagged paf
+jobs, which the 64 vCPU cap, the job timeout, the reaper and the budget kill switch then bound.
+
+Two things worth checking on your side: whether Antigravity treats a hook's `allow` as "skip the normal
+approval prompt" (the current hook already answers `allow` for every unrelated command), and whether it
+has other shell-running tools besides `run_command` (if so, add them to its matcher).
 
 ## 2. Register it
 
-`~/.claude/settings.json`: in `hooks.PreToolUse`, replace the `block-aws-cli.ps1` entry's command with
+`~/.claude/settings.json`: in `hooks.PreToolUse`, replace the whole `block-aws-cli.ps1` entry with
+this one. The matcher now also covers `Monitor` and the terminal-panel tool, which run shell commands
+too (the current hook does not see them):
 
 ```json
-"command": "powershell -NoProfile -File \"C:\\Users\\nirjo\\.agents\\hooks\\paf-aws-gate.ps1\""
+{
+  "matcher": "Bash|PowerShell|Monitor|mcp__terminal__run_in_terminal",
+  "hooks": [
+    {
+      "type": "command",
+      "command": "powershell -NoProfile -File \"C:\\Users\\nirjo\\.agents\\hooks\\paf-aws-gate.ps1\"",
+      "timeout": 15
+    }
+  ]
+}
 ```
 
 Keep `permissions.deny` (`Bash(aws *)`, `PowerShell(aws *)`) as is.
@@ -63,8 +86,9 @@ After you have reviewed the merged wrapper on `main`:
 powershell -NoProfile -File "$HOME\.agents\hooks\paf-aws-gate.ps1" -PrintPin C:\Users\nirjo\Documents\University\PhD\Projects\paf-models | Out-File -Encoding ascii "$HOME\.agents\hooks\paf-aws.sha256"
 ```
 
-From then on, any change to `scripts/paf-aws.ps1` or `R/cloud/` makes the hook deny the wrapper until you
-review and re-run the command above.
+From then on, any change to `scripts/paf-aws.ps1`, `R/cloud/`, or the two files the wrapper sources
+from outside it (`R/utils.R`, `R/helpers/logging.R`) makes the hook deny the wrapper until you review
+and re-run the command above.
 
 ## 4. `~/.agents/AGENTS.md`
 
