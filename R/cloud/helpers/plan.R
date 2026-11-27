@@ -330,7 +330,7 @@ format_plan <- function(plan) {
     sprintf("Layout:      %s; %d instance(s)", layout, length(plan$jobs)),
     sprintf("Price:       %s", paste(sprintf("%s $%.3f/h", names(plan$prices), unlist(plan$prices)), collapse = ", ")),
     sprintf("Est. wall:   %s (worst case %s)", fmt_hours(or_default(est$est_wall_hours, NA_real_)), fmt_hours(est$max_wall_hours)),
-    sprintf("Est. cost:   %s compute only (worst case %s)", fmt_usd(or_default(est$est_cost_usd, NA_real_)), fmt_usd(est$max_cost_usd)),
+    sprintf("Est. cost:   %s (worst case %s), compute only", fmt_usd(or_default(est$est_cost_usd, NA_real_)), fmt_usd(est$max_cost_usd)),
     sprintf("Month-to-date: %s of %s budget; projected %s on %s -> %s", fmt_usd(bud$mtd_usd), fmt_usd(bud$budget_usd),
             fmt_usd(bud$projected_usd), bud$basis, if (isTRUE(bud$over)) "OVER BUDGET (launch refused)" else "within budget"),
     "Teardown:    Batch stops each job at its timeout; instances are released when the job ends; terminate any time with the terminate subcommand.",
