@@ -1,3 +1,4 @@
 readr
 dplyr
 testthat
+jsonlite
