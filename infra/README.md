@@ -16,7 +16,10 @@ commands. No account IDs, ARNs or URLs are committed: they are resolved at apply
 ## Apply order
 
 Prerequisites: the code is pushed to `origin` and the image is built (`gh workflow run image.yml`);
-note the pushed digest. In CloudShell: `git clone https://github.com/JonNir1/paf-models.git && cd paf-models`
+note the pushed digest (in the run's summary). After the FIRST push only, make the package public so
+Batch can pull it without registry credentials: GitHub -> your profile -> Packages -> `paf-r` ->
+Package settings -> Change visibility -> Public (it holds only R, EMC2 and the bootstrap script; no
+code, data or secrets). In CloudShell: `git clone https://github.com/JonNir1/paf-models.git && cd paf-models`
 and check out the branch that holds `infra/`.
 
 ```bash
