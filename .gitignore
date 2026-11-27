@@ -51,3 +51,6 @@ paf-models.Rproj
 ##### Misc local artifacts #####
 __pycache__/
 R/EMC2_ARTICLE__replication_code.R
+
+##### AWS wrapper local state (plans, ledger, caches) #####
+.paf-aws/
